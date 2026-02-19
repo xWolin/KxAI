@@ -14,6 +14,8 @@ import { RAGService } from './services/rag-service';
 import { AutomationService } from './services/automation-service';
 import { BrowserService } from './services/browser-service';
 import { PluginService } from './services/plugin-service';
+import { SecurityGuard } from './services/security-guard';
+import { SystemMonitor } from './services/system-monitor';
 import { setupIPC } from './ipc';
 
 let mainWindow: BrowserWindow | null = null;
@@ -34,6 +36,8 @@ let ragService: RAGService;
 let automationService: AutomationService;
 let browserService: BrowserService;
 let pluginService: PluginService;
+let securityGuardService: SecurityGuard;
+let systemMonitorService: SystemMonitor;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -132,6 +136,8 @@ async function initializeServices(): Promise<void> {
   automationService = new AutomationService();
   browserService = new BrowserService();
   pluginService = new PluginService();
+  securityGuardService = new SecurityGuard();
+  systemMonitorService = new SystemMonitor();
 
   await memoryService.initialize();
   await embeddingService.initialize();
@@ -191,6 +197,8 @@ app.whenReady().then(async () => {
     automationService,
     browserService,
     pluginService,
+    securityGuardService,
+    systemMonitorService,
   });
 
   // Global shortcut to toggle window

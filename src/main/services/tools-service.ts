@@ -6,6 +6,8 @@ import { AutomationService } from './automation-service';
 import { BrowserService } from './browser-service';
 import { RAGService } from './rag-service';
 import { PluginService } from './plugin-service';
+import { SecurityGuard } from './security-guard';
+import { SystemMonitor } from './system-monitor';
 
 export interface ToolDefinition {
   name: string;
@@ -27,8 +29,12 @@ export class ToolsService {
   private browserService?: BrowserService;
   private ragService?: RAGService;
   private pluginService?: PluginService;
+  private securityGuard: SecurityGuard;
+  private systemMonitor: SystemMonitor;
 
   constructor() {
+    this.securityGuard = new SecurityGuard();
+    this.systemMonitor = new SystemMonitor();
     this.registerBuiltinTools();
   }
 
@@ -77,20 +83,26 @@ export class ToolsService {
 
     this.register({
       name: 'run_shell_command',
-      description: 'Wykonuje komendę w terminalu systemowym (PowerShell/bash)',
+      description: 'Wykonuje komendę w terminalu systemowym (PowerShell/bash). Komenda jest walidowana pod kątem bezpieczeństwa.',
       category: 'system',
       parameters: {
         command: { type: 'string', description: 'Komenda do wykonania', required: true },
         timeout: { type: 'number', description: 'Timeout w ms (default 30000)' },
       },
     }, async (params) => {
+      // Security validation
+      const validation = this.securityGuard.validateCommand(params.command);
+      if (!validation.allowed) {
+        return { success: false, error: `🛡️ ${validation.reason}` };
+      }
+
       return new Promise((resolve) => {
-        const timeout = params.timeout || 30000;
+        const timeout = Math.min(params.timeout || 30000, 60000); // Max 60s
         exec(params.command, { timeout, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
           if (err) {
-            resolve({ success: false, error: err.message, data: { stdout, stderr } });
+            resolve({ success: false, error: err.message, data: { stdout: stdout?.slice(0, 5000), stderr: stderr?.slice(0, 2000) } });
           } else {
-            resolve({ success: true, data: { stdout: stdout.trim(), stderr: stderr.trim() } });
+            resolve({ success: true, data: { stdout: stdout.trim().slice(0, 10000), stderr: stderr.trim().slice(0, 2000) } });
           }
         });
       });
@@ -151,6 +163,11 @@ export class ToolsService {
         path: { type: 'string', description: 'Ścieżka do pliku', required: true },
       },
     }, async (params) => {
+      // Security: validate read path
+      const readValidation = this.securityGuard.validateReadPath(params.path);
+      if (!readValidation.allowed) {
+        return { success: false, error: `🛡️ ${readValidation.reason}` };
+      }
       try {
         const content = fs.readFileSync(params.path, 'utf8');
         return { success: true, data: content.slice(0, 10000) };
@@ -161,13 +178,18 @@ export class ToolsService {
 
     this.register({
       name: 'write_file',
-      description: 'Zapisuje treść do pliku (tworzy go jeśli nie istnieje)',
+      description: 'Zapisuje treść do pliku (tworzy go jeśli nie istnieje). Ścieżka jest walidowana.',
       category: 'files',
       parameters: {
         path: { type: 'string', description: 'Ścieżka do pliku', required: true },
         content: { type: 'string', description: 'Treść do zapisania', required: true },
       },
     }, async (params) => {
+      // Security: validate write path
+      const writeValidation = this.securityGuard.validateWritePath(params.path);
+      if (!writeValidation.allowed) {
+        return { success: false, error: `🛡️ ${writeValidation.reason}` };
+      }
       try {
         const dir = path.dirname(params.path);
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
@@ -280,6 +302,130 @@ export class ToolsService {
       new Notification({ title: params.title, body: params.body }).show();
       return { success: true, data: 'Powiadomienie wysłane' };
     });
+
+    // ─── System Monitor Tools ───
+    this.register({
+      name: 'system_info',
+      description: 'Pobiera pełne informacje o systemie: CPU, RAM, dysk, bateria, sieć, procesy. Agent zna stan komputera.',
+      category: 'system',
+      parameters: {},
+    }, async () => {
+      try {
+        const snapshot = await this.systemMonitor.getSnapshot();
+        return { success: true, data: snapshot };
+      } catch (err: any) {
+        return { success: false, error: err.message };
+      }
+    });
+
+    this.register({
+      name: 'system_status',
+      description: 'Krótki status systemu jednolinijkowy (CPU, RAM, dysk, bateria). Do szybkiego przeglądu.',
+      category: 'system',
+      parameters: {},
+    }, async () => {
+      try {
+        const summary = await this.systemMonitor.getStatusSummary();
+        const warnings = await this.systemMonitor.getWarnings();
+        return {
+          success: true,
+          data: warnings.length > 0
+            ? `${summary}\n\n⚠️ Ostrzeżenia:\n${warnings.join('\n')}`
+            : summary,
+        };
+      } catch (err: any) {
+        return { success: false, error: err.message };
+      }
+    });
+
+    this.register({
+      name: 'process_list',
+      description: 'Lista najaktywniejszych procesów (top N by CPU usage)',
+      category: 'system',
+      parameters: {
+        limit: { type: 'number', description: 'Liczba procesów (domyślnie: 10)' },
+      },
+    }, async (params) => {
+      try {
+        const processes = await this.systemMonitor.getTopProcesses(params.limit || 10);
+        return { success: true, data: processes };
+      } catch (err: any) {
+        return { success: false, error: err.message };
+      }
+    });
+
+    this.register({
+      name: 'math_eval',
+      description: 'Oblicza wyrażenie matematyczne (bezpieczna ewaluacja, bez eval())',
+      category: 'system',
+      parameters: {
+        expression: { type: 'string', description: 'Wyrażenie matematyczne np. "2 * (3 + 4) / 5"', required: true },
+      },
+    }, async (params) => {
+      try {
+        const result = this.safeMathEval(params.expression);
+        return { success: true, data: { expression: params.expression, result } };
+      } catch (err: any) {
+        return { success: false, error: err.message };
+      }
+    });
+
+    this.register({
+      name: 'security_audit',
+      description: 'Pobiera statystyki bezpieczeństwa i ostatnie zablokowane akcje',
+      category: 'system',
+      parameters: {
+        limit: { type: 'number', description: 'Liczba wpisów audytu (domyślnie: 20)' },
+      },
+    }, async (params) => {
+      const stats = this.securityGuard.getSecurityStats();
+      const blocked = this.securityGuard.getAuditLog(params.limit || 20, { result: 'blocked' });
+      return { success: true, data: { stats, recentBlocked: blocked } };
+    });
+  }
+
+  /**
+   * Safe math expression evaluator — no eval(), only arithmetic.
+   */
+  private safeMathEval(expr: string): number {
+    // Sanitize: only allow digits, operators, parentheses, decimal points, spaces, and Math functions
+    const sanitized = expr.replace(/\s/g, '');
+    if (!/^[0-9+\-*/().,%^a-zA-Z]+$/.test(sanitized)) {
+      throw new Error('Wyrażenie zawiera niedozwolone znaki');
+    }
+
+    // Replace common math functions with Math.* equivalents
+    let processed = sanitized
+      .replace(/\bsqrt\(/g, 'Math.sqrt(')
+      .replace(/\babs\(/g, 'Math.abs(')
+      .replace(/\bround\(/g, 'Math.round(')
+      .replace(/\bfloor\(/g, 'Math.floor(')
+      .replace(/\bceil\(/g, 'Math.ceil(')
+      .replace(/\bsin\(/g, 'Math.sin(')
+      .replace(/\bcos\(/g, 'Math.cos(')
+      .replace(/\btan\(/g, 'Math.tan(')
+      .replace(/\blog\(/g, 'Math.log(')
+      .replace(/\blog10\(/g, 'Math.log10(')
+      .replace(/\bpow\(/g, 'Math.pow(')
+      .replace(/\bmin\(/g, 'Math.min(')
+      .replace(/\bmax\(/g, 'Math.max(')
+      .replace(/\bPI\b/g, 'Math.PI')
+      .replace(/\bE\b/g, 'Math.E')
+      .replace(/\^/g, '**'); // Power operator
+
+    // Final security check — only allow Math.*, numbers, and operators
+    if (/[a-zA-Z]/.test(processed.replace(/Math\.[a-zA-Z]+/g, ''))) {
+      throw new Error('Wyrażenie zawiera niedozwolone identyfikatory');
+    }
+
+    // Use Function() with strict restrictions instead of eval
+    const fn = new Function(`"use strict"; return (${processed});`);
+    const result = fn();
+
+    if (typeof result !== 'number' || !isFinite(result)) {
+      throw new Error('Wynik nie jest skończoną liczbą');
+    }
+    return result;
   }
 
   // ─── Automation Tools ───

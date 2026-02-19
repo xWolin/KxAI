@@ -12,6 +12,8 @@ import { RAGService } from './services/rag-service';
 import { AutomationService } from './services/automation-service';
 import { BrowserService } from './services/browser-service';
 import { PluginService } from './services/plugin-service';
+import { SecurityGuard } from './services/security-guard';
+import { SystemMonitor } from './services/system-monitor';
 
 interface Services {
   configService: ConfigService;
@@ -27,10 +29,12 @@ interface Services {
   automationService: AutomationService;
   browserService: BrowserService;
   pluginService: PluginService;
+  securityGuardService: SecurityGuard;
+  systemMonitorService: SystemMonitor;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
-  const { configService, securityService, memoryService, aiService, screenCapture, cronService, toolsService, workflowService, agentLoop, ragService, automationService, browserService, pluginService } = services;
+  const { configService, securityService, memoryService, aiService, screenCapture, cronService, toolsService, workflowService, agentLoop, ragService, automationService, browserService, pluginService, securityGuardService, systemMonitorService } = services;
 
   // ──────────────── AI Messages ────────────────
   ipcMain.handle('ai:send-message', async (_event, message: string, context?: string) => {
@@ -393,5 +397,31 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   ipcMain.handle('plugins:get-dir', async () => {
     return pluginService.getPluginsDir();
+  });
+
+  // ──────────────── Security & Audit ────────────────
+  ipcMain.handle('security:audit-log', async (_event, limit?: number) => {
+    return securityGuardService.getAuditLog(limit || 50);
+  });
+
+  ipcMain.handle('security:stats', async () => {
+    return securityGuardService.getSecurityStats();
+  });
+
+  // ──────────────── System Monitor ────────────────
+  ipcMain.handle('system:snapshot', async () => {
+    try {
+      return { success: true, data: await systemMonitorService.getSnapshot() };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('system:status', async () => {
+    return systemMonitorService.getStatusSummary();
+  });
+
+  ipcMain.handle('system:warnings', async () => {
+    return systemMonitorService.getWarnings();
   });
 }

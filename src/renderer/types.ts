@@ -87,6 +87,15 @@ export interface KxAIBridge {
   pluginsList: () => Promise<PluginInfo[]>;
   pluginsReload: () => Promise<{ success: boolean; data?: PluginInfo[] }>;
   pluginsGetDir: () => Promise<string>;
+
+  // Security & Audit
+  securityAuditLog: (limit?: number) => Promise<AuditEntry[]>;
+  securityStats: () => Promise<SecurityStats>;
+
+  // System Monitor
+  systemSnapshot: () => Promise<{ success: boolean; data?: SystemSnapshot; error?: string }>;
+  systemStatus: () => Promise<string>;
+  systemWarnings: () => Promise<string[]>;
 }
 
 export interface ConversationMessage {
@@ -213,6 +222,35 @@ export interface PluginInfo {
   description: string;
   toolCount: number;
   tools: string[];
+}
+
+// ──────────────── Security ────────────────
+export interface AuditEntry {
+  timestamp: number;
+  action: string;
+  params: Record<string, unknown>;
+  source: 'tool' | 'automation' | 'browser' | 'plugin' | 'cron';
+  result: 'allowed' | 'blocked' | 'rate-limited';
+  reason?: string;
+}
+
+export interface SecurityStats {
+  totalActions: number;
+  blockedActions: number;
+  rateLimitedActions: number;
+  last24h: { total: number; blocked: number };
+}
+
+// ──────────────── System Monitor ────────────────
+export interface SystemSnapshot {
+  timestamp: number;
+  cpu: { model: string; cores: number; usagePercent: number; loadAvg: number[] };
+  memory: { totalGB: number; usedGB: number; freeGB: number; usagePercent: number };
+  disk: { mount: string; totalGB: number; usedGB: number; freeGB: number; usagePercent: number }[];
+  battery: { percent: number; charging: boolean; timeRemaining: string } | null;
+  network: { connected: boolean; interfaces: { name: string; ip: string; mac: string }[] };
+  system: { hostname: string; platform: string; arch: string; osVersion: string; uptimeHours: number };
+  topProcesses: { name: string; pid: number; cpuPercent: number; memoryMB: number }[];
 }
 
 declare global {

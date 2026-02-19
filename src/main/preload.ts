@@ -114,4 +114,13 @@ contextBridge.exposeInMainWorld('kxai', {
   pluginsList: () => ipcRenderer.invoke('plugins:list'),
   pluginsReload: () => ipcRenderer.invoke('plugins:reload'),
   pluginsGetDir: () => ipcRenderer.invoke('plugins:get-dir'),
+
+  // Security & Audit
+  securityAuditLog: (limit?: number) => ipcRenderer.invoke('security:audit-log', limit),
+  securityStats: () => ipcRenderer.invoke('security:stats'),
+
+  // System Monitor
+  systemSnapshot: () => ipcRenderer.invoke('system:snapshot'),
+  systemStatus: () => ipcRenderer.invoke('system:status'),
+  systemWarnings: () => ipcRenderer.invoke('system:warnings'),
 });

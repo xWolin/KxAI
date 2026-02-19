@@ -2,6 +2,8 @@ import { ConfigService } from './config';
 import { SecurityService } from './security';
 import { MemoryService } from './memory';
 import { ScreenshotData } from './screen-capture';
+import { ContextManager } from './context-manager';
+import { RetryHandler, createAIRetryHandler } from './retry-handler';
 import { v4 as uuidv4 } from 'uuid';
 
 interface AIMessage {
@@ -27,11 +29,19 @@ export class AIService {
   private memoryService?: MemoryService;
   private openaiClient: any = null;
   private anthropicClient: any = null;
+  private contextManager: ContextManager;
+  private retryHandler: RetryHandler;
 
   constructor(config: ConfigService, security: SecurityService, memoryService?: MemoryService) {
     this.config = config;
     this.security = security;
     this.memoryService = memoryService;
+    this.contextManager = new ContextManager();
+    this.retryHandler = createAIRetryHandler();
+
+    // Auto-configure context window for the current model
+    const model = this.config.get('aiModel') || 'gpt-5';
+    this.contextManager.configureForModel(model);
   }
 
   setMemoryService(memoryService: MemoryService): void {
@@ -42,6 +52,9 @@ export class AIService {
     this.openaiClient = null;
     this.anthropicClient = null;
     await this.initializeClient();
+    // Reconfigure context window for potentially new model
+    const model = this.config.get('aiModel') || 'gpt-5';
+    this.contextManager.configureForModel(model);
   }
 
   private async initializeClient(): Promise<void> {
@@ -106,18 +119,25 @@ export class AIService {
       ? await this.memoryService.buildSystemContext()
       : 'You are KxAI, a helpful personal AI assistant.';
 
-    // Build conversation history
-    const recentHistory = this.memoryService
-      ? this.memoryService.getRecentContext(20)
+    // Build optimized conversation history via ContextManager
+    const fullHistory = this.memoryService
+      ? this.memoryService.getRecentContext(100)
       : [];
+    const systemTokens = this.contextManager.estimateTokens(systemContext);
+    const contextWindow = this.contextManager.buildContextWindow(fullHistory, systemTokens);
 
     const systemRole = this.getSystemRole(model);
     const messages: AIMessage[] = [
       { role: systemRole, content: systemContext },
     ];
 
-    // Add conversation history
-    for (const msg of recentHistory) {
+    // Inject context summary if messages were dropped
+    if (contextWindow.summary) {
+      messages.push({ role: systemRole, content: contextWindow.summary });
+    }
+
+    // Add optimized conversation history
+    for (const msg of contextWindow.messages) {
       messages.push({
         role: msg.role as 'user' | 'assistant',
         content: msg.content,
@@ -145,27 +165,29 @@ export class AIService {
     let responseText = '';
 
     if (provider === 'openai' && this.openaiClient) {
-      const response = await this.openaiClient.chat.completions.create({
-        model,
-        messages,
-        ...this.openaiTokenParam(4096),
-        temperature: 0.7,
+      responseText = await this.retryHandler.execute('openai-chat', async () => {
+        const response = await this.openaiClient.chat.completions.create({
+          model,
+          messages,
+          ...this.openaiTokenParam(4096),
+          temperature: 0.7,
+        });
+        return response.choices[0]?.message?.content || '';
       });
-      responseText = response.choices[0]?.message?.content || '';
     } else if (provider === 'anthropic' && this.anthropicClient) {
-      // Anthropic has different message format - system is separate
       const anthropicMessages = messages
         .filter((m) => m.role !== 'system' && m.role !== 'developer')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
-      const response = await this.anthropicClient.messages.create({
-        model,
-        max_tokens: 4096,
-        system: systemContext,
-        messages: anthropicMessages,
+      responseText = await this.retryHandler.execute('anthropic-chat', async () => {
+        const response = await this.anthropicClient.messages.create({
+          model,
+          max_tokens: 4096,
+          system: systemContext,
+          messages: anthropicMessages,
+        });
+        return response.content[0]?.type === 'text' ? response.content[0].text : '';
       });
-      responseText =
-        response.content[0]?.type === 'text' ? response.content[0].text : '';
     } else {
       throw new Error(
         'Brak skonfigurowanego klucza API. Przejdź do Ustawień i dodaj klucz API.'
@@ -199,14 +221,21 @@ export class AIService {
       ? await this.memoryService.buildSystemContext()
       : 'You are KxAI, a helpful personal AI assistant.';
 
-    const recentHistory = this.memoryService
-      ? this.memoryService.getRecentContext(20)
+    // Build optimized history via ContextManager
+    const fullHistory = this.memoryService
+      ? this.memoryService.getRecentContext(100)
       : [];
+    const systemTokens = this.contextManager.estimateTokens(systemContext);
+    const contextWindow = this.contextManager.buildContextWindow(fullHistory, systemTokens);
 
     const systemRole = this.getSystemRole(model);
     const messages: AIMessage[] = [{ role: systemRole, content: systemContext }];
 
-    for (const msg of recentHistory) {
+    if (contextWindow.summary) {
+      messages.push({ role: systemRole, content: contextWindow.summary });
+    }
+
+    for (const msg of contextWindow.messages) {
       messages.push({
         role: msg.role as 'user' | 'assistant',
         content: msg.content,

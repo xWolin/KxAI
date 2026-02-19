@@ -7,6 +7,7 @@ import { MemoryService } from './memory';
 import { ConfigService } from './config';
 import { RAGService } from './rag-service';
 import { AutomationService } from './automation-service';
+import { SystemMonitor } from './system-monitor';
 
 /**
  * AgentLoop orchestrates the full agent lifecycle:
@@ -27,6 +28,7 @@ export class AgentLoop {
   private config: ConfigService;
   private rag?: RAGService;
   private automation?: AutomationService;
+  private systemMonitor: SystemMonitor;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private takeControlActive = false;
   private takeControlAbort = false;
@@ -45,6 +47,7 @@ export class AgentLoop {
     this.workflow = workflow;
     this.memory = memory;
     this.config = config;
+    this.systemMonitor = new SystemMonitor();
 
     // Wire cron executor to agent
     this.cron.setExecutor(async (job: CronJob) => {
@@ -313,6 +316,17 @@ Dozwolone schedule: "30s", "5m", "1h", "every 30 minutes", lub cron expression "
 Kategorie: routine, workflow, reminder, cleanup, health-check, custom
 `;
 
+    // System health warnings
+    let systemCtx = '';
+    try {
+      const warnings = await this.systemMonitor.getWarnings();
+      if (warnings.length > 0) {
+        systemCtx = `\n## ⚠️ System Warnings\n${warnings.join('\n')}\n`;
+      }
+      const statusSummary = await this.systemMonitor.getStatusSummary();
+      systemCtx += `\n## System Status\n${statusSummary}\n`;
+    } catch { /* non-critical */ }
+
     return [
       baseCtx,
       '\n',
@@ -320,6 +334,7 @@ Kategorie: routine, workflow, reminder, cleanup, health-check, custom
       cronCtx,
       ragCtx,
       automationCtx,
+      systemCtx,
       '\n',
       toolsPrompt,
       '\n',
