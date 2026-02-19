@@ -17,14 +17,15 @@
     "start": "electron ."
   },
   "dependencies": {
-    "openai": "^4.73.0",
     "@anthropic-ai/sdk": "^0.33.0",
     "electron-store": "^8.2.0",
-    "screenshot-desktop": "^1.15.0",
     "marked": "^15.0.0",
+    "openai": "^4.73.0",
+    "screenshot-desktop": "^1.15.0",
     "uuid": "^11.0.0"
   },
   "devDependencies": {
+    "@types/node": "^25.3.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "@types/uuid": "^10.0.0",

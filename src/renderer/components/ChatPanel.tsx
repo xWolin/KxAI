@@ -136,56 +136,27 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
   }
 
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      background: 'var(--bg-primary)',
-      borderRadius: 'var(--radius)',
-      display: 'flex',
-      flexDirection: 'column',
-      overflow: 'hidden',
-      boxShadow: 'var(--shadow)',
-      border: '1px solid var(--border)',
-    }}>
+    <div className="chat-panel">
       {/* Header */}
-      <div style={{
-        padding: '12px 16px',
-        background: 'var(--bg-secondary)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between',
-        borderBottom: '1px solid var(--border)',
-        WebkitAppRegion: 'drag',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{ fontSize: 24 }}>{config.agentEmoji || '🤖'}</span>
+      <div className="chat-header">
+        <div className="chat-header__info">
+          <span className="chat-header__emoji">{config.agentEmoji || '🤖'}</span>
           <div>
-            <div style={{ fontWeight: 600, fontSize: 14 }}>
+            <div className="chat-header__name">
               {config.agentName || 'KxAI'}
             </div>
-            <div style={{
-              fontSize: 11,
-              color: 'var(--text-muted)',
-            }}>
+            <div className="chat-header__model">
               {config.aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI'} · {config.aiModel}
             </div>
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 4, WebkitAppRegion: 'no-drag' }}>
+        <div className="chat-header__actions">
           {/* Proactive toggle */}
           <button
             onClick={toggleProactive}
             title={proactiveEnabled ? 'Wyłącz tryb proaktywny' : 'Włącz tryb proaktywny'}
-            style={{
-              background: proactiveEnabled ? 'var(--accent)' : 'transparent',
-              border: `1px solid ${proactiveEnabled ? 'var(--accent)' : 'var(--border)'}`,
-              color: 'var(--text-primary)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '4px 8px',
-              cursor: 'pointer',
-              fontSize: 14,
-            }}
+            className={`chat-btn${proactiveEnabled ? ' chat-btn--active' : ''}`}
           >
             👁️
           </button>
@@ -194,15 +165,7 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
           <button
             onClick={captureAndAnalyze}
             title="Zrób screenshot i analizuj"
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--border)',
-              color: 'var(--text-primary)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '4px 8px',
-              cursor: 'pointer',
-              fontSize: 14,
-            }}
+            className="chat-btn"
           >
             📸
           </button>
@@ -211,15 +174,7 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
           <button
             onClick={onOpenSettings}
             title="Ustawienia"
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--border)',
-              color: 'var(--text-primary)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '4px 8px',
-              cursor: 'pointer',
-              fontSize: 14,
-            }}
+            className="chat-btn"
           >
             ⚙️
           </button>
@@ -228,15 +183,7 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
           <button
             onClick={onClose}
             title="Zwiń"
-            style={{
-              background: 'transparent',
-              border: '1px solid var(--border)',
-              color: 'var(--text-primary)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '4px 8px',
-              cursor: 'pointer',
-              fontSize: 14,
-            }}
+            className="chat-btn"
           >
             ✕
           </button>
@@ -244,25 +191,14 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
       </div>
 
       {/* Messages */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '12px 16px',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 12,
-      }}>
+      <div className="chat-messages">
         {messages.length === 0 && !isStreaming && (
-          <div style={{
-            textAlign: 'center',
-            color: 'var(--text-muted)',
-            padding: '40px 20px',
-          }}>
-            <div style={{ fontSize: 48, marginBottom: 12 }}>{config.agentEmoji || '🤖'}</div>
-            <div style={{ fontSize: 14, marginBottom: 4 }}>
+          <div className="chat-empty">
+            <div className="chat-empty__emoji">{config.agentEmoji || '🤖'}</div>
+            <div className="chat-empty__title">
               Cześć! Jestem {config.agentName || 'KxAI'}
             </div>
-            <div style={{ fontSize: 12 }}>
+            <div className="chat-empty__subtitle">
               Napisz coś lub kliknij 📸 żeby przeanalizować ekran
             </div>
           </div>
@@ -271,36 +207,12 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className="fade-in"
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              alignItems: msg.role === 'user' ? 'flex-end' : 'flex-start',
-            }}
+            className={`fade-in chat-msg chat-msg--${msg.role}`}
           >
-            <div style={{
-              maxWidth: '85%',
-              padding: '10px 14px',
-              borderRadius: msg.role === 'user'
-                ? '12px 12px 4px 12px'
-                : '12px 12px 12px 4px',
-              background: msg.role === 'user'
-                ? 'var(--accent)'
-                : 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              fontSize: 13,
-              lineHeight: 1.5,
-              wordBreak: 'break-word',
-              whiteSpace: 'pre-wrap',
-            }}>
+            <div className={`chat-bubble chat-bubble--${msg.role}`}>
               {msg.content}
             </div>
-            <div style={{
-              fontSize: 10,
-              color: 'var(--text-muted)',
-              marginTop: 2,
-              padding: '0 4px',
-            }}>
+            <div className="chat-msg__time">
               {formatTime(msg.timestamp)}
             </div>
           </div>
@@ -308,27 +220,13 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
 
         {/* Streaming message */}
         {isStreaming && (
-          <div className="fade-in" style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'flex-start',
-          }}>
-            <div style={{
-              maxWidth: '85%',
-              padding: '10px 14px',
-              borderRadius: '12px 12px 12px 4px',
-              background: 'var(--bg-tertiary)',
-              color: 'var(--text-primary)',
-              fontSize: 13,
-              lineHeight: 1.5,
-              wordBreak: 'break-word',
-              whiteSpace: 'pre-wrap',
-            }}>
+          <div className="fade-in chat-streaming">
+            <div className="chat-bubble chat-bubble--assistant">
               {streamingContent || (
-                <div style={{ display: 'flex', gap: 4 }}>
-                  <span style={{ animation: 'dotPulse 1.4s infinite 0s' }}>●</span>
-                  <span style={{ animation: 'dotPulse 1.4s infinite 0.2s' }}>●</span>
-                  <span style={{ animation: 'dotPulse 1.4s infinite 0.4s' }}>●</span>
+                <div className="chat-typing">
+                  <span className="chat-typing__dot-1">●</span>
+                  <span className="chat-typing__dot-2">●</span>
+                  <span className="chat-typing__dot-3">●</span>
                 </div>
               )}
             </div>
@@ -339,16 +237,8 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
       </div>
 
       {/* Input */}
-      <div style={{
-        padding: '12px 16px',
-        borderTop: '1px solid var(--border)',
-        background: 'var(--bg-secondary)',
-      }}>
-        <div style={{
-          display: 'flex',
-          gap: 8,
-          alignItems: 'flex-end',
-        }}>
+      <div className="chat-input">
+        <div className="chat-input__row">
           <textarea
             ref={inputRef}
             value={input}
@@ -356,36 +246,13 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
             onKeyDown={handleKeyDown}
             placeholder="Napisz wiadomość... (Shift+Enter = nowa linia)"
             disabled={isStreaming}
-            style={{
-              flex: 1,
-              background: 'var(--bg-primary)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius-sm)',
-              padding: '10px 12px',
-              color: 'var(--text-primary)',
-              fontSize: 13,
-              fontFamily: 'var(--font)',
-              resize: 'none',
-              outline: 'none',
-              minHeight: 40,
-              maxHeight: 120,
-              lineHeight: 1.4,
-            }}
+            className="chat-textarea"
             rows={1}
           />
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isStreaming}
-            style={{
-              background: input.trim() && !isStreaming ? 'var(--accent)' : 'var(--bg-tertiary)',
-              border: 'none',
-              borderRadius: 'var(--radius-sm)',
-              padding: '10px 14px',
-              color: 'var(--text-primary)',
-              cursor: input.trim() && !isStreaming ? 'pointer' : 'not-allowed',
-              fontSize: 16,
-              transition: 'var(--transition)',
-            }}
+            className={`chat-send ${input.trim() && !isStreaming ? 'chat-send--enabled' : 'chat-send--disabled'}`}
           >
             ➤
           </button>

@@ -1,5 +1,5 @@
 import { ipcMain, BrowserWindow, desktopCapturer, screen } from 'electron';
-import { ScreenCaptureService } from './services/screen-capture';
+import { ScreenCaptureService, ScreenshotData } from './services/screen-capture';
 import { MemoryService } from './services/memory';
 import { AIService } from './services/ai-service';
 import { ConfigService } from './services/config';
@@ -28,7 +28,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   ipcMain.handle('ai:stream-message', async (_event, message: string, context?: string) => {
     try {
-      await aiService.streamMessage(message, context, (chunk) => {
+      await aiService.streamMessage(message, context, (chunk: string) => {
         mainWindow.webContents.send('ai:stream', { chunk });
       });
       mainWindow.webContents.send('ai:stream', { done: true });
@@ -49,7 +49,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   ipcMain.handle('screen:start-watch', async (_event, intervalMs: number) => {
-    screenCapture.startWatching(intervalMs, async (screenshots) => {
+    screenCapture.startWatching(intervalMs, async (screenshots: ScreenshotData[]) => {
       // Send to AI for analysis
       const analysis = await aiService.analyzeScreens(screenshots);
       if (analysis && analysis.hasInsight) {
@@ -172,7 +172,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     if (enabled) {
       screenCapture.startWatching(
         configService.get('proactiveIntervalMs') || 30000,
-        async (screenshots) => {
+        async (screenshots: ScreenshotData[]) => {
           const analysis = await aiService.analyzeScreens(screenshots);
           if (analysis && analysis.hasInsight) {
             mainWindow.webContents.send('ai:proactive', {

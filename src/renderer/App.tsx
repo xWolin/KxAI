@@ -59,34 +59,21 @@ export default function App() {
 
   if (isLoading) {
     return (
-      <div style={{
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        width: '100%',
-        height: '100%',
-        background: 'transparent',
-      }}>
-        <div style={{ fontSize: 48 }}>🤖</div>
+      <div className="app-loading">
+        <div className="app-loading__icon">🤖</div>
       </div>
     );
   }
 
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      display: 'flex',
-      flexDirection: 'column',
-      background: view === 'widget' ? 'transparent' : undefined,
-    }}>
+    <div className={`app-container${view === 'widget' ? ' app-container--transparent' : ''}`}>
       {/* Proactive notifications */}
       {proactiveMessages.map((msg, i) => (
         <ProactiveNotification
           key={i}
           message={msg}
           onDismiss={() => dismissProactive(i)}
-          onReply={(text) => {
+          onReply={(text: string) => {
             setView('chat');
             dismissProactive(i);
           }}

@@ -92,133 +92,55 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     }
   }
 
-  const inputStyle: React.CSSProperties = {
-    width: '100%',
-    background: 'var(--bg-primary)',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-sm)',
-    padding: '10px 12px',
-    color: 'var(--text-primary)',
-    fontSize: 13,
-    fontFamily: 'var(--font)',
-    outline: 'none',
-    marginBottom: 12,
-  };
-
-  const labelStyle: React.CSSProperties = {
-    display: 'block',
-    fontSize: 11,
-    color: 'var(--text-secondary)',
-    marginBottom: 4,
-    fontWeight: 500,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  };
-
-  const tabStyle = (active: boolean): React.CSSProperties => ({
-    flex: 1,
-    padding: '8px',
-    background: active ? 'var(--accent)' : 'transparent',
-    border: 'none',
-    color: active ? 'var(--text-primary)' : 'var(--text-muted)',
-    cursor: 'pointer',
-    fontSize: 12,
-    fontWeight: 500,
-    borderRadius: 'var(--radius-xs)',
-    transition: 'var(--transition)',
-  });
+  const inputClass = 'settings-input';
+  const labelClass = 'settings-label';
 
   return (
-    <div style={{
-      width: '100%',
-      height: '100%',
-      background: 'var(--bg-primary)',
-      borderRadius: 'var(--radius)',
-      display: 'flex',
-      flexDirection: 'column',
-      overflow: 'hidden',
-      boxShadow: 'var(--shadow)',
-      border: '1px solid var(--border)',
-    }}>
+    <div className="settings-panel">
       {/* Header */}
-      <div style={{
-        padding: '12px 16px',
-        background: 'var(--bg-secondary)',
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        borderBottom: '1px solid var(--border)',
-        WebkitAppRegion: 'drag',
-      }}>
-        <button
-          onClick={onBack}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: 'var(--text-primary)',
-            cursor: 'pointer',
-            fontSize: 16,
-            WebkitAppRegion: 'no-drag',
-          }}
-        >
+      <div className="settings-header">
+        <button onClick={onBack} className="settings-header__back">
           ←
         </button>
-        <span style={{ fontWeight: 600, fontSize: 14 }}>Ustawienia</span>
+        <span className="settings-header__title">Ustawienia</span>
       </div>
 
       {/* Tabs */}
-      <div style={{
-        display: 'flex',
-        padding: '8px',
-        gap: 4,
-        background: 'var(--bg-secondary)',
-        borderBottom: '1px solid var(--border)',
-      }}>
-        <button style={tabStyle(activeTab === 'general')} onClick={() => setActiveTab('general')}>
+      <div className="settings-tabs">
+        <button className={`settings-tab${activeTab === 'general' ? ' settings-tab--active' : ''}`} onClick={() => setActiveTab('general')}>
           ⚙️ Ogólne
         </button>
-        <button style={tabStyle(activeTab === 'persona')} onClick={() => setActiveTab('persona')}>
+        <button className={`settings-tab${activeTab === 'persona' ? ' settings-tab--active' : ''}`} onClick={() => setActiveTab('persona')}>
           🎭 Persona
         </button>
-        <button style={tabStyle(activeTab === 'memory')} onClick={() => setActiveTab('memory')}>
+        <button className={`settings-tab${activeTab === 'memory' ? ' settings-tab--active' : ''}`} onClick={() => setActiveTab('memory')}>
           🧠 Pamięć
         </button>
       </div>
 
       {/* Content */}
-      <div style={{
-        flex: 1,
-        overflowY: 'auto',
-        padding: '16px',
-      }}>
+      <div className="settings-content">
         {activeTab === 'general' && (
           <div className="fade-in">
             {/* Agent identity */}
-            <div style={{ marginBottom: 20 }}>
-              <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Agent</h3>
+            <div className="settings-section">
+              <h3 className="settings-section__title">Agent</h3>
 
-              <label style={labelStyle}>Nazwa</label>
+              <label className={labelClass}>Nazwa</label>
               <input
-                style={inputStyle}
+                className={inputClass}
                 value={agentName}
                 onChange={(e) => setAgentName(e.target.value)}
+                title="Nazwa agenta"
               />
 
-              <label style={labelStyle}>Emoji</label>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+              <label className={labelClass}>Emoji</label>
+              <div className="settings-emoji-grid">
                 {['🤖', '🧠', '⚡', '🔮', '🦾', '🎯', '💡', '🚀'].map((e) => (
                   <button
                     key={e}
                     onClick={() => setAgentEmoji(e)}
-                    style={{
-                      width: 36,
-                      height: 36,
-                      borderRadius: 'var(--radius-xs)',
-                      border: agentEmoji === e ? '2px solid var(--accent)' : '1px solid var(--border)',
-                      background: agentEmoji === e ? 'var(--accent-light)' : 'transparent',
-                      cursor: 'pointer',
-                      fontSize: 18,
-                    }}
+                    className={`settings-emoji-btn${agentEmoji === e ? ' settings-emoji-btn--selected' : ''}`}
                   >
                     {e}
                   </button>
@@ -227,13 +149,14 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             </div>
 
             {/* AI Provider */}
-            <div style={{ marginBottom: 20 }}>
-              <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>AI Provider</h3>
+            <div className="settings-section">
+              <h3 className="settings-section__title">AI Provider</h3>
 
-              <label style={labelStyle}>Dostawca</label>
+              <label className={labelClass}>Dostawca</label>
               <select
-                style={{ ...inputStyle, cursor: 'pointer' }}
+                className={`${inputClass} settings-select`}
                 value={provider}
+                title="Dostawca AI"
                 onChange={(e) => {
                   const p = e.target.value as 'openai' | 'anthropic';
                   setProvider(p);
@@ -244,10 +167,11 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 <option value="anthropic">Anthropic</option>
               </select>
 
-              <label style={labelStyle}>Model</label>
+              <label className={labelClass}>Model</label>
               <select
-                style={{ ...inputStyle, cursor: 'pointer' }}
+                className={`${inputClass} settings-select`}
                 value={model}
+                title="Model AI"
                 onChange={(e) => setModel(e.target.value)}
               >
                 {MODELS[provider].map((m) => (
@@ -255,12 +179,12 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 ))}
               </select>
 
-              <label style={labelStyle}>
+              <label className={labelClass}>
                 Klucz API {hasKey ? '✅' : '❌'}
               </label>
               <input
                 type="password"
-                style={inputStyle}
+                className={inputClass}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder={hasKey ? '••••••••••• (zmień)' : 'Wklej klucz API'}
@@ -268,59 +192,39 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             </div>
 
             {/* Proactive */}
-            <div style={{ marginBottom: 20 }}>
-              <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>Tryb proaktywny</h3>
+            <div className="settings-section">
+              <h3 className="settings-section__title">Tryb proaktywny</h3>
 
-              <label style={labelStyle}>Interwał analizy ekranu (sekundy)</label>
+              <label className={labelClass}>Interwał analizy ekranu (sekundy)</label>
               <input
                 type="number"
-                style={inputStyle}
+                className={inputClass}
                 value={proactiveInterval}
                 onChange={(e) => setProactiveInterval(Number(e.target.value))}
+                title="Interwał proaktywny w sekundach"
                 min={5}
                 max={300}
               />
-              <p style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 12 }}>
+              <p className="settings-hint">
                 Co ile sekund agent analizuje ekran (min. 5s). Niższa wartość = więcej API calls.
               </p>
             </div>
 
             {/* Danger zone */}
             <div>
-              <h3 style={{ fontSize: 13, fontWeight: 600, marginBottom: 12, color: 'var(--error)' }}>
+              <h3 className="settings-section__title settings-section__title--danger">
                 Strefa niebezpieczna
               </h3>
-              <button
-                onClick={clearHistory}
-                style={{
-                  background: 'transparent',
-                  border: '1px solid var(--error)',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '8px 16px',
-                  color: 'var(--error)',
-                  cursor: 'pointer',
-                  fontSize: 12,
-                }}
-              >
+              <button onClick={clearHistory} className="settings-btn-danger">
                 🗑️ Wyczyść historię konwersacji
               </button>
             </div>
 
-            <div style={{ marginTop: 20 }}>
+            <div className="settings-save-wrapper">
               <button
                 onClick={saveSettings}
                 disabled={saving}
-                style={{
-                  width: '100%',
-                  background: 'var(--accent)',
-                  border: 'none',
-                  borderRadius: 'var(--radius-sm)',
-                  padding: '12px',
-                  color: 'var(--text-primary)',
-                  cursor: saving ? 'wait' : 'pointer',
-                  fontSize: 13,
-                  fontWeight: 600,
-                }}
+                className={`settings-btn-save${saving ? ' settings-btn-save--saving' : ''}`}
               >
                 {saving ? 'Zapisywanie...' : 'Zapisz ustawienia'}
               </button>
@@ -330,36 +234,17 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
         {activeTab === 'persona' && (
           <div className="fade-in">
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+            <p className="settings-desc">
               SOUL.md definiuje osobowość, ton i granice Twojego agenta.
               Edytuj poniżej aby dostosować zachowanie.
             </p>
             <textarea
-              style={{
-                ...inputStyle,
-                minHeight: 350,
-                resize: 'vertical',
-                fontSize: 12,
-                fontFamily: 'monospace',
-                lineHeight: 1.5,
-              }}
+              className={`${inputClass} settings-textarea`}
               value={soulContent}
               onChange={(e) => setSoulContent(e.target.value)}
+              title="Edycja SOUL.md"
             />
-            <button
-              onClick={saveSoul}
-              style={{
-                width: '100%',
-                background: 'var(--accent)',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                padding: '12px',
-                color: 'var(--text-primary)',
-                cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: 600,
-              }}
-            >
+            <button onClick={saveSoul} className="settings-btn-save">
               Zapisz SOUL.md
             </button>
           </div>
@@ -367,36 +252,17 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
         {activeTab === 'memory' && (
           <div className="fade-in">
-            <p style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 12, lineHeight: 1.5 }}>
+            <p className="settings-desc">
               MEMORY.md to pamięć długoterminowa Twojego agenta.
               Agent sam ją uzupełnia, ale możesz ją też edytować ręcznie.
             </p>
             <textarea
-              style={{
-                ...inputStyle,
-                minHeight: 350,
-                resize: 'vertical',
-                fontSize: 12,
-                fontFamily: 'monospace',
-                lineHeight: 1.5,
-              }}
+              className={`${inputClass} settings-textarea`}
               value={memoryContent}
               onChange={(e) => setMemoryContent(e.target.value)}
+              title="Edycja MEMORY.md"
             />
-            <button
-              onClick={saveMemory}
-              style={{
-                width: '100%',
-                background: 'var(--accent)',
-                border: 'none',
-                borderRadius: 'var(--radius-sm)',
-                padding: '12px',
-                color: 'var(--text-primary)',
-                cursor: 'pointer',
-                fontSize: 13,
-                fontWeight: 600,
-              }}
-            >
+            <button onClick={saveMemory} className="settings-btn-save">
               Zapisz MEMORY.md
             </button>
           </div>
