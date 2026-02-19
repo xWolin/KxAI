@@ -295,9 +295,11 @@ export class AIService {
           onChunk?.(text);
         }
       }
+    } else {
+      throw new Error(`Klient AI nie jest zainicjalizowany (provider: ${provider}). Sprawdź klucz API w ustawieniach.`);
     }
 
-    if (this.memoryService) {
+    if (this.memoryService && fullResponse) {
       this.memoryService.addMessage({
         id: uuidv4(),
         role: 'assistant',
@@ -400,9 +402,11 @@ export class AIService {
           onChunk?.(text);
         }
       }
+    } else {
+      throw new Error(`Klient AI nie jest zainicjalizowany (provider: ${provider}). Sprawdź klucz API w ustawieniach.`);
     }
 
-    if (this.memoryService) {
+    if (this.memoryService && fullResponse) {
       this.memoryService.addMessage({
         id: uuidv4(),
         role: 'assistant',

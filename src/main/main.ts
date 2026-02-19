@@ -21,6 +21,21 @@ import { setupIPC } from './ipc';
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 
+// ─── Single Instance Lock ───
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  // Another instance is already running — focus it and quit
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
 // Services
 let screenCapture: ScreenCaptureService;
 let memoryService: MemoryService;
@@ -59,7 +74,7 @@ function createMainWindow(): BrowserWindow {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: true,
+      sandbox: false, // Required for desktopCapturer and native module compatibility
     },
   });
 

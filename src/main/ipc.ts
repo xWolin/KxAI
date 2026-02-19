@@ -67,7 +67,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
       // Capture screenshots first
       const screenshots = await screenCapture.captureAllScreens();
       if (!screenshots.length) {
-        mainWindow.webContents.send('ai:stream', { done: true });
+        // Don't send done here — let renderer handle the error from invoke result
         return { success: false, error: 'Nie udało się przechwycić ekranu' };
       }
 
@@ -78,6 +78,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
       mainWindow.webContents.send('ai:stream', { done: true });
       return { success: true };
     } catch (error: any) {
+      console.error('ai:stream-with-screen error:', error);
       mainWindow.webContents.send('ai:stream', { done: true });
       return { success: false, error: error.message };
     }

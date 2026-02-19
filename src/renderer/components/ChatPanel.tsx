@@ -17,6 +17,9 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron }: ChatP
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Keep a ref to streaming content so the onAIStream callback can read the latest value
+  const streamingContentRef = useRef('');
+
   useEffect(() => {
     loadHistory();
     loadProactiveMode();
@@ -24,12 +27,35 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron }: ChatP
     // Listen for streaming chunks
     const cleanup = window.kxai.onAIStream((data) => {
       if (data.done) {
+        // Capture the streamed content before clearing
+        const finalContent = streamingContentRef.current;
         setIsStreaming(false);
         setStreamingContent('');
-        // Reload history from backend to sync with persisted messages
-        loadHistory();
+        streamingContentRef.current = '';
+
+        if (finalContent) {
+          // Immediately add the AI response to local state so it doesn't "flash away"
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: `stream-${Date.now()}`,
+              role: 'assistant' as const,
+              content: finalContent,
+              timestamp: Date.now(),
+              type: 'chat' as const,
+            },
+          ]);
+        }
+
+        // Then sync with backend (will replace optimistic IDs with real ones)
+        // Small delay to ensure backend has finished saving
+        setTimeout(() => loadHistory(), 300);
       } else if (data.chunk) {
-        setStreamingContent((prev) => prev + data.chunk);
+        setStreamingContent((prev) => {
+          const updated = prev + data.chunk;
+          streamingContentRef.current = updated;
+          return updated;
+        });
       }
     });
 
@@ -107,8 +133,18 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron }: ChatP
   async function captureAndAnalyze() {
     setIsStreaming(true);
     setStreamingContent('');
+    streamingContentRef.current = '';
 
-    // Don't add optimistic message — backend stores it with screenshots
+    // Add optimistic user message so it's visible immediately
+    const screenshotMsg: ConversationMessage = {
+      id: `opt-${Date.now()}`,
+      role: 'user',
+      content: '📸 Przeanalizuj mój obecny ekran. Co widzisz? Jakie masz obserwacje, porady, uwagi?',
+      timestamp: Date.now(),
+      type: 'analysis',
+    };
+    setMessages((prev) => [...prev, screenshotMsg]);
+
     try {
       const result = await window.kxai.streamWithScreen(
         'Przeanalizuj mój obecny ekran. Co widzisz? Jakie masz obserwacje, porady, uwagi?'
