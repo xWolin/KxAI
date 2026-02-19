@@ -32,6 +32,8 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron }: ChatP
         setStreamingContent((prev) => prev + data.chunk);
       }
     });
+
+    return cleanup;
   }, []);
 
   useEffect(() => {

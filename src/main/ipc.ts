@@ -1,4 +1,7 @@
-import { ipcMain, BrowserWindow, desktopCapturer, screen } from 'electron';
+import { ipcMain, BrowserWindow, desktopCapturer, screen, dialog } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
+import { app } from 'electron';
 import { ScreenCaptureService, ScreenshotData } from './services/screen-capture';
 import { MemoryService } from './services/memory';
 import { AIService } from './services/ai-service';
@@ -198,14 +201,26 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   ipcMain.handle('files:list', async (_event, directory: string) => {
-    const fs = require('fs');
-    const p = require('path');
     try {
-      const items = fs.readdirSync(directory, { withFileTypes: true });
+      // Validate and sanitize directory path
+      const resolved = path.resolve(directory);
+      const allowedBase = path.join(app.getPath('userData'), 'workspace');
+      const userHome = app.getPath('home');
+
+      // Restrict to workspace or user home directory
+      if (!resolved.startsWith(allowedBase) && !resolved.startsWith(userHome)) {
+        return [];
+      }
+
+      if (!fs.existsSync(resolved)) return [];
+      const stat = fs.statSync(resolved);
+      if (!stat.isDirectory()) return [];
+
+      const items = fs.readdirSync(resolved, { withFileTypes: true });
       return items.map((item: any) => ({
         name: item.name,
         isDirectory: item.isDirectory(),
-        path: p.join(directory, item.name),
+        path: path.join(resolved, item.name),
       }));
     } catch (error: any) {
       return [];
@@ -338,7 +353,26 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   ipcMain.handle('automation:unlock-safety', async () => {
+    // Require explicit user confirmation via dialog
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      buttons: ['Odblokuj', 'Anuluj'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Odblokowanie sterowania',
+      message: 'Czy na pewno chcesz odblokować safety lock?',
+      detail: 'Agent AI będzie mógł sterować klawiaturą i myszką Twojego komputera. Możesz przerwać w każdej chwili.',
+    });
+    if (result.response !== 0) {
+      return { success: false, error: 'Użytkownik anulował odblokowanie' };
+    }
     automationService.unlockSafety();
+    securityGuardService.logAudit({
+      action: 'automation:unlock-safety',
+      params: {},
+      source: 'automation',
+      result: 'allowed',
+    });
     return { success: true };
   });
 
@@ -350,12 +384,42 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     };
   });
 
+  let lastTakeControlTime = 0;
   ipcMain.handle('automation:take-control', async (_event, task: string) => {
+    // Rate limiting: minimum 30s between take-control requests
+    const now = Date.now();
+    if (now - lastTakeControlTime < 30000) {
+      return { success: false, error: 'Zbyt częste próby przejęcia sterowania. Poczekaj 30 sekund.' };
+    }
+
+    // Require user confirmation
+    const confirm = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      buttons: ['Przejmij sterowanie', 'Anuluj'],
+      defaultId: 1,
+      cancelId: 1,
+      title: 'Przejęcie sterowania',
+      message: 'Agent chce przejąć sterowanie pulpitem',
+      detail: `Zadanie: ${task}\n\nAgent będzie autonomicznie sterował myszką i klawiaturą. Rusz myszką lub naciśnij ESC aby przerwać.`,
+    });
+    if (confirm.response !== 0) {
+      return { success: false, error: 'Użytkownik odrzucił przejęcie sterowania' };
+    }
+
+    lastTakeControlTime = now;
+    securityGuardService.logAudit({
+      action: 'automation:take-control',
+      params: { task: task.slice(0, 200) },
+      source: 'automation',
+      result: 'allowed',
+    });
+
     try {
       const result = await agentLoop.startTakeControl(
         task,
         (status) => mainWindow.webContents.send('automation:status-update', status),
-        (chunk) => mainWindow.webContents.send('ai:stream', { chunk })
+        (chunk) => mainWindow.webContents.send('ai:stream', { chunk }),
+        true // confirmed via dialog above
       );
       return { success: true, data: result };
     } catch (error: any) {

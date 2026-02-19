@@ -110,12 +110,21 @@ export class ToolsService {
 
     this.register({
       name: 'open_url',
-      description: 'Otwiera URL w domyślnej przeglądarce',
+      description: 'Otwiera URL w domyślnej przeglądarce (tylko http/https)',
       category: 'web',
       parameters: {
         url: { type: 'string', description: 'URL do otwarcia', required: true },
       },
     }, async (params) => {
+      // Security: only allow http/https protocols
+      try {
+        const parsed = new URL(params.url);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return { success: false, error: `🛡️ Dozwolone tylko protokoły http/https (otrzymano: ${parsed.protocol})` };
+        }
+      } catch {
+        return { success: false, error: '🛡️ Nieprawidłowy URL' };
+      }
       await shell.openExternal(params.url);
       return { success: true, data: `Otwarto: ${params.url}` };
     });
@@ -128,6 +137,11 @@ export class ToolsService {
         path: { type: 'string', description: 'Ścieżka do pliku lub folderu', required: true },
       },
     }, async (params) => {
+      // Security: validate path before opening
+      const openValidation = this.securityGuard.validateReadPath(params.path);
+      if (!openValidation.allowed) {
+        return { success: false, error: `🛡️ ${openValidation.reason}` };
+      }
       await shell.openPath(params.path);
       return { success: true, data: `Otwarto: ${params.path}` };
     });
@@ -208,6 +222,11 @@ export class ToolsService {
         path: { type: 'string', description: 'Ścieżka do katalogu', required: true },
       },
     }, async (params) => {
+      // Security: validate read path
+      const listValidation = this.securityGuard.validateReadPath(params.path);
+      if (!listValidation.allowed) {
+        return { success: false, error: `🛡️ ${listValidation.reason}` };
+      }
       try {
         const entries = fs.readdirSync(params.path, { withFileTypes: true });
         const items = entries.map((e) => ({
@@ -256,16 +275,50 @@ export class ToolsService {
 
     this.register({
       name: 'fetch_url',
-      description: 'Pobiera treść strony internetowej (text)',
+      description: 'Pobiera treść strony internetowej (text). Blokuje adresy wewnętrzne (SSRF protection).',
       category: 'web',
       parameters: {
         url: { type: 'string', description: 'URL strony', required: true },
       },
     }, async (params) => {
       try {
+        // SSRF protection: validate URL and block internal addresses
+        let parsedUrl: URL;
+        try {
+          parsedUrl = new URL(params.url);
+        } catch {
+          return { success: false, error: '🛡️ Nieprawidłowy URL' };
+        }
+        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+          return { success: false, error: `🛡️ Dozwolone tylko http/https (otrzymano: ${parsedUrl.protocol})` };
+        }
+        const hostname = parsedUrl.hostname.toLowerCase();
+        // Block localhost and private IP ranges
+        const blockedPatterns = [
+          /^localhost$/i,
+          /^127\./,
+          /^10\./,
+          /^172\.(1[6-9]|2\d|3[01])\./,
+          /^192\.168\./,
+          /^0\./,
+          /^\[::1\]$/,
+          /^\[fc/i,
+          /^\[fd/i,
+          /^\[fe80/i,
+          /\.local$/i,
+          /\.internal$/i,
+          /\.localhost$/i,
+          /^169\.254\./,
+        ];
+        for (const pattern of blockedPatterns) {
+          if (pattern.test(hostname)) {
+            return { success: false, error: `🛡️ Dostęp do adresów wewnętrznych zablokowany (SSRF protection)` };
+          }
+        }
+
         const https = require('https');
         const http = require('http');
-        const client = params.url.startsWith('https') ? https : http;
+        const client = parsedUrl.protocol === 'https:' ? https : http;
         const data = await new Promise<string>((resolve, reject) => {
           client.get(params.url, { headers: { 'User-Agent': 'KxAI/1.0' } }, (res: any) => {
             let body = '';

@@ -5,9 +5,9 @@ export interface KxAIBridge {
   sendMessage: (message: string, context?: string) => Promise<{ success: boolean; data?: string; error?: string }>;
   streamMessage: (message: string, context?: string) => Promise<{ success: boolean; error?: string }>;
   streamWithScreen: (message: string) => Promise<{ success: boolean; error?: string }>;
-  onAIResponse: (callback: (data: any) => void) => void;
-  onAIStream: (callback: (data: { chunk?: string; done?: boolean }) => void) => void;
-  onProactiveMessage: (callback: (data: ProactiveMessage) => void) => void;
+  onAIResponse: (callback: (data: any) => void) => (() => void);
+  onAIStream: (callback: (data: { chunk?: string; done?: boolean }) => void) => (() => void);
+  onProactiveMessage: (callback: (data: ProactiveMessage) => void) => (() => void);
 
   // Screen capture
   captureScreen: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
@@ -39,7 +39,7 @@ export interface KxAIBridge {
   setWindowSize: (width: number, height: number) => Promise<void>;
 
   // Navigation
-  onNavigate: (callback: (view: string) => void) => void;
+  onNavigate: (callback: (view: string) => void) => (() => void);
 
   // File operations
   organizeFiles: (directory: string, rules?: any) => Promise<{ success: boolean; data?: any }>;
@@ -77,7 +77,7 @@ export interface KxAIBridge {
   automationStatus: () => Promise<AutomationStatus>;
   automationTakeControl: (task: string) => Promise<{ success: boolean; data?: string; error?: string }>;
   automationStopControl: () => Promise<{ success: boolean }>;
-  onAutomationStatus: (callback: (data: string) => void) => void;
+  onAutomationStatus: (callback: (data: AutomationStatus) => void) => (() => void);
 
   // Browser
   browserListSessions: () => Promise<BrowserSession[]>;
@@ -107,6 +107,7 @@ export interface ConversationMessage {
 }
 
 export interface ProactiveMessage {
+  id: string;
   type: string;
   message: string;
   context: string;

@@ -10,6 +10,22 @@ import { BrowserWindow } from 'electron';
 export class BrowserService {
   private windows: Map<string, BrowserWindow> = new Map();
   private nextId = 1;
+  private loadTimeoutMs = 30000; // 30s default timeout for URL loading
+
+  /**
+   * Load a URL with timeout protection.
+   */
+  private async loadURLWithTimeout(win: BrowserWindow, url: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(new Error(`Timeout ładowania URL (${this.loadTimeoutMs}ms): ${url}`));
+      }, this.loadTimeoutMs);
+
+      win.loadURL(url)
+        .then(() => { clearTimeout(timer); resolve(); })
+        .catch((err) => { clearTimeout(timer); reject(err); });
+    });
+  }
 
   /**
    * Open a new browser window (hidden by default).
@@ -33,7 +49,13 @@ export class BrowserService {
       this.windows.delete(id);
     });
 
-    await win.loadURL(url);
+    try {
+      await this.loadURLWithTimeout(win, url);
+    } catch (err: any) {
+      win.destroy();
+      this.windows.delete(id);
+      throw err;
+    }
     return { id, url };
   }
 
@@ -45,7 +67,7 @@ export class BrowserService {
     if (!win) return { success: false, error: `Sesja ${sessionId} nie istnieje` };
 
     try {
-      await win.loadURL(url);
+      await this.loadURLWithTimeout(win, url);
       return { success: true, data: `Nawigacja do ${url} zakończona` };
     } catch (err: any) {
       return { success: false, error: err.message };
@@ -61,7 +83,7 @@ export class BrowserService {
 
     try {
       const script = selector
-        ? `document.querySelector('${selector}')?.innerText || ''`
+        ? `document.querySelector(${JSON.stringify(selector)})?.innerText || ''`
         : `document.body.innerText`;
       const text = await win.webContents.executeJavaScript(script);
       return { success: true, data: typeof text === 'string' ? text.slice(0, 10000) : String(text) };
@@ -79,7 +101,7 @@ export class BrowserService {
 
     try {
       const script = selector
-        ? `document.querySelector('${selector}')?.outerHTML || ''`
+        ? `document.querySelector(${JSON.stringify(selector)})?.outerHTML || ''`
         : `document.documentElement.outerHTML`;
       const html = await win.webContents.executeJavaScript(script);
       return { success: true, data: typeof html === 'string' ? html.slice(0, 20000) : '' };
@@ -96,12 +118,13 @@ export class BrowserService {
     if (!win) return { success: false, error: `Sesja ${sessionId} nie istnieje` };
 
     try {
+      const safeSelector = JSON.stringify(selector);
       const result = await win.webContents.executeJavaScript(`
         (function() {
-          const el = document.querySelector('${selector.replace(/'/g, "\\'")}');
-          if (!el) return 'Element nie znaleziony: ${selector}';
+          const el = document.querySelector(${safeSelector});
+          if (!el) return 'Element nie znaleziony: ' + ${safeSelector};
           el.click();
-          return 'Kliknięto: ${selector}';
+          return 'Kliknięto: ' + ${safeSelector};
         })()
       `);
       return { success: true, data: result };
@@ -118,16 +141,17 @@ export class BrowserService {
     if (!win) return { success: false, error: `Sesja ${sessionId} nie istnieje` };
 
     try {
-      const escaped = text.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
+      const safeSelector = JSON.stringify(selector);
+      const safeText = JSON.stringify(text);
       const result = await win.webContents.executeJavaScript(`
         (function() {
-          const el = document.querySelector('${selector.replace(/'/g, "\\'")}');
-          if (!el) return 'Element nie znaleziony: ${selector}';
+          const el = document.querySelector(${safeSelector});
+          if (!el) return 'Element nie znaleziony: ' + ${safeSelector};
           el.focus();
-          el.value = '${escaped}';
+          el.value = ${safeText};
           el.dispatchEvent(new Event('input', { bubbles: true }));
           el.dispatchEvent(new Event('change', { bubbles: true }));
-          return 'Wpisano tekst w: ${selector}';
+          return 'Wpisano tekst w: ' + ${safeSelector};
         })()
       `);
       return { success: true, data: result };
@@ -144,9 +168,10 @@ export class BrowserService {
     if (!win) return { success: false, error: `Sesja ${sessionId} nie istnieje` };
 
     try {
+      const safeSelector = JSON.stringify(selector);
       const result = await win.webContents.executeJavaScript(`
         (function() {
-          const form = document.querySelector('${selector.replace(/'/g, "\\'")}');
+          const form = document.querySelector(${safeSelector});
           if (!form) return 'Formularz nie znaleziony';
           form.submit();
           return 'Formularz wysłany';
@@ -213,13 +238,15 @@ export class BrowserService {
     if (!win) return { success: false, error: `Sesja ${sessionId} nie istnieje` };
 
     try {
+      const safeSelector = JSON.stringify(selector);
       const result = await win.webContents.executeJavaScript(`
         new Promise((resolve) => {
-          const existing = document.querySelector('${selector.replace(/'/g, "\\'")}');
+          const sel = ${safeSelector};
+          const existing = document.querySelector(sel);
           if (existing) { resolve('Element znaleziony'); return; }
           
           const observer = new MutationObserver(() => {
-            if (document.querySelector('${selector.replace(/'/g, "\\'")}')) {
+            if (document.querySelector(sel)) {
               observer.disconnect();
               resolve('Element znaleziony');
             }
@@ -229,7 +256,7 @@ export class BrowserService {
           setTimeout(() => {
             observer.disconnect();
             resolve('Timeout — element nie znaleziony');
-          }, ${timeoutMs});
+          }, ${Math.min(Math.max(timeoutMs, 1000), 60000)});
         })
       `);
       return { success: true, data: result };

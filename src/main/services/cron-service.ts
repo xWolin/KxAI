@@ -61,7 +61,10 @@ export class CronService {
   }
 
   private saveJobs(): void {
-    fs.writeFileSync(this.jobsPath, JSON.stringify(this.jobs, null, 2), 'utf8');
+    // Atomic write: write to temp file then rename
+    const tmpPath = this.jobsPath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(this.jobs, null, 2), 'utf8');
+    fs.renameSync(tmpPath, this.jobsPath);
   }
 
   private saveExecution(exec: CronExecution): void {
@@ -74,7 +77,10 @@ export class CronService {
     history.push(exec);
     // Keep last 500 executions
     if (history.length > 500) history = history.slice(-500);
-    fs.writeFileSync(this.historyPath, JSON.stringify(history, null, 2), 'utf8');
+    // Atomic write
+    const tmpPath = this.historyPath + '.tmp';
+    fs.writeFileSync(tmpPath, JSON.stringify(history, null, 2), 'utf8');
+    fs.renameSync(tmpPath, this.historyPath);
   }
 
   // ─── CRUD ───
@@ -238,6 +244,7 @@ export class CronService {
     }
 
     // Default: 30 minutes
+    console.warn(`CronService: Nie udało się sparsować schedule "${schedule}", używam fallback: 30 minut`);
     return 30 * 60 * 1000;
   }
 

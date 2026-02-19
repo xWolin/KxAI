@@ -11,18 +11,15 @@ const MODELS = {
   openai: [
     // GPT-5 family (latest)
     { value: 'gpt-5.2', label: 'GPT-5.2 (Flagship)' },
-    { value: 'gpt-5.2-pro', label: 'GPT-5.2 Pro' },
-    { value: 'gpt-5.1', label: 'GPT-5.1' },
     { value: 'gpt-5', label: 'GPT-5' },
     { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
     { value: 'gpt-5-nano', label: 'GPT-5 Nano' },
     // Reasoning models
-    { value: 'o3', label: 'o3' },
-    { value: 'o3-pro', label: 'o3 Pro' },
-    { value: 'o4-mini', label: 'o4-mini' },
+    { value: 'o3', label: 'o3 (Reasoning)' },
+    { value: 'o4-mini', label: 'o4-mini (Reasoning)' },
     // GPT-4 family (legacy)
-    { value: 'gpt-4.1', label: 'GPT-4.1' },
-    { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+    { value: 'gpt-4.1', label: 'GPT-4.1 (Legacy)' },
+    { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini (Legacy)' },
     { value: 'gpt-4o', label: 'GPT-4o (Legacy)' },
     { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Legacy)' },
   ],

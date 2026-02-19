@@ -110,6 +110,9 @@ export class RAGService {
   async search(query: string, topK: number = 5, minScore: number = 0.3): Promise<RAGSearchResult[]> {
     if (!this.indexed || this.chunks.length === 0) {
       await this.reindex();
+      if (!this.indexed) {
+        throw new Error('RAG service not indexed: reindex failed');
+      }
     }
 
     const queryEmbedding = await this.embeddingService.embed(query);
@@ -154,13 +157,13 @@ export class RAGService {
   /**
    * Get index stats.
    */
-  getStats(): { totalChunks: number; totalFiles: number; indexed: boolean; hasOpenAI: boolean } {
+  getStats(): { totalChunks: number; totalFiles: number; indexed: boolean; embeddingType: 'openai' | 'tfidf' } {
     const files = new Set(this.chunks.map((c) => c.filePath));
     return {
       totalChunks: this.chunks.length,
       totalFiles: files.size,
       indexed: this.indexed,
-      hasOpenAI: this.embeddingService.hasOpenAI(),
+      embeddingType: this.embeddingService.hasOpenAI() ? 'openai' : 'tfidf',
     };
   }
 

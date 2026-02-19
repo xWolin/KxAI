@@ -1,5 +1,9 @@
 import { exec } from 'child_process';
 import * as os from 'os';
+import * as path from 'path';
+import * as fs from 'fs';
+
+const MAX_COORD = 32767; // Safe maximum screen coordinate
 
 /**
  * AutomationService — Desktop automation via platform-specific commands.
@@ -57,31 +61,57 @@ export class AutomationService {
 
   // ─── Mouse ───
 
+  /**
+   * Validate that coordinates are safe integers within screen bounds.
+   */
+  private validateCoords(x: number, y: number): { valid: boolean; error?: string } {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) {
+      return { valid: false, error: `Współrzędne muszą być liczbami skończonymi (x=${x}, y=${y})` };
+    }
+    const rx = Math.round(x);
+    const ry = Math.round(y);
+    if (rx < 0 || ry < 0 || rx > MAX_COORD || ry > MAX_COORD) {
+      return { valid: false, error: `Współrzędne poza zakresem 0-${MAX_COORD} (x=${rx}, y=${ry})` };
+    }
+    return { valid: true };
+  }
+
   async mouseMove(x: number, y: number): Promise<AutomationResult> {
-    return this.executeAction('mouse_move', { x, y }, async () => {
+    const check = this.validateCoords(x, y);
+    if (!check.valid) return { success: false, error: check.error! };
+    const sx = Math.round(x);
+    const sy = Math.round(y);
+
+    return this.executeAction('mouse_move', { x: sx, y: sy }, async () => {
       if (this.platform === 'win32') {
         return this.runPowerShell(
           `Add-Type -AssemblyName System.Windows.Forms; ` +
-          `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x}, ${y})`
+          `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${sx}, ${sy})`
         );
       } else if (this.platform === 'darwin') {
-        // macOS: use cliclick or AppleScript with Quartz
-        return this.runCommand(`osascript -e 'tell application "System Events" to key code 0'`);
+        // macOS: use Python + Quartz CoreGraphics for real HID mouse move
+        // Requires: pyobjc-framework-Quartz + Accessibility permission
+        const pyScript = `import Quartz; Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, (${sx}, ${sy}), Quartz.kCGMouseButtonLeft))`;
+        return this.runCommand(`python3 -c "${pyScript.replace(/"/g, '\\"')}"`);
       } else {
-        return this.runCommand(`xdotool mousemove ${x} ${y}`);
+        return this.runCommand(`xdotool mousemove ${sx} ${sy}`);
       }
     });
   }
 
   async mouseClick(x?: number, y?: number, button: 'left' | 'right' = 'left'): Promise<AutomationResult> {
-    return this.executeAction('mouse_click', { x, y, button }, async () => {
-      if (this.platform === 'win32') {
-        const moveCmd = x !== undefined && y !== undefined
-          ? `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${x}, ${y}); Start-Sleep -Milliseconds 50; `
-          : '';
+    if (x !== undefined && y !== undefined) {
+      const check = this.validateCoords(x, y);
+      if (!check.valid) return { success: false, error: check.error! };
+    }
+    const sx = x !== undefined ? Math.round(x) : undefined;
+    const sy = y !== undefined ? Math.round(y) : undefined;
 
-        const clickType = button === 'right' ? 'MOUSEEVENTF_RIGHTDOWN' : 'MOUSEEVENTF_LEFTDOWN';
-        const clickUp = button === 'right' ? 'MOUSEEVENTF_RIGHTUP' : 'MOUSEEVENTF_LEFTUP';
+    return this.executeAction('mouse_click', { x: sx, y: sy, button }, async () => {
+      if (this.platform === 'win32') {
+        const moveCmd = sx !== undefined && sy !== undefined
+          ? `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${sx}, ${sy}); Start-Sleep -Milliseconds 50; `
+          : '';
 
         return this.runPowerShell(
           `Add-Type -AssemblyName System.Windows.Forms; ` +
@@ -96,10 +126,17 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
           `$mouse::mouse_event(${button === 'right' ? '0x0010' : '0x0004'}, 0, 0, 0, 0)`
         );
       } else if (this.platform === 'darwin') {
-        const coords = x !== undefined && y !== undefined ? ` at {${x}, ${y}}` : '';
-        return this.runCommand(`osascript -e 'tell application "System Events" to click${coords}'`);
+        // macOS: use cliclick for coordinate-based clicking (brew install cliclick)
+        if (sx !== undefined && sy !== undefined) {
+          const btn = button === 'right' ? 'rc' : 'c';
+          return this.runCommand(`cliclick ${btn}:${sx},${sy}`);
+        } else {
+          // Click at current position
+          const btn = button === 'right' ? 'rc' : 'c';
+          return this.runCommand(`cliclick ${btn}:.`);
+        }
       } else {
-        const moveCmd = x !== undefined && y !== undefined ? `xdotool mousemove ${x} ${y} && ` : '';
+        const moveCmd = sx !== undefined && sy !== undefined ? `xdotool mousemove ${sx} ${sy} && ` : '';
         const btn = button === 'right' ? '3' : '1';
         return this.runCommand(`${moveCmd}xdotool click ${btn}`);
       }
@@ -111,21 +148,35 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
   async keyboardType(text: string): Promise<AutomationResult> {
     return this.executeAction('keyboard_type', { text: text.slice(0, 50) + '...' }, async () => {
       if (this.platform === 'win32') {
-        // Escape special characters for SendKeys
-        const escaped = text
-          .replace(/[+^%~(){}[\]]/g, '{$&}')
-          .replace(/\n/g, '{ENTER}')
-          .replace(/\t/g, '{TAB}');
-        return this.runPowerShell(
-          `Add-Type -AssemblyName System.Windows.Forms; ` +
-          `[System.Windows.Forms.SendKeys]::SendWait('${escaped.replace(/'/g, "''")}')`
-        );
+        // Use PowerShell -EncodedCommand to avoid injection — encode the script as UTF-16LE Base64
+        const psScript = `Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait([System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${Buffer.from(text, 'utf8').toString('base64')}')))`;
+        const encoded = Buffer.from(psScript, 'utf16le').toString('base64');
+        return new Promise<AutomationResult>((resolve) => {
+          exec(
+            `powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`,
+            { timeout: 10000 },
+            (error, stdout) => {
+              if (error) resolve({ success: false, error: error.message });
+              else resolve({ success: true, data: stdout.trim() || 'OK' });
+            }
+          );
+        });
       } else if (this.platform === 'darwin') {
-        return this.runCommand(
-          `osascript -e 'tell application "System Events" to keystroke "${text.replace(/"/g, '\\"')}"'`
+        // Write text to temp file and use osascript to read from file to avoid injection
+        const tmpFile = path.join(os.tmpdir(), `kxai-type-${Date.now()}.txt`);
+        fs.writeFileSync(tmpFile, text, 'utf8');
+        const result = await this.runCommand(
+          `osascript -e 'set theText to (read POSIX file "${tmpFile}" as «class utf8»)' -e 'tell application "System Events" to keystroke theText'`
         );
+        try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+        return result;
       } else {
-        return this.runCommand(`xdotool type --delay 20 "${text.replace(/"/g, '\\"')}"`);
+        // Write text to temp file and pipe to xdotool to avoid injection
+        const tmpFile = path.join(os.tmpdir(), `kxai-type-${Date.now()}.txt`);
+        fs.writeFileSync(tmpFile, text, 'utf8');
+        const result = await this.runCommand(`xdotool type --delay 20 --clearmodifiers -- "$(cat '${tmpFile}')"`);
+        try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+        return result;
       }
     });
   }
@@ -229,8 +280,16 @@ public class Win32Window {
         const [x, y] = result.trim().split(',').map(Number);
         return { x: x || 0, y: y || 0 };
       } else if (this.platform === 'darwin') {
-        // macOS mouse position via AppleScript
-        return { x: 0, y: 0 }; // TODO: Implement
+        // macOS: get mouse position via Python + Quartz CoreGraphics
+        try {
+          const result = await this.runCommandRaw(
+            `python3 -c "import Quartz; e = Quartz.CGEventCreate(None); p = Quartz.CGEventGetLocation(e); print(f'{int(p.x)},{int(p.y)}')"`
+          );
+          const [x, y] = result.trim().split(',').map(Number);
+          return { x: x || 0, y: y || 0 };
+        } catch {
+          return { x: 0, y: 0 };
+        }
       } else {
         const result = await this.runCommandRaw(`xdotool getmouselocation`);
         const match = result.match(/x:(\d+) y:(\d+)/);

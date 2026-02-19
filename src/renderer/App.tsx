@@ -34,18 +34,25 @@ export default function App() {
     init();
 
     // Listen for proactive messages
-    window.kxai.onProactiveMessage((data) => {
-      setProactiveMessages((prev) => [...prev, data]);
+    const cleanupProactive = window.kxai.onProactiveMessage((data) => {
+      const msgWithId: ProactiveMessage = { ...data, id: data.id || `proactive-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+      setProactiveMessages((prev) => [...prev, msgWithId]);
       // Auto-dismiss after 15 seconds
+      const msgId = msgWithId.id;
       setTimeout(() => {
-        setProactiveMessages((prev) => prev.slice(1));
+        setProactiveMessages((prev) => prev.filter((m) => m.id !== msgId));
       }, 15000);
     });
 
     // Listen for navigation events (from tray menu)
-    window.kxai.onNavigate((target) => {
+    const cleanupNavigate = window.kxai.onNavigate((target) => {
       setView(target as View);
     });
+
+    return () => {
+      cleanupProactive();
+      cleanupNavigate();
+    };
   }, []);
 
   const handleOnboardingComplete = async () => {
@@ -54,8 +61,8 @@ export default function App() {
     setView('widget');
   };
 
-  const dismissProactive = (index: number) => {
-    setProactiveMessages((prev) => prev.filter((_, i) => i !== index));
+  const dismissProactive = (id: string) => {
+    setProactiveMessages((prev) => prev.filter((m) => m.id !== id));
   };
 
   if (isLoading) {
@@ -69,14 +76,14 @@ export default function App() {
   return (
     <div className={`app-container${view === 'widget' ? ' app-container--transparent' : ''}`}>
       {/* Proactive notifications */}
-      {proactiveMessages.map((msg, i) => (
+      {proactiveMessages.map((msg) => (
         <ProactiveNotification
-          key={i}
+          key={msg.id}
           message={msg}
-          onDismiss={() => dismissProactive(i)}
+          onDismiss={() => dismissProactive(msg.id)}
           onReply={(text: string) => {
             setView('chat');
-            dismissProactive(i);
+            dismissProactive(msg.id);
           }}
         />
       ))}

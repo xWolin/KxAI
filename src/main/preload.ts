@@ -9,12 +9,21 @@ contextBridge.exposeInMainWorld('kxai', {
     ipcRenderer.invoke('ai:stream-message', message, context),
   streamWithScreen: (message: string) =>
     ipcRenderer.invoke('ai:stream-with-screen', message),
-  onAIResponse: (callback: (data: any) => void) =>
-    ipcRenderer.on('ai:response', (_event, data) => callback(data)),
-  onAIStream: (callback: (data: any) => void) =>
-    ipcRenderer.on('ai:stream', (_event, data) => callback(data)),
-  onProactiveMessage: (callback: (data: any) => void) =>
-    ipcRenderer.on('ai:proactive', (_event, data) => callback(data)),
+  onAIResponse: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('ai:response', handler);
+    return () => { ipcRenderer.removeListener('ai:response', handler); };
+  },
+  onAIStream: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('ai:stream', handler);
+    return () => { ipcRenderer.removeListener('ai:stream', handler); };
+  },
+  onProactiveMessage: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('ai:proactive', handler);
+    return () => { ipcRenderer.removeListener('ai:proactive', handler); };
+  },
 
   // Screen capture
   captureScreen: () => ipcRenderer.invoke('screen:capture'),
@@ -55,8 +64,11 @@ contextBridge.exposeInMainWorld('kxai', {
     ipcRenderer.invoke('window:set-size', width, height),
 
   // Navigation events
-  onNavigate: (callback: (view: string) => void) =>
-    ipcRenderer.on('navigate', (_event, view) => callback(view)),
+  onNavigate: (callback: (view: string) => void) => {
+    const handler = (_event: any, view: string) => callback(view);
+    ipcRenderer.on('navigate', handler);
+    return () => { ipcRenderer.removeListener('navigate', handler); };
+  },
 
   // File operations
   organizeFiles: (directory: string, rules?: any) =>
@@ -103,8 +115,11 @@ contextBridge.exposeInMainWorld('kxai', {
   automationTakeControl: (task: string) =>
     ipcRenderer.invoke('automation:take-control', task),
   automationStopControl: () => ipcRenderer.invoke('automation:stop-control'),
-  onAutomationStatus: (callback: (data: any) => void) =>
-    ipcRenderer.on('automation:status-update', (_event, data) => callback(data)),
+  onAutomationStatus: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('automation:status-update', handler);
+    return () => { ipcRenderer.removeListener('automation:status-update', handler); };
+  },
 
   // Browser
   browserListSessions: () => ipcRenderer.invoke('browser:list-sessions'),

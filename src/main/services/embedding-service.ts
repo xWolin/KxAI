@@ -123,10 +123,12 @@ export class EmbeddingService {
           }
         } catch (err) {
           console.error('EmbeddingService: Batch embedding failed:', err);
-          // Fallback to TF-IDF for failed batch
+          // Fallback to TF-IDF for failed batch — also cache results
           for (let j = 0; j < batch.length; j++) {
             const idx = uncachedIndexes[start + j];
-            results[idx] = this.tfidfEmbed(batch[j]);
+            const embedding = this.tfidfEmbed(batch[j]);
+            results[idx] = embedding;
+            this.cache.set(this.hashContent(batch[j]), embedding);
           }
         }
       }

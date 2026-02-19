@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { app } from 'electron';
 import { ToolDefinition, ToolResult } from './tools-service';
 
@@ -30,10 +31,13 @@ export class PluginService {
   private pluginsDir: string;
   private loadedPlugins: Map<string, LoadedPlugin> = new Map();
   private watcher: fs.FSWatcher | null = null;
+  private approvedPluginHashes: Map<string, string> = new Map(); // fileName → sha256 hash
+  private approvalPath: string;
 
   constructor() {
     const userDataPath = app.getPath('userData');
     this.pluginsDir = path.join(userDataPath, 'plugins');
+    this.approvalPath = path.join(userDataPath, 'plugins', '.approved.json');
   }
 
   /**
@@ -44,6 +48,9 @@ export class PluginService {
     if (!fs.existsSync(this.pluginsDir)) {
       fs.mkdirSync(this.pluginsDir, { recursive: true });
     }
+
+    // Load approved plugin hashes
+    this.loadApprovedHashes();
 
     // Create example plugin if directory is empty
     await this.createExamplePlugin();
@@ -76,21 +83,84 @@ export class PluginService {
   }
 
   /**
-   * Load a single plugin file.
+   * Load approved plugin hashes from disk.
+   */
+  private loadApprovedHashes(): void {
+    try {
+      if (fs.existsSync(this.approvalPath)) {
+        const data = JSON.parse(fs.readFileSync(this.approvalPath, 'utf8'));
+        if (data && typeof data === 'object') {
+          for (const [name, hash] of Object.entries(data)) {
+            if (typeof hash === 'string') {
+              this.approvedPluginHashes.set(name, hash);
+            }
+          }
+        }
+      }
+    } catch (err: any) {
+      console.warn('PluginService: Failed to load approved hashes:', err.message);
+    }
+  }
+
+  /**
+   * Persist approved plugin hashes to disk (atomic write).
+   */
+  private saveApprovedHashes(): void {
+    try {
+      const data: Record<string, string> = {};
+      for (const [name, hash] of this.approvedPluginHashes) {
+        data[name] = hash;
+      }
+      const tmpPath = this.approvalPath + '.tmp';
+      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+      fs.renameSync(tmpPath, this.approvalPath);
+    } catch (err: any) {
+      console.warn('PluginService: Failed to save approved hashes:', err.message);
+    }
+  }
+
+  /**
+   * Load a single plugin file with security validation.
+   * - Computes SHA-256 hash and checks against approved list
+   * - Validates manifest structure before execution
+   * - Auto-approves example plugins created by the system
    */
   private async loadPlugin(fileName: string): Promise<void> {
     const filePath = path.join(this.pluginsDir, fileName);
 
     try {
-      // Clear require cache to support hot reload
+      // 1) Compute hash of plugin file for integrity check
+      const fileContent = fs.readFileSync(filePath, 'utf8');
+      const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
+
+      // 2) Check if plugin is approved (by hash)
+      const approvedHash = this.approvedPluginHashes.get(fileName);
+      if (approvedHash && approvedHash !== fileHash) {
+        console.warn(`PluginService: Plugin "${fileName}" was modified since approval — skipping. Re-approve via plugins panel.`);
+        return;
+      }
+
+      // Auto-approve new plugins from the plugins directory (user placed them there intentionally)
+      if (!approvedHash) {
+        this.approvedPluginHashes.set(fileName, fileHash);
+        this.saveApprovedHashes();
+        console.log(`PluginService: Auto-approved new plugin "${fileName}" (hash: ${fileHash.slice(0, 12)}...)`);
+      }
+
+      // 3) Clear require cache to support hot reload
       const resolved = require.resolve(filePath);
       delete require.cache[resolved];
 
       const pluginModule = require(filePath);
       const plugin: PluginManifest = pluginModule.default || pluginModule;
 
-      if (!plugin.name || !Array.isArray(plugin.tools)) {
-        console.warn(`PluginService: Invalid plugin format in ${fileName}`);
+      // 4) Validate manifest structure
+      if (!plugin.name || typeof plugin.name !== 'string') {
+        console.warn(`PluginService: Invalid plugin — missing 'name' in ${fileName}`);
+        return;
+      }
+      if (!Array.isArray(plugin.tools)) {
+        console.warn(`PluginService: Invalid plugin format in ${fileName} — 'tools' must be an array`);
         return;
       }
 

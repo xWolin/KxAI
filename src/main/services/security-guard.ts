@@ -347,6 +347,13 @@ export class SecurityGuard {
     this.saveAuditLog();
   }
 
+  /**
+   * Public audit entry — for external callers (IPC handlers, etc.)
+   */
+  logAudit(entry: { action: string; params: Record<string, unknown>; source: AuditEntry['source']; result: AuditEntry['result']; reason?: string }): void {
+    this.audit(entry.action, entry.params, entry.source, entry.result, entry.reason);
+  }
+
   getAuditLog(limit: number = 100, filter?: { source?: string; result?: string }): AuditEntry[] {
     let entries = this.auditLog;
     if (filter?.source) entries = entries.filter((e) => e.source === filter.source);
