@@ -3,7 +3,10 @@
   "version": "0.1.0",
   "description": "KxAI — Personal AI Desktop Agent with screen awareness, proactive suggestions, and persistent memory",
   "main": "dist/main/main.js",
-  "author": "xWolin",
+  "author": {
+    "name": "xWolin",
+    "email": "xwolin@users.noreply.github.com"
+  },
   "license": "MIT",
   "scripts": {
     "dev": "npm run build:main && concurrently \"npm run dev:renderer\" \"npm run dev:main:watch\"",
@@ -67,7 +70,8 @@
         "AppImage",
         "deb"
       ],
-      "icon": "assets/icons/png/256x256.png"
+      "icon": "assets/icons/png/256x256.png",
+      "category": "Utility"
     },
     "nsis": {
       "oneClick": false,
