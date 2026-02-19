@@ -7,15 +7,19 @@ interface OnboardingWizardProps {
 
 const MODELS = {
   openai: [
-    { value: 'gpt-4o', label: 'GPT-4o (recommended)' },
-    { value: 'gpt-4o-mini', label: 'GPT-4o Mini (tańszy)' },
-    { value: 'gpt-4.1', label: 'GPT-4.1' },
+    { value: 'gpt-5', label: 'GPT-5 (recommended)' },
+    { value: 'gpt-5.2', label: 'GPT-5.2 (flagship)' },
+    { value: 'gpt-5-mini', label: 'GPT-5 Mini (tańszy)' },
+    { value: 'gpt-5-nano', label: 'GPT-5 Nano (najtańszy)' },
     { value: 'o3', label: 'o3 (reasoning)' },
     { value: 'o4-mini', label: 'o4-mini (reasoning, tańszy)' },
+    { value: 'gpt-4.1', label: 'GPT-4.1 (legacy)' },
+    { value: 'gpt-4o', label: 'GPT-4o (legacy)' },
   ],
   anthropic: [
-    { value: 'claude-opus-4-0', label: 'Claude Opus 4 (najpotężniejszy)' },
-    { value: 'claude-sonnet-4-0', label: 'Claude Sonnet 4' },
+    { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6 (recommended)' },
+    { value: 'claude-opus-4-6', label: 'Claude Opus 4.6 (najpotężniejszy)' },
+    { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5 (najtańszy)' },
     { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
   ],
 };
@@ -29,7 +33,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
     agentName: 'KxAI',
     agentEmoji: '🤖',
     aiProvider: 'openai',
-    aiModel: 'gpt-4o',
+    aiModel: 'gpt-5',
   });
   const [apiKey, setApiKey] = useState('');
   const [isLoading, setIsLoading] = useState(false);

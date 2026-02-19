@@ -37,7 +37,7 @@ export interface KxAIConfig {
 
 const DEFAULT_CONFIG: KxAIConfig = {
   aiProvider: 'openai',
-  aiModel: 'gpt-4o',
+  aiModel: 'gpt-5',
   proactiveMode: false,
   proactiveIntervalMs: 30000,
   theme: 'dark',

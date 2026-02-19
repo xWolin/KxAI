@@ -4,6 +4,7 @@ export interface KxAIBridge {
   // Chat & AI
   sendMessage: (message: string, context?: string) => Promise<{ success: boolean; data?: string; error?: string }>;
   streamMessage: (message: string, context?: string) => Promise<{ success: boolean; error?: string }>;
+  streamWithScreen: (message: string) => Promise<{ success: boolean; error?: string }>;
   onAIResponse: (callback: (data: any) => void) => void;
   onAIStream: (callback: (data: { chunk?: string; done?: boolean }) => void) => void;
   onProactiveMessage: (callback: (data: ProactiveMessage) => void) => void;
@@ -35,6 +36,7 @@ export interface KxAIBridge {
   minimizeWindow: () => Promise<void>;
   setWindowPosition: (x: number, y: number) => Promise<void>;
   getWindowPosition: () => Promise<[number, number]>;
+  setWindowSize: (width: number, height: number) => Promise<void>;
 
   // Navigation
   onNavigate: (callback: (view: string) => void) => void;
@@ -46,6 +48,45 @@ export interface KxAIBridge {
   // Proactive
   setProactiveMode: (enabled: boolean) => Promise<{ success: boolean }>;
   getProactiveMode: () => Promise<boolean>;
+
+  // Cron jobs
+  getCronJobs: () => Promise<CronJob[]>;
+  addCronJob: (job: Omit<CronJob, 'id' | 'createdAt' | 'runCount'>) => Promise<{ success: boolean; data?: CronJob; error?: string }>;
+  updateCronJob: (id: string, updates: Partial<CronJob>) => Promise<{ success: boolean; data?: CronJob; error?: string }>;
+  removeCronJob: (id: string) => Promise<{ success: boolean }>;
+  getCronHistory: (jobId?: string) => Promise<CronExecution[]>;
+
+  // Tools
+  getTools: () => Promise<ToolDefinition[]>;
+  executeTool: (name: string, params: any) => Promise<{ success: boolean; data?: any; error?: string }>;
+
+  // Workflow
+  getWorkflowActivity: (limit?: number) => Promise<ActivityEntry[]>;
+  getWorkflowPatterns: () => Promise<WorkflowPattern[]>;
+  getTimeContext: () => Promise<string>;
+
+  // RAG / Semantic Search
+  ragSearch: (query: string, topK?: number) => Promise<{ success: boolean; data?: RAGSearchResult[]; error?: string }>;
+  ragReindex: () => Promise<{ success: boolean; data?: RAGStats; error?: string }>;
+  ragStats: () => Promise<RAGStats>;
+
+  // Automation
+  automationEnable: () => Promise<{ success: boolean }>;
+  automationDisable: () => Promise<{ success: boolean }>;
+  automationUnlockSafety: () => Promise<{ success: boolean }>;
+  automationStatus: () => Promise<AutomationStatus>;
+  automationTakeControl: (task: string) => Promise<{ success: boolean; data?: string; error?: string }>;
+  automationStopControl: () => Promise<{ success: boolean }>;
+  onAutomationStatus: (callback: (data: string) => void) => void;
+
+  // Browser
+  browserListSessions: () => Promise<BrowserSession[]>;
+  browserCloseAll: () => Promise<{ success: boolean }>;
+
+  // Plugins
+  pluginsList: () => Promise<PluginInfo[]>;
+  pluginsReload: () => Promise<{ success: boolean; data?: PluginInfo[] }>;
+  pluginsGetDir: () => Promise<string>;
 }
 
 export interface ConversationMessage {
@@ -87,6 +128,91 @@ export interface OnboardingData {
   agentEmoji?: string;
   aiProvider: 'openai' | 'anthropic';
   aiModel: string;
+}
+
+export interface CronJob {
+  id: string;
+  name: string;
+  schedule: string;
+  action: string;
+  autoCreated: boolean;
+  enabled: boolean;
+  category: 'routine' | 'workflow' | 'reminder' | 'cleanup' | 'health-check' | 'custom';
+  createdAt: number;
+  lastRun?: number;
+  lastResult?: string;
+  runCount: number;
+}
+
+export interface CronExecution {
+  jobId: string;
+  timestamp: number;
+  result: string;
+  success: boolean;
+}
+
+export interface ToolDefinition {
+  name: string;
+  description: string;
+  category: string;
+  parameters: Record<string, { type: string; description: string; required?: boolean }>;
+}
+
+export interface ActivityEntry {
+  timestamp: number;
+  hour: number;
+  dayOfWeek: number;
+  action: string;
+  context: string;
+  category: string;
+}
+
+export interface WorkflowPattern {
+  id: string;
+  description: string;
+  timeRange: { startHour: number; endHour: number };
+  daysOfWeek: number[];
+  frequency: number;
+  lastSeen: number;
+  suggestedCron?: string;
+  acknowledged: boolean;
+}
+
+// ──────────────── RAG ────────────────
+export interface RAGSearchResult {
+  fileName: string;
+  section: string;
+  content: string;
+  score: number;
+}
+
+export interface RAGStats {
+  totalChunks: number;
+  totalFiles: number;
+  lastIndexed: number | null;
+  embeddingType: 'openai' | 'tfidf';
+}
+
+// ──────────────── Automation ────────────────
+export interface AutomationStatus {
+  enabled: boolean;
+  safetyLocked: boolean;
+  takeControlActive: boolean;
+}
+
+// ──────────────── Browser ────────────────
+export interface BrowserSession {
+  id: string;
+  url: string;
+}
+
+// ──────────────── Plugins ────────────────
+export interface PluginInfo {
+  name: string;
+  version: string;
+  description: string;
+  toolCount: number;
+  tools: string[];
 }
 
 declare global {

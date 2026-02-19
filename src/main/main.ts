@@ -5,6 +5,15 @@ import { MemoryService } from './services/memory';
 import { AIService } from './services/ai-service';
 import { ConfigService } from './services/config';
 import { SecurityService } from './services/security';
+import { CronService } from './services/cron-service';
+import { ToolsService } from './services/tools-service';
+import { WorkflowService } from './services/workflow-service';
+import { AgentLoop } from './services/agent-loop';
+import { EmbeddingService } from './services/embedding-service';
+import { RAGService } from './services/rag-service';
+import { AutomationService } from './services/automation-service';
+import { BrowserService } from './services/browser-service';
+import { PluginService } from './services/plugin-service';
 import { setupIPC } from './ipc';
 
 let mainWindow: BrowserWindow | null = null;
@@ -16,6 +25,15 @@ let memoryService: MemoryService;
 let aiService: AIService;
 let configService: ConfigService;
 let securityService: SecurityService;
+let cronService: CronService;
+let toolsService: ToolsService;
+let workflowService: WorkflowService;
+let agentLoop: AgentLoop;
+let embeddingService: EmbeddingService;
+let ragService: RAGService;
+let automationService: AutomationService;
+let browserService: BrowserService;
+let pluginService: PluginService;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -105,8 +123,51 @@ async function initializeServices(): Promise<void> {
   memoryService = new MemoryService(configService);
   aiService = new AIService(configService, securityService);
   screenCapture = new ScreenCaptureService();
+  cronService = new CronService();
+  toolsService = new ToolsService();
+  workflowService = new WorkflowService();
+
+  // New services
+  embeddingService = new EmbeddingService(securityService);
+  automationService = new AutomationService();
+  browserService = new BrowserService();
+  pluginService = new PluginService();
 
   await memoryService.initialize();
+  await embeddingService.initialize();
+
+  // RAG — semantic search over memory
+  ragService = new RAGService(embeddingService);
+  await ragService.initialize();
+
+  // Plugin system
+  await pluginService.initialize();
+
+  // Wire memory into AI service
+  aiService.setMemoryService(memoryService);
+
+  // Wire external services into tools
+  toolsService.setServices({
+    automation: automationService,
+    browser: browserService,
+    rag: ragService,
+    plugins: pluginService,
+  });
+
+  // Create agent loop
+  agentLoop = new AgentLoop(
+    aiService,
+    toolsService,
+    cronService,
+    workflowService,
+    memoryService,
+    configService
+  );
+  agentLoop.setRAGService(ragService);
+  agentLoop.setAutomationService(automationService);
+
+  // Start cron jobs
+  cronService.startAll();
 }
 
 app.whenReady().then(async () => {
@@ -122,6 +183,14 @@ app.whenReady().then(async () => {
     memoryService,
     aiService,
     screenCapture,
+    cronService,
+    toolsService,
+    workflowService,
+    agentLoop,
+    ragService,
+    automationService,
+    browserService,
+    pluginService,
   });
 
   // Global shortcut to toggle window

@@ -5,7 +5,7 @@ import { ScreenshotData } from './screen-capture';
 import { v4 as uuidv4 } from 'uuid';
 
 interface AIMessage {
-  role: 'system' | 'user' | 'assistant';
+  role: 'system' | 'developer' | 'user' | 'assistant';
   content: string | AIContentPart[];
 }
 
@@ -72,10 +72,34 @@ export class AIService {
     }
   }
 
+  /**
+   * Determines if the model uses `developer` role instead of `system`.
+   * GPT-5 family and o-series reasoning models use the `developer` role.
+   */
+  private usesDeveloperRole(model: string): boolean {
+    return /^(gpt-5|o[0-9])/.test(model);
+  }
+
+  /**
+   * Returns the correct system role name for the given model.
+   */
+  private getSystemRole(model: string): 'developer' | 'system' {
+    return this.usesDeveloperRole(model) ? 'developer' : 'system';
+  }
+
+  /**
+   * Builds the token limit parameter for OpenAI.
+   * `max_tokens` is deprecated in favor of `max_completion_tokens`.
+   * o-series models are NOT compatible with `max_tokens`.
+   */
+  private openaiTokenParam(limit: number): Record<string, number> {
+    return { max_completion_tokens: limit };
+  }
+
   async sendMessage(userMessage: string, extraContext?: string): Promise<string> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
-    const model = this.config.get('aiModel') || 'gpt-4o';
+    const model = this.config.get('aiModel') || 'gpt-5';
 
     // Build system context from memory
     const systemContext = this.memoryService
@@ -87,8 +111,9 @@ export class AIService {
       ? this.memoryService.getRecentContext(20)
       : [];
 
+    const systemRole = this.getSystemRole(model);
     const messages: AIMessage[] = [
-      { role: 'system', content: systemContext },
+      { role: systemRole, content: systemContext },
     ];
 
     // Add conversation history
@@ -123,15 +148,15 @@ export class AIService {
       const response = await this.openaiClient.chat.completions.create({
         model,
         messages,
-        max_tokens: 4096,
+        ...this.openaiTokenParam(4096),
         temperature: 0.7,
       });
       responseText = response.choices[0]?.message?.content || '';
     } else if (provider === 'anthropic' && this.anthropicClient) {
       // Anthropic has different message format - system is separate
       const anthropicMessages = messages
-        .filter((m) => m.role !== 'system')
-        .map((m) => ({ role: m.role, content: m.content }));
+        .filter((m) => m.role !== 'system' && m.role !== 'developer')
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
       const response = await this.anthropicClient.messages.create({
         model,
@@ -168,7 +193,7 @@ export class AIService {
   ): Promise<void> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
-    const model = this.config.get('aiModel') || 'gpt-4o';
+    const model = this.config.get('aiModel') || 'gpt-5';
 
     const systemContext = this.memoryService
       ? await this.memoryService.buildSystemContext()
@@ -178,7 +203,8 @@ export class AIService {
       ? this.memoryService.getRecentContext(20)
       : [];
 
-    const messages: AIMessage[] = [{ role: 'system', content: systemContext }];
+    const systemRole = this.getSystemRole(model);
+    const messages: AIMessage[] = [{ role: systemRole, content: systemContext }];
 
     for (const msg of recentHistory) {
       messages.push({
@@ -209,7 +235,7 @@ export class AIService {
       const stream = await this.openaiClient.chat.completions.create({
         model,
         messages,
-        max_tokens: 4096,
+        ...this.openaiTokenParam(4096),
         temperature: 0.7,
         stream: true,
       });
@@ -223,8 +249,8 @@ export class AIService {
       }
     } else if (provider === 'anthropic' && this.anthropicClient) {
       const anthropicMessages = messages
-        .filter((m) => m.role !== 'system')
-        .map((m) => ({ role: m.role, content: m.content }));
+        .filter((m) => m.role !== 'system' && m.role !== 'developer')
+        .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
       const stream = this.anthropicClient.messages.stream({
         model,
@@ -253,10 +279,115 @@ export class AIService {
     }
   }
 
+  async streamMessageWithScreenshots(
+    userMessage: string,
+    screenshots: ScreenshotData[],
+    onChunk?: (chunk: string) => void
+  ): Promise<void> {
+    await this.ensureClient();
+    const provider = this.config.get('aiProvider') || 'openai';
+    const model = this.config.get('aiModel') || 'gpt-5';
+
+    const systemContext = this.memoryService
+      ? await this.memoryService.buildSystemContext()
+      : 'You are KxAI, a helpful personal AI assistant.';
+
+    // Store user message
+    if (this.memoryService) {
+      this.memoryService.addMessage({
+        id: uuidv4(),
+        role: 'user',
+        content: `📸 ${userMessage}`,
+        timestamp: Date.now(),
+        type: 'analysis',
+      });
+    }
+
+    let fullResponse = '';
+    const systemRole = this.getSystemRole(model);
+
+    if (provider === 'openai' && this.openaiClient) {
+      const imageContents: AIContentPart[] = screenshots.map((s) => ({
+        type: 'image_url' as const,
+        image_url: { url: s.base64, detail: 'low' as const },
+      }));
+
+      const stream = await this.openaiClient.chat.completions.create({
+        model,
+        messages: [
+          { role: systemRole, content: systemContext },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: userMessage },
+              ...imageContents,
+            ],
+          },
+        ],
+        ...this.openaiTokenParam(4096),
+        temperature: 0.7,
+        stream: true,
+      });
+
+      for await (const chunk of stream) {
+        const content = chunk.choices[0]?.delta?.content || '';
+        if (content) {
+          fullResponse += content;
+          onChunk?.(content);
+        }
+      }
+    } else if (provider === 'anthropic' && this.anthropicClient) {
+      const imageContents = screenshots.map((s) => {
+        const base64Data = s.base64.replace(/^data:image\/\w+;base64,/, '');
+        return {
+          type: 'image' as const,
+          source: {
+            type: 'base64' as const,
+            media_type: 'image/png' as const,
+            data: base64Data,
+          },
+        };
+      });
+
+      const stream = this.anthropicClient.messages.stream({
+        model,
+        max_tokens: 4096,
+        system: systemContext,
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: userMessage },
+              ...imageContents,
+            ],
+          },
+        ],
+      });
+
+      for await (const event of stream) {
+        if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
+          const text = event.delta.text || '';
+          fullResponse += text;
+          onChunk?.(text);
+        }
+      }
+    }
+
+    if (this.memoryService) {
+      this.memoryService.addMessage({
+        id: uuidv4(),
+        role: 'assistant',
+        content: fullResponse,
+        timestamp: Date.now(),
+        type: 'analysis',
+      });
+    }
+  }
+
   async analyzeScreens(screenshots: ScreenshotData[]): Promise<ScreenAnalysisResult | null> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
-    const model = this.config.get('aiModel') || 'gpt-4o';
+    const model = this.config.get('aiModel') || 'gpt-5';
 
     if (!this.config.get('proactiveMode')) return null;
 
@@ -292,10 +423,11 @@ hasInsight=false jeśli nie masz nic istotnego.`;
           image_url: { url: s.base64, detail: 'low' as const },
         }));
 
+        const systemRole = this.getSystemRole(model);
         const response = await this.openaiClient.chat.completions.create({
           model,
           messages: [
-            { role: 'system', content: analysisPrompt },
+            { role: systemRole, content: analysisPrompt },
             {
               role: 'user',
               content: [
@@ -304,7 +436,7 @@ hasInsight=false jeśli nie masz nic istotnego.`;
               ],
             },
           ],
-          max_tokens: 1024,
+          ...this.openaiTokenParam(1024),
           temperature: 0.5,
           response_format: { type: 'json_object' },
         });

@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('kxai', {
     ipcRenderer.invoke('ai:send-message', message, context),
   streamMessage: (message: string, context?: string) =>
     ipcRenderer.invoke('ai:stream-message', message, context),
+  streamWithScreen: (message: string) =>
+    ipcRenderer.invoke('ai:stream-with-screen', message),
   onAIResponse: (callback: (data: any) => void) =>
     ipcRenderer.on('ai:response', (_event, data) => callback(data)),
   onAIStream: (callback: (data: any) => void) =>
@@ -49,6 +51,8 @@ contextBridge.exposeInMainWorld('kxai', {
   setWindowPosition: (x: number, y: number) =>
     ipcRenderer.invoke('window:set-position', x, y),
   getWindowPosition: () => ipcRenderer.invoke('window:get-position'),
+  setWindowSize: (width: number, height: number) =>
+    ipcRenderer.invoke('window:set-size', width, height),
 
   // Navigation events
   onNavigate: (callback: (view: string) => void) =>
@@ -64,4 +68,50 @@ contextBridge.exposeInMainWorld('kxai', {
   setProactiveMode: (enabled: boolean) =>
     ipcRenderer.invoke('proactive:set-mode', enabled),
   getProactiveMode: () => ipcRenderer.invoke('proactive:get-mode'),
+
+  // Cron jobs
+  getCronJobs: () => ipcRenderer.invoke('cron:get-jobs'),
+  addCronJob: (job: any) => ipcRenderer.invoke('cron:add-job', job),
+  updateCronJob: (id: string, updates: any) =>
+    ipcRenderer.invoke('cron:update-job', id, updates),
+  removeCronJob: (id: string) => ipcRenderer.invoke('cron:remove-job', id),
+  getCronHistory: (jobId?: string) =>
+    ipcRenderer.invoke('cron:get-history', jobId),
+
+  // Tools
+  getTools: () => ipcRenderer.invoke('tools:list'),
+  executeTool: (name: string, params: any) =>
+    ipcRenderer.invoke('tools:execute', name, params),
+
+  // Workflow
+  getWorkflowActivity: (limit?: number) =>
+    ipcRenderer.invoke('workflow:get-activity', limit),
+  getWorkflowPatterns: () => ipcRenderer.invoke('workflow:get-patterns'),
+  getTimeContext: () => ipcRenderer.invoke('workflow:get-time-context'),
+
+  // RAG / Semantic Search
+  ragSearch: (query: string, topK?: number) =>
+    ipcRenderer.invoke('rag:search', query, topK),
+  ragReindex: () => ipcRenderer.invoke('rag:reindex'),
+  ragStats: () => ipcRenderer.invoke('rag:stats'),
+
+  // Automation
+  automationEnable: () => ipcRenderer.invoke('automation:enable'),
+  automationDisable: () => ipcRenderer.invoke('automation:disable'),
+  automationUnlockSafety: () => ipcRenderer.invoke('automation:unlock-safety'),
+  automationStatus: () => ipcRenderer.invoke('automation:status'),
+  automationTakeControl: (task: string) =>
+    ipcRenderer.invoke('automation:take-control', task),
+  automationStopControl: () => ipcRenderer.invoke('automation:stop-control'),
+  onAutomationStatus: (callback: (data: any) => void) =>
+    ipcRenderer.on('automation:status-update', (_event, data) => callback(data)),
+
+  // Browser
+  browserListSessions: () => ipcRenderer.invoke('browser:list-sessions'),
+  browserCloseAll: () => ipcRenderer.invoke('browser:close-all'),
+
+  // Plugins
+  pluginsList: () => ipcRenderer.invoke('plugins:list'),
+  pluginsReload: () => ipcRenderer.invoke('plugins:reload'),
+  pluginsGetDir: () => ipcRenderer.invoke('plugins:get-dir'),
 });

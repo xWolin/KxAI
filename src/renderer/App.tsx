@@ -3,10 +3,11 @@ import { FloatingWidget } from './components/FloatingWidget';
 import { ChatPanel } from './components/ChatPanel';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { SettingsPanel } from './components/SettingsPanel';
+import { CronPanel } from './components/CronPanel';
 import { ProactiveNotification } from './components/ProactiveNotification';
 import type { ProactiveMessage, KxAIConfig } from './types';
 
-type View = 'widget' | 'chat' | 'settings' | 'onboarding';
+type View = 'widget' | 'chat' | 'settings' | 'onboarding' | 'cron';
 
 export default function App() {
   const [view, setView] = useState<View>('widget');
@@ -89,7 +90,11 @@ export default function App() {
         <FloatingWidget
           emoji={config?.agentEmoji || '🤖'}
           name={config?.agentName || 'KxAI'}
-          onClick={() => setView('chat')}
+          onClick={() => {
+            // Resize window for chat view before switching
+            window.kxai.setWindowSize(420, 600);
+            setView('chat');
+          }}
           hasNotification={proactiveMessages.length > 0}
         />
       )}
@@ -97,9 +102,18 @@ export default function App() {
       {view === 'chat' && (
         <ChatPanel
           config={config!}
-          onClose={() => setView('widget')}
+          onClose={() => {
+            // Shrink window back to widget size
+            window.kxai.setWindowSize(100, 100);
+            setView('widget');
+          }}
           onOpenSettings={() => setView('settings')}
+          onOpenCron={() => setView('cron')}
         />
+      )}
+
+      {view === 'cron' && (
+        <CronPanel onBack={() => setView('chat')} />
       )}
 
       {view === 'settings' && (

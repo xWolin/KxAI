@@ -9,22 +9,38 @@ interface SettingsPanelProps {
 
 const MODELS = {
   openai: [
-    { value: 'gpt-4o', label: 'GPT-4o' },
-    { value: 'gpt-4o-mini', label: 'GPT-4o Mini' },
-    { value: 'gpt-4.1', label: 'GPT-4.1' },
+    // GPT-5 family (latest)
+    { value: 'gpt-5.2', label: 'GPT-5.2 (Flagship)' },
+    { value: 'gpt-5.2-pro', label: 'GPT-5.2 Pro' },
+    { value: 'gpt-5.1', label: 'GPT-5.1' },
+    { value: 'gpt-5', label: 'GPT-5' },
+    { value: 'gpt-5-mini', label: 'GPT-5 Mini' },
+    { value: 'gpt-5-nano', label: 'GPT-5 Nano' },
+    // Reasoning models
     { value: 'o3', label: 'o3' },
+    { value: 'o3-pro', label: 'o3 Pro' },
     { value: 'o4-mini', label: 'o4-mini' },
+    // GPT-4 family (legacy)
+    { value: 'gpt-4.1', label: 'GPT-4.1' },
+    { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini' },
+    { value: 'gpt-4o', label: 'GPT-4o (Legacy)' },
+    { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Legacy)' },
   ],
   anthropic: [
-    { value: 'claude-opus-4-0', label: 'Claude Opus 4' },
-    { value: 'claude-sonnet-4-0', label: 'Claude Sonnet 4' },
+    // Latest models
+    { value: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
+    { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
+    { value: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
+    // Previous generation
+    { value: 'claude-opus-4-5', label: 'Claude Opus 4.5' },
     { value: 'claude-sonnet-4-5', label: 'Claude Sonnet 4.5' },
+    { value: 'claude-sonnet-4-0', label: 'Claude Sonnet 4' },
   ],
 };
 
 export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelProps) {
   const [provider, setProvider] = useState(config.aiProvider || 'openai');
-  const [model, setModel] = useState(config.aiModel || 'gpt-4o');
+  const [model, setModel] = useState(config.aiModel || 'gpt-5');
   const [apiKey, setApiKey] = useState('');
   const [hasKey, setHasKey] = useState(false);
   const [proactiveInterval, setProactiveInterval] = useState(

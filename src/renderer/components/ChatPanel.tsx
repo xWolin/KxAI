@@ -5,9 +5,10 @@ interface ChatPanelProps {
   config: KxAIConfig;
   onClose: () => void;
   onOpenSettings: () => void;
+  onOpenCron: () => void;
 }
 
-export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
+export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron }: ChatPanelProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -21,11 +22,12 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
     loadProactiveMode();
 
     // Listen for streaming chunks
-    window.kxai.onAIStream((data) => {
+    const cleanup = window.kxai.onAIStream((data) => {
       if (data.done) {
         setIsStreaming(false);
-        loadHistory(); // Reload to get the full message stored by backend
         setStreamingContent('');
+        // Reload history from backend to sync with persisted messages
+        loadHistory();
       } else if (data.chunk) {
         setStreamingContent((prev) => prev + data.chunk);
       }
@@ -54,20 +56,31 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
     setIsStreaming(true);
     setStreamingContent('');
 
-    // Optimistically add user message
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        role: 'user',
-        content: userMessage,
-        timestamp: Date.now(),
-        type: 'chat',
-      },
-    ]);
+    // Optimistically add user message for instant feedback
+    const optimisticMsg: ConversationMessage = {
+      id: `opt-${Date.now()}`,
+      role: 'user',
+      content: userMessage,
+      timestamp: Date.now(),
+      type: 'chat',
+    };
+    setMessages((prev) => [...prev, optimisticMsg]);
 
     try {
-      await window.kxai.streamMessage(userMessage);
+      const result = await window.kxai.streamMessage(userMessage);
+      if (!result.success) {
+        setIsStreaming(false);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: `❌ Błąd: ${result.error || 'Nie udało się wysłać wiadomości'}`,
+            timestamp: Date.now(),
+            type: 'chat',
+          },
+        ]);
+      }
     } catch (error: any) {
       setIsStreaming(false);
       setMessages((prev) => [
@@ -91,22 +104,25 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
 
   async function captureAndAnalyze() {
     setIsStreaming(true);
-    setMessages((prev) => [
-      ...prev,
-      {
-        id: Date.now().toString(),
-        role: 'user',
-        content: '📸 Analizuj mój ekran',
-        timestamp: Date.now(),
-        type: 'analysis',
-      },
-    ]);
+    setStreamingContent('');
 
+    // Don't add optimistic message — backend stores it with screenshots
     try {
-      await window.kxai.streamMessage(
-        'Przeanalizuj mój obecny ekran. Co widzisz? Jakie masz obserwacje, porady, uwagi?',
-        '[Zrzut ekranu został dołączony automatycznie]'
+      const result = await window.kxai.streamWithScreen(
+        'Przeanalizuj mój obecny ekran. Co widzisz? Jakie masz obserwacje, porady, uwagi?'
       );
+      if (!result.success) {
+        setIsStreaming(false);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: Date.now().toString(),
+            role: 'assistant',
+            content: `❌ Nie udało się przeanalizować ekranu: ${result.error}`,
+            timestamp: Date.now(),
+          },
+        ]);
+      }
     } catch (error: any) {
       setIsStreaming(false);
       setMessages((prev) => [
@@ -168,6 +184,15 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
             className="chat-btn"
           >
             📸
+          </button>
+
+          {/* Cron Jobs */}
+          <button
+            onClick={onOpenCron}
+            title="Cron Jobs"
+            className="chat-btn"
+          >
+            ⏰
           </button>
 
           {/* Settings */}
