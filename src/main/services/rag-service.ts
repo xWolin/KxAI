@@ -59,6 +59,7 @@ export class RAGService {
   async reindex(): Promise<void> {
     if (this.indexing) return;
     this.indexing = true;
+    this.indexed = false; // Reset before reindexing — ensures consistent state on failure
 
     try {
       console.log('RAGService: Reindexing memory files...');
