@@ -1,0 +1,152 @@
+import { app, BrowserWindow, ipcMain, Tray, Menu, screen, nativeImage, globalShortcut } from 'electron';
+import * as path from 'path';
+import { ScreenCaptureService } from './services/screen-capture';
+import { MemoryService } from './services/memory';
+import { AIService } from './services/ai-service';
+import { ConfigService } from './services/config';
+import { SecurityService } from './services/security';
+import { setupIPC } from './ipc';
+
+let mainWindow: BrowserWindow | null = null;
+let tray: Tray | null = null;
+
+// Services
+let screenCapture: ScreenCaptureService;
+let memoryService: MemoryService;
+let aiService: AIService;
+let configService: ConfigService;
+let securityService: SecurityService;
+
+const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+function createMainWindow(): BrowserWindow {
+  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
+
+  const win = new BrowserWindow({
+    width: 420,
+    height: 600,
+    x: screenWidth - 440,
+    y: 20,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    hasShadow: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+    },
+  });
+
+  // Load the renderer
+  if (isDev) {
+    win.loadURL('http://localhost:5173');
+    // win.webContents.openDevTools({ mode: 'detach' });
+  } else {
+    win.loadFile(path.join(__dirname, '../renderer/index.html'));
+  }
+
+  // Make window click-through when collapsed (just the floating icon)
+  win.setIgnoreMouseEvents(false);
+
+  return win;
+}
+
+function createTray(): void {
+  // Create a simple tray icon
+  const icon = nativeImage.createFromDataURL(
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAKDSURBVFhH7ZZLaxRBEMf/PbO7WXeNiYlRE0VFEBQPHrx48eRn8OBX8KJ+BI8e/AIe1IMgCIIgnhQSMRqNMZvsy+7OdJf/6p2ZnZ2dTbIQBAv+dFdXV1dVd08PZ8z/HFxelv6S4K8kIJIkd44cHrtzaGp61LI5g0o1rG3bWd8oFBff38xk6N6gXIKQAIuEaS2qnQZ/wBYXQukxHlvRn59+PTpOeWxQ5MTh7gG6mHIA3YRV4JqcIFq4bnR0dG+YqkUlKt+vtHKXGiGvSoSOqc4YUGYrVT8wJNvXS9qe2k9n/8SinD+uB6hd3AAOB8e3WlOhPojyJwBfGBcQCG3LAsm+O+RzPZjH/x6NEXr1++xMrKKh3zQ0oIciCAAmGiS1xD7BBSSmGzPnx/R/I0xOTMITx78RL9/AY4eOgjLFi6FQD3L16ohCsoCLLjQDPHBBCCxI5fEGlhYWIIrL7D05AmcvXgB27duiTXyI6ym8h2hEDHxNc6dEcDSVWQrFfWFl+98NDoywqGpKarOIZfzSCsFpFMmn79cwR6O5g+W7qs8PnQHgd3ELq7ukhrcE2q4wkNBgD0wO2Nxfv5DYj+hIr7rAXSVmTHMy29ceBFXACVw4nw+0xMH9GvM6z/QhZD0B5IxqbhkWjwJagGH9S7VUzfRLlYhGU6uGdXH9Mj6c6UqlsMqtLgJ9IpqUAIAX2a0fYz6LB2jlAH49p0H8g0O5wFq0JHq+K9WS0kpgZWU1cjUc4EcAJFJLawTQw+UY3NKQCdSqC6JUQp5qlRd0W/6KcLuEYM7VV5T3tgS+3/7E/xwCdrbcP+r/LcJGHPxBGT//gOQhKTPBx/+qQAAAABJRU5ErkJggg=='
+  );
+
+  tray = new Tray(icon);
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Pokaż KxAI',
+      click: () => {
+        mainWindow?.show();
+        mainWindow?.focus();
+      },
+    },
+    {
+      label: 'Ustawienia',
+      click: () => {
+        mainWindow?.show();
+        mainWindow?.webContents.send('navigate', 'settings');
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Zamknij',
+      click: () => {
+        app.quit();
+      },
+    },
+  ]);
+
+  tray.setToolTip('KxAI — Personal AI Agent');
+  tray.setContextMenu(contextMenu);
+
+  tray.on('click', () => {
+    if (mainWindow?.isVisible()) {
+      mainWindow.hide();
+    } else {
+      mainWindow?.show();
+      mainWindow?.focus();
+    }
+  });
+}
+
+async function initializeServices(): Promise<void> {
+  configService = new ConfigService();
+  securityService = new SecurityService();
+  memoryService = new MemoryService(configService);
+  aiService = new AIService(configService, securityService);
+  screenCapture = new ScreenCaptureService();
+
+  await memoryService.initialize();
+}
+
+app.whenReady().then(async () => {
+  await initializeServices();
+
+  mainWindow = createMainWindow();
+  createTray();
+
+  // Setup IPC handlers
+  setupIPC(mainWindow, {
+    configService,
+    securityService,
+    memoryService,
+    aiService,
+    screenCapture,
+  });
+
+  // Global shortcut to toggle window
+  globalShortcut.register('Alt+K', () => {
+    if (mainWindow?.isVisible()) {
+      mainWindow.hide();
+    } else {
+      mainWindow?.show();
+      mainWindow?.focus();
+    }
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit();
+  }
+});
+
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+});
+
+app.on('activate', () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    mainWindow = createMainWindow();
+  }
+});

@@ -1,0 +1,62 @@
+{
+  "name": "kxai",
+  "version": "0.1.0",
+  "description": "KxAI — Personal AI Desktop Agent with screen awareness, proactive suggestions, and persistent memory",
+  "main": "dist/main/main.js",
+  "author": "xWolin",
+  "license": "MIT",
+  "scripts": {
+    "dev": "concurrently \"npm run dev:renderer\" \"npm run dev:main\"",
+    "dev:renderer": "vite",
+    "dev:main": "tsc -p tsconfig.main.json --watch & electron .",
+    "build": "npm run build:renderer && npm run build:main",
+    "build:renderer": "vite build",
+    "build:main": "tsc -p tsconfig.main.json",
+    "dist": "npm run build && electron-builder",
+    "lint": "eslint src/",
+    "start": "electron ."
+  },
+  "dependencies": {
+    "openai": "^4.73.0",
+    "@anthropic-ai/sdk": "^0.33.0",
+    "electron-store": "^8.2.0",
+    "screenshot-desktop": "^1.15.0",
+    "marked": "^15.0.0",
+    "uuid": "^11.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/uuid": "^10.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "concurrently": "^9.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  },
+  "build": {
+    "appId": "com.kxai.desktop",
+    "productName": "KxAI",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico"
+    }
+  }
+}

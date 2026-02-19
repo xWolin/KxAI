@@ -1,0 +1,90 @@
+:root {
+  --bg-primary: #1a1b2e;
+  --bg-secondary: #232442;
+  --bg-tertiary: #2d2f54;
+  --bg-hover: #383a66;
+  --text-primary: #e8e9f3;
+  --text-secondary: #a8a9c4;
+  --text-muted: #6b6d8a;
+  --accent: #6c63ff;
+  --accent-hover: #7d75ff;
+  --accent-light: rgba(108, 99, 255, 0.15);
+  --success: #4caf50;
+  --warning: #ff9800;
+  --error: #f44336;
+  --border: #3a3c60;
+  --shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 4px;
+  --font: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
+  --transition: 0.2s ease;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--font);
+  color: var(--text-primary);
+  user-select: none;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(20px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+@keyframes breathe {
+  0%, 100% { box-shadow: 0 0 12px rgba(108, 99, 255, 0.3); }
+  50% { box-shadow: 0 0 24px rgba(108, 99, 255, 0.6); }
+}
+
+@keyframes dotPulse {
+  0%, 80%, 100% { transform: scale(0); opacity: 0; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+.fade-in {
+  animation: fadeIn 0.3s ease forwards;
+}
+
+.slide-in {
+  animation: slideIn 0.3s ease forwards;
+}
