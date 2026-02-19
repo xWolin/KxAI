@@ -12,6 +12,7 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - os: windows-latest
@@ -39,13 +40,13 @@ jobs:
 
       - name: Build installer (Windows)
         if: matrix.platform == 'win'
-        run: npx electron-builder --win
+        run: npx electron-builder --win --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Build installer (macOS)
         if: matrix.platform == 'mac'
-        run: npx electron-builder --mac
+        run: npx electron-builder --mac --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
