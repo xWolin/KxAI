@@ -180,14 +180,19 @@ const png256 = createPNG(256, 256);
 fs.writeFileSync(path.join(assetsDir, 'icon.png'), png256);
 console.log('✓ Created assets/icon.png (256x256)');
 
-// Generate 512x512 PNG for macOS
+// Generate 512x512 PNG
 const png512 = createPNG(512, 512);
 fs.writeFileSync(path.join(assetsDir, 'icon-512.png'), png512);
 console.log('✓ Created assets/icon-512.png (512x512)');
 
+// Generate 1024x1024 PNG (required by electron-icon-builder)
+const png1024 = createPNG(1024, 1024);
+fs.writeFileSync(path.join(assetsDir, 'icon-1024.png'), png1024);
+console.log('✓ Created assets/icon-1024.png (1024x1024)');
+
 console.log('\nDone! For .ico and .icns conversion:');
 console.log('  npm install --save-dev electron-icon-builder');
-console.log('  npx electron-icon-builder --input=assets/icon-512.png --output=assets');
+console.log('  npx electron-icon-builder --input=assets/icon-1024.png --output=assets');
 console.log('\nOr use online converters:');
 console.log('  PNG → ICO: https://convertico.com');
 console.log('  PNG → ICNS: https://cloudconvert.com/png-to-icns');
