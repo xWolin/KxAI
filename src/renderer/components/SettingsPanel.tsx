@@ -148,7 +148,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         alignItems: 'center',
         gap: 8,
         borderBottom: '1px solid var(--border)',
-        WebkitAppRegion: 'drag' as any,
+        WebkitAppRegion: 'drag',
       }}>
         <button
           onClick={onBack}
@@ -158,7 +158,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             color: 'var(--text-primary)',
             cursor: 'pointer',
             fontSize: 16,
-            WebkitAppRegion: 'no-drag' as any,
+            WebkitAppRegion: 'no-drag',
           }}
         >
           ←

@@ -135,7 +135,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       <div style={{
         padding: '20px',
         textAlign: 'center',
-        WebkitAppRegion: 'drag' as any,
+        WebkitAppRegion: 'drag',
       }}>
         <div style={{ fontSize: 48, marginBottom: 8 }}>🤖</div>
         <h2 style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>

@@ -26,7 +26,7 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification }: Floati
         boxShadow: '0 4px 20px rgba(108, 99, 255, 0.4)',
         transition: 'all 0.3s ease',
         animation: hasNotification ? 'breathe 2s infinite' : undefined,
-        WebkitAppRegion: 'drag' as any,
+        WebkitAppRegion: 'drag',
         zIndex: 9999,
       }}
       onMouseEnter={(e) => {

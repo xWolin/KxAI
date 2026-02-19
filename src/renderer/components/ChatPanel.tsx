@@ -155,7 +155,7 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
         alignItems: 'center',
         justifyContent: 'space-between',
         borderBottom: '1px solid var(--border)',
-        WebkitAppRegion: 'drag' as any,
+        WebkitAppRegion: 'drag',
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <span style={{ fontSize: 24 }}>{config.agentEmoji || '🤖'}</span>
@@ -172,7 +172,7 @@ export function ChatPanel({ config, onClose, onOpenSettings }: ChatPanelProps) {
           </div>
         </div>
 
-        <div style={{ display: 'flex', gap: 4, WebkitAppRegion: 'no-drag' as any }}>
+        <div style={{ display: 'flex', gap: 4, WebkitAppRegion: 'no-drag' }}>
           {/* Proactive toggle */}
           <button
             onClick={toggleProactive}
