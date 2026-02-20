@@ -33,6 +33,7 @@ export class AgentLoop {
   private takeControlActive = false;
   private takeControlAbort = false;
   private pendingCronSuggestions: Array<Omit<CronJob, 'id' | 'createdAt' | 'runCount'>> = [];
+  private pendingTakeControlTask: string | null = null;
 
   constructor(
     ai: AIService,
@@ -170,6 +171,13 @@ export class AgentLoop {
       onChunk?.('\n\n📋 Zasugerowano nowy cron job (oczekuje na zatwierdzenie) — sprawdź zakładkę Cron Jobs.\n');
     }
 
+    // Check for take_control request — queue for user confirmation
+    const takeControlTask = this.parseTakeControlRequest(fullResponse);
+    if (takeControlTask) {
+      this.pendingTakeControlTask = takeControlTask;
+      onChunk?.('\n\n🎮 Oczekuję na potwierdzenie przejęcia sterowania...\n');
+    }
+
     return fullResponse;
   }
 
@@ -304,6 +312,32 @@ export class AgentLoop {
   }
 
   /**
+   * Parse take_control request from AI response.
+   * AI outputs ```take_control\n{"task": "..."}\n``` when user asks to take over desktop.
+   */
+  private parseTakeControlRequest(response: string): string | null {
+    const match = response.match(/```take_control\s*\n([\s\S]*?)\n```/);
+    if (!match) return null;
+
+    try {
+      const parsed = JSON.parse(match[1]);
+      if (parsed.task && typeof parsed.task === 'string') {
+        return parsed.task.slice(0, 500);
+      }
+    } catch { /* invalid JSON */ }
+    return null;
+  }
+
+  /**
+   * Get and clear pending take-control request.
+   */
+  consumePendingTakeControl(): string | null {
+    const task = this.pendingTakeControlTask;
+    this.pendingTakeControlTask = null;
+    return task;
+  }
+
+  /**
    * Build enhanced system context with tools + time + workflow + RAG stats.
    */
   async buildEnhancedContext(): Promise<string> {
@@ -324,7 +358,7 @@ export class AgentLoop {
     const ragCtx = ragStats ? `\n## RAG Status\nZaindeksowane: ${ragStats.totalChunks} chunków z ${ragStats.totalFiles} plików | Embeddingi: ${ragStats.embeddingType === 'openai' ? 'OpenAI' : 'TF-IDF fallback'}\n` : '';
 
     const automationCtx = this.automation
-      ? `\n## Desktop Automation\nStatus: ${this.automation.isEnabled() ? 'włączona' : 'wyłączona'} | Safety lock: ${this.automation.isSafetyLocked() ? 'aktywny' : 'odblokowany'}\nMożesz sterować klawiaturą i myszką użytkownika za pomocą narzędzi mouse_move, mouse_click, keyboard_type, keyboard_shortcut.\nAby przejąć sterowanie, użytkownik musi najpierw to zatwierdzić.\n`
+      ? `\n## Desktop Automation\nStatus: ${this.automation.isEnabled() ? 'włączona' : 'wyłączona'} | Safety lock: ${this.automation.isSafetyLocked() ? 'aktywny' : 'odblokowany'}\nMożesz sterować klawiaturą i myszką użytkownika za pomocą narzędzi mouse_move, mouse_click, keyboard_type, keyboard_shortcut.\nAby przejąć pełne sterowanie pulpitem (tryb autonomiczny), użyj bloku take_control.\n`
       : '';
 
     const cronInstructions = `
@@ -336,6 +370,16 @@ Możesz zasugerować nowy cron job odpowiadając blokiem:
 Dozwolone schedule: "30s", "5m", "1h", "every 30 minutes", lub cron expression "*/5 * * * *"
 Kategorie: routine, workflow, reminder, cleanup, health-check, custom
 `;
+
+    const takeControlInstructions = this.automation ? `
+## Przejęcie sterowania (Take Control)
+Gdy użytkownik prosi Cię o przejęcie sterowania komputerem (np. "idę, przejmij kontrolę", "zrób to za mnie na komputerze", "przejmij sterowanie"), odpowiedz blokiem:
+\`\`\`take_control
+{"task": "Dokładny opis zadania do wykonania na pulpicie"}
+\`\`\`
+Użytkownik zostanie poproszony o potwierdzenie. Po zatwierdzeniu agent autonomicznie będzie sterował myszką i klawiaturą.
+Używaj tego TYLKO gdy użytkownik wyraźnie prosi o przejęcie kontroli nad pulpitem.
+` : '';
 
     // System health warnings
     let systemCtx = '';
@@ -360,6 +404,7 @@ Kategorie: routine, workflow, reminder, cleanup, health-check, custom
       toolsPrompt,
       '\n',
       cronInstructions,
+      takeControlInstructions,
     ].join('\n');
   }
 

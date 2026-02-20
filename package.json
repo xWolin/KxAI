@@ -9,9 +9,9 @@
   },
   "license": "MIT",
   "scripts": {
-    "dev": "npm run build:main && concurrently \"npm run dev:renderer\" \"npm run dev:main:watch\"",
+    "dev": "npm run build:main && concurrently -n vite,tsc,electron -c blue,yellow,green \"npm run dev:renderer\" \"npm run dev:main:watch\" \"npm run dev:main\"",
     "dev:renderer": "vite",
-    "dev:main:watch": "tsc -p tsconfig.main.json --watch",
+    "dev:main:watch": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
     "dev:main": "wait-on http://localhost:5173 && electron .",
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "vite build",
@@ -41,7 +41,8 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.7.0",
-    "vite": "^6.0.0"
+    "vite": "^6.0.0",
+    "wait-on": "^9.0.4"
   },
   "build": {
     "appId": "com.kxai.desktop",

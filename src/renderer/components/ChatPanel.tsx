@@ -6,9 +6,10 @@ interface ChatPanelProps {
   onClose: () => void;
   onOpenSettings: () => void;
   onOpenCron: () => void;
+  refreshTrigger?: number;
 }
 
-export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron }: ChatPanelProps) {
+export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, refreshTrigger }: ChatPanelProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -64,6 +65,13 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron }: ChatP
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, streamingContent]);
+
+  // Reload chat when a proactive message arrives while chat is open
+  useEffect(() => {
+    if (refreshTrigger && refreshTrigger > 0) {
+      loadHistory();
+    }
+  }, [refreshTrigger]);
 
   async function loadHistory() {
     const history = await window.kxai.getConversationHistory();

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { FloatingWidget } from './components/FloatingWidget';
 import { ChatPanel } from './components/ChatPanel';
 import { OnboardingWizard } from './components/OnboardingWizard';
@@ -14,6 +14,11 @@ export default function App() {
   const [config, setConfig] = useState<KxAIConfig | null>(null);
   const [proactiveMessages, setProactiveMessages] = useState<ProactiveMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Track view in a ref so the proactive listener always sees current value
+  const viewRef = useRef<View>(view);
+  viewRef.current = view;
+  // Counter to signal ChatPanel to reload history when proactive msg arrives while chat is open
+  const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0);
 
   useEffect(() => {
     async function init() {
@@ -36,12 +41,18 @@ export default function App() {
     // Listen for proactive messages
     const cleanupProactive = window.kxai.onProactiveMessage((data) => {
       const msgWithId: ProactiveMessage = { ...data, id: data.id || `proactive-${Date.now()}-${Math.random().toString(36).slice(2)}` };
-      setProactiveMessages((prev) => [...prev, msgWithId]);
-      // Auto-dismiss after 15 seconds
-      const msgId = msgWithId.id;
-      setTimeout(() => {
-        setProactiveMessages((prev) => prev.filter((m) => m.id !== msgId));
-      }, 15000);
+
+      if (viewRef.current === 'chat') {
+        // Chat is open — don't show popup, just refresh chat to show the saved message
+        setChatRefreshTrigger((n) => n + 1);
+      } else {
+        // Widget/other view — show popup notification
+        setProactiveMessages((prev) => [...prev, msgWithId]);
+        const msgId = msgWithId.id;
+        setTimeout(() => {
+          setProactiveMessages((prev) => prev.filter((m) => m.id !== msgId));
+        }, 15000);
+      }
     });
 
     // Listen for navigation events (from tray menu)
@@ -116,6 +127,7 @@ export default function App() {
           }}
           onOpenSettings={() => setView('settings')}
           onOpenCron={() => setView('cron')}
+          refreshTrigger={chatRefreshTrigger}
         />
       )}
 

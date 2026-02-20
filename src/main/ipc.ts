@@ -55,6 +55,37 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
         mainWindow.webContents.send('ai:stream', { chunk });
       });
       mainWindow.webContents.send('ai:stream', { done: true });
+
+      // Check if AI requested take-control mode
+      const pendingTask = agentLoop.consumePendingTakeControl();
+      if (pendingTask) {
+        // Show confirmation dialog
+        const confirm = await dialog.showMessageBox(mainWindow, {
+          type: 'warning',
+          buttons: ['Przejmij sterowanie', 'Anuluj'],
+          defaultId: 1,
+          cancelId: 1,
+          title: 'Przejęcie sterowania',
+          message: 'Agent chce przejąć sterowanie pulpitem',
+          detail: `Zadanie: ${pendingTask}\n\nAgent będzie autonomicznie sterował myszką i klawiaturą. Rusz myszką lub naciśnij ESC aby przerwać.`,
+        });
+        if (confirm.response === 0) {
+          securityGuardService.logAudit({
+            action: 'automation:take-control',
+            params: { task: pendingTask.slice(0, 200) },
+            source: 'automation',
+            result: 'allowed',
+          });
+          // Run take-control in background (don't block the IPC response)
+          agentLoop.startTakeControl(
+            pendingTask,
+            (status) => mainWindow.webContents.send('automation:status-update', status),
+            (chunk) => mainWindow.webContents.send('ai:stream', { chunk }),
+            true
+          ).catch((err) => console.error('Take-control error:', err));
+        }
+      }
+
       return { success: true };
     } catch (error: any) {
       mainWindow.webContents.send('ai:stream', { done: true });
@@ -239,6 +270,15 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
           if (analysis && analysis.hasInsight) {
             // Log to workflow service
             agentLoop.logScreenActivity(analysis.context, analysis.message);
+
+            // Save to conversation history so it appears in chat
+            memoryService.addMessage({
+              id: `proactive-${Date.now()}`,
+              role: 'assistant',
+              content: `\ud83d\udca1 **Obserwacja KxAI:**\n${analysis.message}${analysis.context ? `\n\n\ud83d\udccb ${analysis.context}` : ''}`,
+              timestamp: Date.now(),
+              type: 'proactive',
+            });
 
             mainWindow.webContents.send('ai:proactive', {
               type: 'screen-analysis',
