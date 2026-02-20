@@ -5,6 +5,7 @@ import { OnboardingWizard } from './components/OnboardingWizard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { CronPanel } from './components/CronPanel';
 import { ProactiveNotification } from './components/ProactiveNotification';
+import { initTTS, speak } from './utils/tts';
 import type { ProactiveMessage, KxAIConfig } from './types';
 
 type View = 'widget' | 'chat' | 'settings' | 'onboarding' | 'cron';
@@ -19,6 +20,8 @@ export default function App() {
   viewRef.current = view;
   // Counter to signal ChatPanel to reload history when proactive msg arrives while chat is open
   const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0);
+  // Take-control state from Ctrl+Shift+K
+  const [controlActive, setControlActive] = useState(false);
 
   useEffect(() => {
     async function init() {
@@ -38,9 +41,17 @@ export default function App() {
     }
     init();
 
+    // Initialize TTS
+    initTTS();
+
     // Listen for proactive messages
     const cleanupProactive = window.kxai.onProactiveMessage((data) => {
       const msgWithId: ProactiveMessage = { ...data, id: data.id || `proactive-${Date.now()}-${Math.random().toString(36).slice(2)}` };
+
+      // Speak the proactive message via TTS
+      if (data.message) {
+        speak(data.message);
+      }
 
       if (viewRef.current === 'chat') {
         // Chat is open — don't show popup, just refresh chat to show the saved message
@@ -60,9 +71,15 @@ export default function App() {
       setView(target as View);
     });
 
+    // Listen for take-control state changes (from Ctrl+Shift+K)
+    const cleanupControl = window.kxai.onControlState((data) => {
+      setControlActive(data.active);
+    });
+
     return () => {
       cleanupProactive();
       cleanupNavigate();
+      cleanupControl();
     };
   }, []);
 
@@ -114,6 +131,7 @@ export default function App() {
             setView('chat');
           }}
           hasNotification={proactiveMessages.length > 0}
+          controlActive={controlActive}
         />
       )}
 

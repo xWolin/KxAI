@@ -186,6 +186,7 @@ async function initializeServices(): Promise<void> {
   );
   agentLoop.setRAGService(ragService);
   agentLoop.setAutomationService(automationService);
+  agentLoop.setScreenCaptureService(screenCapture);
 
   // Start cron jobs
   cronService.startAll();
@@ -223,6 +224,34 @@ app.whenReady().then(async () => {
     } else {
       mainWindow?.show();
       mainWindow?.focus();
+    }
+  });
+
+  // Global shortcut to toggle take-control mode
+  globalShortcut.register('Ctrl+Shift+K', async () => {
+    if (!mainWindow) return;
+
+    if (agentLoop.isTakeControlActive()) {
+      // Stop take-control
+      agentLoop.stopTakeControl();
+      mainWindow.webContents.send('automation:status-update', '⛔ Sterowanie przerwane (Ctrl+Shift+K)');
+      mainWindow.webContents.send('agent:control-state', { active: false });
+    } else {
+      // Start take-control — ask AI what to do based on current screen
+      mainWindow.webContents.send('agent:control-state', { active: true, pending: true });
+
+      try {
+        const result = await agentLoop.startTakeControl(
+          'Użytkownik nacisnął Ctrl+Shift+K — przejmujesz sterowanie. Obserwuj ekran i kontynuuj pracę użytkownika. Gdy skończysz lub nie masz co robić, odpowiedz TASK_COMPLETE.',
+          (status) => mainWindow!.webContents.send('automation:status-update', status),
+          (chunk) => mainWindow!.webContents.send('ai:stream', { chunk }),
+          true // confirmed via keyboard shortcut
+        );
+        mainWindow.webContents.send('agent:control-state', { active: false });
+      } catch (err: any) {
+        console.error('Take-control shortcut error:', err);
+        mainWindow.webContents.send('agent:control-state', { active: false });
+      }
     }
   });
 });

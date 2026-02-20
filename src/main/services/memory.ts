@@ -196,6 +196,45 @@ export class MemoryService {
     await this.set(key, updated);
   }
 
+  /**
+   * Update a section within a memory file (SOUL.md, USER.md, MEMORY.md).
+   * If the section exists, replaces its content. If not, appends it.
+   * Used by agent-loop to let AI self-update its personality/knowledge.
+   */
+  async updateMemorySection(file: 'SOUL.md' | 'USER.md' | 'MEMORY.md', section: string, content: string): Promise<boolean> {
+    const allowed = ['SOUL.md', 'USER.md', 'MEMORY.md'];
+    if (!allowed.includes(file)) return false;
+
+    const existing = await this.get(file);
+    if (!existing) return false;
+
+    // Sanitize content — strip any markdown headings that could break structure
+    const sanitized = content.replace(/^#{1,2}\s/gm, '').trim();
+    if (!sanitized) return false;
+
+    // Find the section header (## Section Name)
+    const sectionHeader = `## ${section}`;
+    const headerIndex = existing.indexOf(sectionHeader);
+
+    let updated: string;
+
+    if (headerIndex !== -1) {
+      // Find the next section header or end of file
+      const afterHeader = headerIndex + sectionHeader.length;
+      const nextSectionMatch = existing.slice(afterHeader).search(/\n## /);
+      const endIndex = nextSectionMatch !== -1 ? afterHeader + nextSectionMatch : existing.length;
+
+      // Replace section content
+      updated = existing.slice(0, afterHeader) + '\n' + sanitized + '\n' + existing.slice(endIndex);
+    } else {
+      // Append new section
+      updated = existing.trimEnd() + '\n\n' + sectionHeader + '\n' + sanitized + '\n';
+    }
+
+    await this.set(file, updated);
+    return true;
+  }
+
   // ─── Default Templates ───
 
   private getDefaultSoul(): string {

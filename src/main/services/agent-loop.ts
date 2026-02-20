@@ -8,6 +8,7 @@ import { ConfigService } from './config';
 import { RAGService } from './rag-service';
 import { AutomationService } from './automation-service';
 import { SystemMonitor } from './system-monitor';
+import { ScreenCaptureService } from './screen-capture';
 
 /**
  * AgentLoop orchestrates the full agent lifecycle:
@@ -28,6 +29,7 @@ export class AgentLoop {
   private config: ConfigService;
   private rag?: RAGService;
   private automation?: AutomationService;
+  private screenCapture?: ScreenCaptureService;
   private systemMonitor: SystemMonitor;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private takeControlActive = false;
@@ -66,6 +68,10 @@ export class AgentLoop {
 
   setAutomationService(automation: AutomationService): void {
     this.automation = automation;
+  }
+
+  setScreenCaptureService(screenCapture: ScreenCaptureService): void {
+    this.screenCapture = screenCapture;
   }
 
   /**
@@ -177,6 +183,9 @@ export class AgentLoop {
       this.pendingTakeControlTask = takeControlTask;
       onChunk?.('\n\n🎮 Oczekuję na potwierdzenie przejęcia sterowania...\n');
     }
+
+    // Check for memory updates — AI self-updating its knowledge files
+    await this.processMemoryUpdates(fullResponse);
 
     return fullResponse;
   }
@@ -338,6 +347,36 @@ export class AgentLoop {
   }
 
   /**
+   * Parse and apply memory updates from AI response.
+   * AI outputs ```update_memory\n{"file":"user","section":"...","content":"..."}\n``` blocks.
+   * Supports multiple updates in one response.
+   */
+  private async processMemoryUpdates(response: string): Promise<void> {
+    const regex = /```update_memory\s*\n([\s\S]*?)\n```/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = regex.exec(response)) !== null) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        const fileMap: Record<string, 'SOUL.md' | 'USER.md' | 'MEMORY.md'> = {
+          soul: 'SOUL.md',
+          user: 'USER.md',
+          memory: 'MEMORY.md',
+        };
+
+        const file = fileMap[parsed.file?.toLowerCase()];
+        if (!file || !parsed.section || !parsed.content) continue;
+
+        // Sanitize content length — max 2000 chars per update
+        const content = String(parsed.content).slice(0, 2000);
+        const section = String(parsed.section).slice(0, 100);
+
+        await this.memory.updateMemorySection(file, section, content);
+      } catch { /* invalid JSON, skip */ }
+    }
+  }
+
+  /**
    * Build enhanced system context with tools + time + workflow + RAG stats.
    */
   async buildEnhancedContext(): Promise<string> {
@@ -381,6 +420,22 @@ Użytkownik zostanie poproszony o potwierdzenie. Po zatwierdzeniu agent autonomi
 Używaj tego TYLKO gdy użytkownik wyraźnie prosi o przejęcie kontroli nad pulpitem.
 ` : '';
 
+    const memoryUpdateInstructions = `
+## Aktualizacja pamięci (Self-Learning)
+Możesz aktualizować swoją wiedzę o użytkowniku, swojej osobowości i notatki za pomocą bloków:
+\`\`\`update_memory
+{"file": "user", "section": "Zainteresowania", "content": "- Programowanie (Electron, React, TypeScript)\\n- AI i machine learning"}
+\`\`\`
+Dostępne pliki: "user" (profil użytkownika), "soul" (twoja osobowość), "memory" (notatki długoterminowe).
+Aktualizuj pamięć gdy:
+- Dowiesz się czegoś nowego o użytkowniku (imię, rola, hobby, styl pracy, preferencje)
+- Użytkownik poprosi Cię żebyś coś zapamiętał
+- Zaobserwujesz powtarzający się wzorzec w zachowaniu użytkownika
+- Chcesz zanotować ważną decyzję lub ustalenie
+Dopasuj swój styl komunikacji do tego użytkownika — pisz tak jak on pisze do Ciebie.
+Nie aktualizuj pamięci przy każdej wiadomości — tylko gdy jest coś wartego zapamiętania.
+`;
+
     // System health warnings
     let systemCtx = '';
     try {
@@ -405,6 +460,7 @@ Używaj tego TYLKO gdy użytkownik wyraźnie prosi o przejęcie kontroli nad pul
       '\n',
       cronInstructions,
       takeControlInstructions,
+      memoryUpdateInstructions,
     ].join('\n');
   }
 
@@ -445,13 +501,29 @@ Używaj tego TYLKO gdy użytkownik wyraźnie prosi o przejęcie kontroli nad pul
       onStatus?.('🤖 Przejmuje sterowanie...');
 
       while (!this.takeControlAbort && totalActions < maxActions) {
-        // Get current screen context
+        // Get current screen context + vision
         const activeWindow = await this.automation.getActiveWindowTitle();
         const mousePos = await this.automation.getMousePosition();
 
-        const prompt = `[TAKE CONTROL MODE — Autonomiczna praca]\n\nZadanie: ${task}\n\nAktywne okno: ${activeWindow}\nPozycja myszy: (${mousePos.x}, ${mousePos.y})\nWykonane akcje: ${totalActions}/${maxActions}\nDotychczasowy log:\n${log.slice(-5).join('\n') || '(brak)'}\n\nCo robisz teraz? Użyj dostępnych narzędzi (mouse_click, keyboard_type, keyboard_shortcut, etc.) lub odpowiedz "TASK_COMPLETE" jeśli zadanie jest skończone.`;
+        // Capture fast screenshot for vision (640x360)
+        const screenshot = this.screenCapture ? await this.screenCapture.captureFast() : null;
 
-        const response = await this.processWithTools(prompt);
+        const prompt = `[TAKE CONTROL MODE — Autonomiczna praca]\n\nZadanie: ${task}\n\nAktywne okno: ${activeWindow}\nPozycja myszy: (${mousePos.x}, ${mousePos.y})\nWykonane akcje: ${totalActions}/${maxActions}\nDotychczasowy log:\n${log.slice(-5).join('\n') || '(brak)'}\n\n${screenshot ? 'Screenshot ekranu jest załączony — widzisz aktualny stan pulpitu.\n\n' : ''}Co robisz teraz? Użyj dostępnych narzędzi (mouse_click, keyboard_type, keyboard_shortcut, etc.) lub odpowiedz "TASK_COMPLETE" jeśli zadanie jest skończone.`;
+
+        let response: string;
+        if (screenshot) {
+          // Use vision-enabled processing
+          response = await this.ai.sendMessageWithVision(prompt, screenshot.base64);
+          // Process any tool calls from the vision response
+          const toolCall = this.parseToolCall(response);
+          if (toolCall) {
+            onChunk?.(`\n⚙️ ${toolCall.tool}...\n`);
+            const result = await this.tools.execute(toolCall.tool, toolCall.params);
+            response += `\n[Tool result: ${JSON.stringify(result.data || result.error).slice(0, 200)}]`;
+          }
+        } else {
+          response = await this.processWithTools(prompt);
+        }
 
         if (response.includes('TASK_COMPLETE') || response.includes('Zadanie ukończone')) {
           onStatus?.('✅ Zadanie ukończone');

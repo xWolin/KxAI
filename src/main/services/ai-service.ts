@@ -109,6 +109,59 @@ export class AIService {
     return { max_completion_tokens: limit };
   }
 
+  /**
+   * Send a message with a screenshot for vision analysis (non-streaming).
+   * Used by take-control mode for real-time screen awareness.
+   */
+  async sendMessageWithVision(userMessage: string, screenshotBase64: string): Promise<string> {
+    await this.ensureClient();
+    const provider = this.config.get('aiProvider') || 'openai';
+    const model = this.config.get('aiModel') || 'gpt-5';
+    const systemRole = this.getSystemRole(model);
+    const systemContext = this.memoryService
+      ? await this.memoryService.buildSystemContext()
+      : 'You are KxAI, a helpful personal AI assistant.';
+
+    if (provider === 'openai' && this.openaiClient) {
+      const response = await this.openaiClient.chat.completions.create({
+        model,
+        messages: [
+          { role: systemRole, content: systemContext },
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: userMessage },
+              { type: 'image_url', image_url: { url: screenshotBase64, detail: 'low' } },
+            ],
+          },
+        ],
+        ...this.openaiTokenParam(2048),
+        temperature: 0.5,
+      });
+      return response.choices[0]?.message?.content || '';
+    } else if (provider === 'anthropic' && this.anthropicClient) {
+      // Extract base64 data from data URL
+      const base64Match = screenshotBase64.match(/^data:image\/(.*?);base64,(.*)$/);
+      const mediaType = base64Match?.[1] || 'png';
+      const data = base64Match?.[2] || screenshotBase64;
+
+      const response = await this.anthropicClient.messages.create({
+        model,
+        max_tokens: 2048,
+        system: systemContext,
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'text', text: userMessage },
+            { type: 'image', source: { type: 'base64', media_type: `image/${mediaType}`, data } },
+          ],
+        }],
+      });
+      return response.content[0]?.type === 'text' ? response.content[0].text : '';
+    }
+    throw new Error('No AI client configured');
+  }
+
   async sendMessage(userMessage: string, extraContext?: string): Promise<string> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';

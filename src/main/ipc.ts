@@ -77,12 +77,18 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
             result: 'allowed',
           });
           // Run take-control in background (don't block the IPC response)
+          mainWindow.webContents.send('agent:control-state', { active: true });
           agentLoop.startTakeControl(
             pendingTask,
             (status) => mainWindow.webContents.send('automation:status-update', status),
             (chunk) => mainWindow.webContents.send('ai:stream', { chunk }),
             true
-          ).catch((err) => console.error('Take-control error:', err));
+          ).then(() => {
+            mainWindow.webContents.send('agent:control-state', { active: false });
+          }).catch((err) => {
+            console.error('Take-control error:', err);
+            mainWindow.webContents.send('agent:control-state', { active: false });
+          });
         }
       }
 

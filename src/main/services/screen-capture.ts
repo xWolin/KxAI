@@ -82,4 +82,32 @@ export class ScreenCaptureService {
   getWatchingStatus(): boolean {
     return this.isWatching;
   }
+
+  /**
+   * Fast capture at reduced resolution for take-control mode.
+   * 640x360 is enough for AI vision and much cheaper/faster.
+   */
+  async captureFast(): Promise<ScreenshotData | null> {
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: 640, height: 360 },
+      });
+
+      if (sources.length > 0 && sources[0].thumbnail && !sources[0].thumbnail.isEmpty()) {
+        const thumbnail = sources[0].thumbnail;
+        return {
+          displayId: 0,
+          displayLabel: 'primary',
+          base64: thumbnail.toDataURL(),
+          width: thumbnail.getSize().width,
+          height: thumbnail.getSize().height,
+          timestamp: Date.now(),
+        };
+      }
+    } catch (error) {
+      console.error('Fast capture error:', error);
+    }
+    return null;
+  }
 }

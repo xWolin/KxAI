@@ -159,6 +159,27 @@ html, body, #root {
   animation: pulse 1.5s infinite;
 }
 
+/* Take-control active — green pulsing ring */
+.floating-widget--control {
+  animation: none;
+  box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7);
+  background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
+}
+
+.floating-widget--control .floating-widget__control-ring {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid #4caf50;
+  animation: control-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes control-pulse {
+  0% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.25); opacity: 0.4; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 /* ────────── ChatPanel ────────── */
 .chat-panel {
   width: 100%;

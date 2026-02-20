@@ -78,6 +78,7 @@ export interface KxAIBridge {
   automationTakeControl: (task: string) => Promise<{ success: boolean; data?: string; error?: string }>;
   automationStopControl: () => Promise<{ success: boolean }>;
   onAutomationStatus: (callback: (data: AutomationStatus) => void) => (() => void);
+  onControlState: (callback: (data: { active: boolean; pending?: boolean }) => void) => (() => void);
 
   // Browser
   browserListSessions: () => Promise<BrowserSession[]>;

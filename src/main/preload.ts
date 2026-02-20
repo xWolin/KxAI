@@ -120,6 +120,11 @@ contextBridge.exposeInMainWorld('kxai', {
     ipcRenderer.on('automation:status-update', handler);
     return () => { ipcRenderer.removeListener('automation:status-update', handler); };
   },
+  onControlState: (callback: (data: { active: boolean; pending?: boolean }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('agent:control-state', handler);
+    return () => { ipcRenderer.removeListener('agent:control-state', handler); };
+  },
 
   // Browser
   browserListSessions: () => ipcRenderer.invoke('browser:list-sessions'),

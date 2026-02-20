@@ -5,9 +5,10 @@ interface FloatingWidgetProps {
   name: string;
   onClick: () => void;
   hasNotification: boolean;
+  controlActive?: boolean;
 }
 
-export function FloatingWidget({ emoji, name, onClick, hasNotification }: FloatingWidgetProps) {
+export function FloatingWidget({ emoji, name, onClick, hasNotification, controlActive }: FloatingWidgetProps) {
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const windowPosRef = useRef<[number, number]>([0, 0]);
@@ -68,14 +69,19 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification }: Floati
   return (
     <div
       onMouseDown={handleMouseDown}
-      className={`floating-widget${hasNotification ? ' floating-widget--notify' : ''}`}
-      title={`${name} — kliknij aby otworzyć`}
+      className={`floating-widget${hasNotification ? ' floating-widget--notify' : ''}${controlActive ? ' floating-widget--control' : ''}`}
+      title={`${name}${controlActive ? ' — sterowanie aktywne (Ctrl+Shift+K aby zatrzymać)' : ' — kliknij aby otworzyć'}`}
     >
       <span className="floating-widget__emoji">{emoji}</span>
       
       {/* Notification badge */}
       {hasNotification && (
         <div className="floating-widget__badge" />
+      )}
+
+      {/* Control active indicator */}
+      {controlActive && (
+        <div className="floating-widget__control-ring" />
       )}
     </div>
   );
