@@ -76,6 +76,7 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": true,
       "installerIcon": "assets/icons/win/icon.ico",
       "uninstallerIcon": "assets/icons/win/icon.ico",
       "installerHeaderIcon": "assets/icons/win/icon.ico"

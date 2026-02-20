@@ -34,7 +34,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron }: ChatP
         streamingContentRef.current = '';
 
         if (finalContent) {
-          // Immediately add the AI response to local state so it doesn't "flash away"
+          // Immediately add the AI response to local state
           setMessages((prev) => [
             ...prev,
             {
@@ -46,10 +46,9 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron }: ChatP
             },
           ]);
         }
-
-        // Then sync with backend (will replace optimistic IDs with real ones)
-        // Small delay to ensure backend has finished saving
-        setTimeout(() => loadHistory(), 300);
+        // NOTE: Do NOT call loadHistory() here!
+        // It would overwrite locally-added error messages.
+        // Syncing with backend happens in sendMessage/captureAndAnalyze on success.
       } else if (data.chunk) {
         setStreamingContent((prev) => {
           const updated = prev + data.chunk;
@@ -96,7 +95,10 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron }: ChatP
 
     try {
       const result = await window.kxai.streamMessage(userMessage);
-      if (!result.success) {
+      if (result.success) {
+        // Sync with backend to get real IDs (replaces optimistic msg + stream msg)
+        await loadHistory();
+      } else {
         setIsStreaming(false);
         setMessages((prev) => [
           ...prev,
@@ -149,7 +151,10 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron }: ChatP
       const result = await window.kxai.streamWithScreen(
         'Przeanalizuj mój obecny ekran. Co widzisz? Jakie masz obserwacje, porady, uwagi?'
       );
-      if (!result.success) {
+      if (result.success) {
+        // Sync with backend to get real IDs
+        await loadHistory();
+      } else {
         setIsStreaming(false);
         setMessages((prev) => [
           ...prev,
