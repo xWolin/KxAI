@@ -77,6 +77,16 @@ html, body, #root {
   50% { box-shadow: 0 0 24px rgba(108, 99, 255, 0.6); }
 }
 
+@keyframes suggestion-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(76, 175, 80, 0.3); }
+  50% { box-shadow: 0 0 28px rgba(76, 175, 80, 0.7), 0 0 6px rgba(76, 175, 80, 0.4); }
+}
+
+@keyframes speak-glow {
+  0%, 100% { box-shadow: 0 0 10px rgba(255, 193, 7, 0.3); }
+  50% { box-shadow: 0 0 28px rgba(255, 193, 7, 0.7), 0 0 6px rgba(255, 193, 7, 0.4); }
+}
+
 @keyframes dotPulse {
   0%, 80%, 100% { transform: scale(0); opacity: 0; }
   40% { transform: scale(1); opacity: 1; }
@@ -178,6 +188,26 @@ html, body, #root {
   0% { transform: scale(1); opacity: 1; }
   50% { transform: scale(1.25); opacity: 0.4; }
   100% { transform: scale(1); opacity: 1; }
+}
+
+/* Suggestion ready — green glow */
+.floating-widget--suggestion {
+  background: linear-gradient(135deg, #4caf50 0%, #2e7d32 100%);
+  animation: suggestion-glow 1.6s ease-in-out infinite;
+}
+
+.floating-widget--suggestion .floating-widget__badge {
+  background: #4caf50;
+}
+
+/* Agent wants to speak — yellow glow */
+.floating-widget--speak {
+  background: linear-gradient(135deg, #ffc107 0%, #f57f17 100%);
+  animation: speak-glow 1.4s ease-in-out infinite;
+}
+
+.floating-widget--speak .floating-widget__badge {
+  background: #ffc107;
 }
 
 /* ────────── ChatPanel ────────── */
@@ -304,6 +334,161 @@ html, body, #root {
 .chat-bubble--assistant {
   border-radius: 12px 12px 12px 4px;
   background: var(--bg-tertiary);
+}
+
+/* ── Markdown inside chat bubbles ── */
+.chat-markdown {
+  white-space: normal;
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
+}
+.chat-markdown p {
+  margin: 0 0 8px 0;
+}
+.chat-markdown p:last-child {
+  margin-bottom: 0;
+}
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3 {
+  margin: 12px 0 6px 0;
+  font-weight: 600;
+  line-height: 1.3;
+}
+.chat-markdown h1 { font-size: 1.1em; }
+.chat-markdown h2 { font-size: 1.05em; }
+.chat-markdown h3 { font-size: 1em; }
+.chat-markdown strong {
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.chat-markdown em {
+  font-style: italic;
+}
+.chat-markdown ul, .chat-markdown ol {
+  margin: 4px 0 8px 0;
+  padding-left: 20px;
+}
+.chat-markdown li {
+  margin-bottom: 2px;
+}
+.chat-markdown code {
+  background: rgba(255, 255, 255, 0.08);
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: 'Fira Code', 'Consolas', monospace;
+  font-size: 0.9em;
+}
+.chat-markdown pre {
+  background: rgba(0, 0, 0, 0.3);
+  padding: 10px 12px;
+  border-radius: 8px;
+  overflow-x: auto;
+  margin: 8px 0;
+  position: relative;
+}
+.chat-markdown pre code {
+  background: none;
+  padding: 0;
+}
+.chat-markdown blockquote {
+  border-left: 3px solid var(--accent);
+  margin: 8px 0;
+  padding: 4px 12px;
+  opacity: 0.85;
+}
+.chat-markdown hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 10px 0;
+}
+.chat-markdown a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.chat-markdown table {
+  border-collapse: collapse;
+  margin: 8px 0;
+  font-size: 0.9em;
+}
+.chat-markdown th, .chat-markdown td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+.chat-markdown th {
+  background: rgba(255, 255, 255, 0.05);
+  font-weight: 600;
+}
+
+/* Copy button for messages */
+.chat-bubble-wrapper {
+  position: relative;
+}
+
+.chat-copy-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.2s;
+  -webkit-user-select: none;
+  user-select: none;
+  z-index: 2;
+}
+
+.chat-bubble-wrapper:hover .chat-copy-btn {
+  opacity: 1;
+}
+
+.chat-copy-btn:hover {
+  background: rgba(255, 255, 255, 0.16);
+  color: var(--text-primary);
+}
+
+.chat-copy-btn--copied {
+  opacity: 1;
+  color: #4caf50;
+}
+
+/* Code block copy button */
+.chat-code-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  opacity: 0;
+  transition: opacity 0.2s;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.chat-markdown pre:hover .chat-code-copy {
+  opacity: 1;
+}
+
+.chat-code-copy:hover {
+  background: rgba(255, 255, 255, 0.2);
+  color: var(--text-primary);
 }
 
 .chat-msg__time {

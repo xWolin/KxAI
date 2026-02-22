@@ -6,7 +6,7 @@ export interface KxAIBridge {
   streamMessage: (message: string, context?: string) => Promise<{ success: boolean; error?: string }>;
   streamWithScreen: (message: string) => Promise<{ success: boolean; error?: string }>;
   onAIResponse: (callback: (data: any) => void) => (() => void);
-  onAIStream: (callback: (data: { chunk?: string; done?: boolean }) => void) => (() => void);
+  onAIStream: (callback: (data: { chunk?: string; done?: boolean; takeControlStart?: boolean }) => void) => (() => void);
   onProactiveMessage: (callback: (data: ProactiveMessage) => void) => (() => void);
 
   // Screen capture
@@ -80,6 +80,9 @@ export interface KxAIBridge {
   onAutomationStatus: (callback: (data: AutomationStatus) => void) => (() => void);
   onControlState: (callback: (data: { active: boolean; pending?: boolean }) => void) => (() => void);
 
+  // Companion (smart monitor) states
+  onCompanionState: (callback: (data: { hasSuggestion?: boolean; wantsToSpeak?: boolean }) => void) => (() => void);
+
   // Browser
   browserListSessions: () => Promise<BrowserSession[]>;
   browserCloseAll: () => Promise<{ success: boolean }>;
@@ -97,6 +100,20 @@ export interface KxAIBridge {
   systemSnapshot: () => Promise<{ success: boolean; data?: SystemSnapshot; error?: string }>;
   systemStatus: () => Promise<string>;
   systemWarnings: () => Promise<string[]>;
+
+  // TTS (Edge TTS)
+  ttsSpeak: (text: string) => Promise<{ success: boolean; audioPath?: string; fallback?: boolean; error?: string }>;
+  ttsStop: () => Promise<{ success: boolean }>;
+  ttsGetConfig: () => Promise<TTSConfig>;
+  ttsSetConfig: (updates: Partial<TTSConfig>) => Promise<{ success: boolean }>;
+
+  // Bootstrap
+  isBootstrapPending: () => Promise<boolean>;
+  completeBootstrap: () => Promise<{ success: boolean }>;
+
+  // HEARTBEAT.md
+  heartbeatGetConfig: () => Promise<{ content: string }>;
+  heartbeatSetConfig: (content: string) => Promise<{ success: boolean }>;
 }
 
 export interface ConversationMessage {
@@ -241,6 +258,17 @@ export interface SecurityStats {
   blockedActions: number;
   rateLimitedActions: number;
   last24h: { total: number; blocked: number };
+}
+
+// ──────────────── System Monitor ────────────────
+// ──────────────── TTS ────────────────
+export interface TTSConfig {
+  enabled: boolean;
+  provider: 'edge' | 'web';
+  voice: string;
+  rate: string;
+  volume: string;
+  maxChars: number;
 }
 
 // ──────────────── System Monitor ────────────────

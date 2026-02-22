@@ -125,6 +125,11 @@ contextBridge.exposeInMainWorld('kxai', {
     ipcRenderer.on('agent:control-state', handler);
     return () => { ipcRenderer.removeListener('agent:control-state', handler); };
   },
+  onCompanionState: (callback: (data: { hasSuggestion?: boolean; wantsToSpeak?: boolean }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('agent:companion-state', handler);
+    return () => { ipcRenderer.removeListener('agent:companion-state', handler); };
+  },
 
   // Browser
   browserListSessions: () => ipcRenderer.invoke('browser:list-sessions'),
@@ -143,4 +148,18 @@ contextBridge.exposeInMainWorld('kxai', {
   systemSnapshot: () => ipcRenderer.invoke('system:snapshot'),
   systemStatus: () => ipcRenderer.invoke('system:status'),
   systemWarnings: () => ipcRenderer.invoke('system:warnings'),
+
+  // TTS (Edge TTS)
+  ttsSpeak: (text: string) => ipcRenderer.invoke('tts:speak', text),
+  ttsStop: () => ipcRenderer.invoke('tts:stop'),
+  ttsGetConfig: () => ipcRenderer.invoke('tts:get-config'),
+  ttsSetConfig: (updates: Record<string, any>) => ipcRenderer.invoke('tts:set-config', updates),
+
+  // Bootstrap
+  isBootstrapPending: () => ipcRenderer.invoke('bootstrap:is-pending'),
+  completeBootstrap: () => ipcRenderer.invoke('bootstrap:complete'),
+
+  // HEARTBEAT.md
+  heartbeatGetConfig: () => ipcRenderer.invoke('heartbeat:get-config'),
+  heartbeatSetConfig: (content: string) => ipcRenderer.invoke('heartbeat:set-config', content),
 });

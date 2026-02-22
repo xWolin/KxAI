@@ -23,6 +23,38 @@ interface ScreenAnalysisResult {
   context: string;
 }
 
+/**
+ * Anthropic Computer Use tool_use action types.
+ */
+export interface ComputerUseAction {
+  action: string;
+  coordinate?: [number, number];
+  start_coordinate?: [number, number];
+  text?: string;
+  scroll_direction?: 'up' | 'down' | 'left' | 'right';
+  scroll_amount?: number;
+  duration?: number;
+  key?: string;
+}
+
+/**
+ * Result of one Computer Use API step.
+ */
+export interface ComputerUseStep {
+  type: 'action' | 'text' | 'done';
+  action?: ComputerUseAction;
+  toolUseId?: string;
+  text?: string;
+}
+
+/**
+ * Messages for the Computer Use conversation loop.
+ */
+export interface ComputerUseMessage {
+  role: 'user' | 'assistant';
+  content: any[];
+}
+
 export class AIService {
   private config: ConfigService;
   private security: SecurityService;
@@ -112,15 +144,22 @@ export class AIService {
   /**
    * Send a message with a screenshot for vision analysis (non-streaming).
    * Used by take-control mode for real-time screen awareness.
+   * @param detail - OpenAI image detail level: 'low' (faster/cheaper), 'high' (better coords), 'auto'
    */
-  async sendMessageWithVision(userMessage: string, screenshotBase64: string): Promise<string> {
+  async sendMessageWithVision(
+    userMessage: string,
+    screenshotBase64: string,
+    systemContextOverride?: string,
+    detail: 'low' | 'high' | 'auto' = 'auto'
+  ): Promise<string> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
     const model = this.config.get('aiModel') || 'gpt-5';
     const systemRole = this.getSystemRole(model);
-    const systemContext = this.memoryService
-      ? await this.memoryService.buildSystemContext()
-      : 'You are KxAI, a helpful personal AI assistant.';
+    const systemContext = systemContextOverride
+      ?? (this.memoryService
+        ? await this.memoryService.buildSystemContext()
+        : 'You are KxAI, a helpful personal AI assistant.');
 
     if (provider === 'openai' && this.openaiClient) {
       const response = await this.openaiClient.chat.completions.create({
@@ -131,7 +170,7 @@ export class AIService {
             role: 'user',
             content: [
               { type: 'text', text: userMessage },
-              { type: 'image_url', image_url: { url: screenshotBase64, detail: 'low' } },
+              { type: 'image_url', image_url: { url: screenshotBase64, detail } },
             ],
           },
         ],
@@ -141,9 +180,28 @@ export class AIService {
       return response.choices[0]?.message?.content || '';
     } else if (provider === 'anthropic' && this.anthropicClient) {
       // Extract base64 data from data URL
+      let mediaType = 'png';
+      let data: string;
       const base64Match = screenshotBase64.match(/^data:image\/(.*?);base64,(.*)$/);
-      const mediaType = base64Match?.[1] || 'png';
-      const data = base64Match?.[2] || screenshotBase64;
+      if (base64Match) {
+        mediaType = base64Match[1];
+        data = base64Match[2];
+      } else if (screenshotBase64.startsWith('data:')) {
+        // Non-standard data URL — strip prefix up to first comma
+        const commaIdx = screenshotBase64.indexOf(',');
+        data = commaIdx >= 0 ? screenshotBase64.slice(commaIdx + 1) : screenshotBase64;
+      } else {
+        // Raw base64 string
+        data = screenshotBase64;
+      }
+
+      // Validate base64 payload
+      try {
+        const buf = Buffer.from(data, 'base64');
+        if (buf.length === 0) throw new Error('Empty base64 payload');
+      } catch (e) {
+        throw new Error(`Invalid screenshot base64 data: ${e instanceof Error ? e.message : e}`);
+      }
 
       const response = await this.anthropicClient.messages.create({
         model,
@@ -162,15 +220,16 @@ export class AIService {
     throw new Error('No AI client configured');
   }
 
-  async sendMessage(userMessage: string, extraContext?: string): Promise<string> {
+  async sendMessage(userMessage: string, extraContext?: string, systemContextOverride?: string): Promise<string> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
     const model = this.config.get('aiModel') || 'gpt-5';
 
-    // Build system context from memory
-    const systemContext = this.memoryService
-      ? await this.memoryService.buildSystemContext()
-      : 'You are KxAI, a helpful personal AI assistant.';
+    // Build system context from memory (or use override from agent-loop)
+    const systemContext = systemContextOverride
+      ?? (this.memoryService
+        ? await this.memoryService.buildSystemContext()
+        : 'You are KxAI, a helpful personal AI assistant.');
 
     // Build optimized conversation history via ContextManager
     const fullHistory = this.memoryService
@@ -264,15 +323,17 @@ export class AIService {
   async streamMessage(
     userMessage: string,
     extraContext?: string,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
+    systemContextOverride?: string
   ): Promise<void> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
     const model = this.config.get('aiModel') || 'gpt-5';
 
-    const systemContext = this.memoryService
-      ? await this.memoryService.buildSystemContext()
-      : 'You are KxAI, a helpful personal AI assistant.';
+    const systemContext = systemContextOverride
+      ?? (this.memoryService
+        ? await this.memoryService.buildSystemContext()
+        : 'You are KxAI, a helpful personal AI assistant.');
 
     // Build optimized history via ContextManager
     const fullHistory = this.memoryService
@@ -481,26 +542,29 @@ export class AIService {
       ? await this.memoryService.buildSystemContext()
       : '';
 
-    const analysisPrompt = `Jesteś KxAI — osobistym asystentem AI użytkownika. Analizujesz zrzut(y) ekranu użytkownika.
+    const analysisPrompt = `Jesteś KxAI — osobistym asystentem AI i towarzyszem na pulpicie użytkownika. Obserwujesz ekran i pomagasz.
 
 ${systemContext}
 
-Twoje zadanie:
+Twoje zadanie — bądź AKTYWNY i POMOCNY:
 1. Przeanalizuj co użytkownik aktualnie robi na ekranie
-2. Jeśli widzisz konwersację (WhatsApp, Messenger, Slack, etc.) — przeanalizuj o czym rozmawiają
-3. Jeśli widzisz kod — przeanalizuj co koduje, czy są błędy, co można poprawić
-4. Jeśli widzisz coś interesującego co wymaga komentarza lub porady — zgłoś to
+2. Jeśli widzisz konwersację (WhatsApp, Messenger, Slack, Discord) — skomentuj, zaproponuj odpowiedź, daj tip
+3. Jeśli widzisz kod — zauważ błędy, zaproponuj poprawki, skomentuj architekturę
+4. Jeśli widzisz przeglądarkę — skomentuj stronę, zaproponuj coś przydatnego
+5. Jeśli widzisz dokument/notatki — pomoż z treścią, zaproponuj uzupełnienia
+6. Jeśli widzisz cokolwiek ciekawego — skomentuj to!
 
 Odpowiedz w formacie JSON:
 {
   "hasInsight": true/false,
-  "message": "Twoja obserwacja/porada/analiza",
-  "context": "krótki opis co widzisz na ekranie",
+  "message": "Twoja obserwacja/porada/analiza — bądź konkretny i pomocny",
+  "context": "krótki opis co widzisz na ekranie (max 2 zdania)",
   "importance": "low/medium/high"
 }
 
-Odpowiadaj TYLKO jeśli masz coś wartościowego do powiedzenia. Nie komentuj trywialnych rzeczy.
-hasInsight=false jeśli nie masz nic istotnego.`;
+WAŻNE: Staraj się ZAWSZE znaleźć coś wartościowego do powiedzenia. Jesteś towarzyszem, nie milczącym obserwatorem.
+hasInsight=false TYLKO jeśli ekran jest naprawdę pusty lub zablokowany.
+Mów po polsku, bądź zwięzły ale pomocny.`;
 
     try {
       if (provider === 'openai' && this.openaiClient) {
@@ -642,5 +706,182 @@ hasInsight=false jeśli nie masz nic istotnego.`;
         ? `Uporządkowano ${moved.length} plików.`
         : 'Brak plików do uporządkowania.',
     };
+  }
+
+  // ─── Native Computer Use API (Anthropic) ───
+
+  /**
+   * Check if the current provider supports native Computer Use API.
+   * Anthropic models with computer_20250124 tool type.
+   */
+  supportsNativeComputerUse(): boolean {
+    const provider = this.config.get('aiProvider') || 'openai';
+    return provider === 'anthropic';
+  }
+
+  /**
+   * Get the appropriate Computer Use tool version for the current model.
+   */
+  private getComputerUseToolVersion(): string {
+    const model = this.config.get('aiModel') || '';
+    // Claude Opus 4.5+, Opus 4.6, Sonnet 4.5+, Sonnet 4.6 support computer_20251124
+    if (/claude-(opus|sonnet)-(4-[5-9]|4\.[5-9]|4\.\d{2,})/.test(model)) {
+      return 'computer_20251124';
+    }
+    // All other Claude models (Sonnet 4, Opus 4, Opus 4.1, Haiku 4.5, 3.7) use computer_20250124
+    return 'computer_20250124';
+  }
+
+  /**
+   * Get the beta flag for the Computer Use API version.
+   */
+  private getComputerUseBetaFlag(): string {
+    const toolVersion = this.getComputerUseToolVersion();
+    if (toolVersion === 'computer_20251124') return 'computer-use-2025-11-24';
+    return 'computer-use-2025-01-24';
+  }
+
+  /**
+   * Send a Computer Use API request and parse the response into structured steps.
+   * Uses Anthropic's native beta.messages API with computer tool.
+   * 
+   * @param systemPrompt - System context for the agent
+   * @param messages - Conversation history (user/assistant turns)
+   * @param displayWidth - Screenshot width in pixels (should be ≤1024)
+   * @param displayHeight - Screenshot height in pixels (should be ≤768)
+   * @returns Array of steps (actions to execute or text responses)
+   */
+  async computerUseStep(
+    systemPrompt: string,
+    messages: ComputerUseMessage[],
+    displayWidth: number,
+    displayHeight: number
+  ): Promise<ComputerUseStep[]> {
+    await this.ensureClient();
+    if (!this.anthropicClient) {
+      throw new Error('Computer Use wymaga Anthropic API. Ustaw provider na "anthropic".');
+    }
+
+    const model = this.config.get('aiModel') || 'claude-sonnet-4-20250514';
+    const toolVersion = this.getComputerUseToolVersion();
+    const betaFlag = this.getComputerUseBetaFlag();
+
+    const response = await this.anthropicClient.beta.messages.create({
+      model,
+      max_tokens: 1024,
+      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+      tools: [
+        {
+          type: toolVersion,
+          name: 'computer',
+          display_width_px: displayWidth,
+          display_height_px: displayHeight,
+        },
+      ],
+      messages,
+      betas: [betaFlag, 'prompt-caching-2024-07-31'],
+    });
+
+    const steps: ComputerUseStep[] = [];
+
+    for (const block of response.content) {
+      if (block.type === 'tool_use' && block.name === 'computer') {
+        steps.push({
+          type: 'action',
+          action: block.input as ComputerUseAction,
+          toolUseId: block.id,
+        });
+      } else if (block.type === 'text') {
+        const text = block.text?.trim();
+        if (text) {
+          steps.push({ type: 'text', text });
+        }
+      }
+    }
+
+    // If no tool_use blocks, the model is done
+    if (response.stop_reason !== 'tool_use') {
+      steps.push({ type: 'done' });
+    }
+
+    return steps;
+  }
+
+  /**
+   * Build a tool_result message to send back after executing a Computer Use action.
+   * Includes screenshot as base64 image.
+   */
+  buildComputerUseToolResult(toolUseId: string, screenshotBase64: string, error?: string): any {
+    const content: any[] = [];
+
+    if (error) {
+      content.push({ type: 'text', text: error });
+    }
+
+    content.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: 'image/png',
+        data: screenshotBase64,
+      },
+    });
+
+    return {
+      type: 'tool_result',
+      tool_use_id: toolUseId,
+      content,
+      is_error: !!error,
+    };
+  }
+
+  /**
+   * Limit the number of images in Computer Use conversation history.
+   * Keeps only the N most recent images to control costs.
+   * Replaces older images with [Screenshot removed] placeholder.
+   */
+  pruneComputerUseImages(messages: ComputerUseMessage[], keepImages: number = 3): void {
+    // Collect all image locations (newest first)
+    const imageLocations: Array<{ msgIdx: number; contentIdx: number }> = [];
+
+    for (let m = messages.length - 1; m >= 0; m--) {
+      const msg = messages[m];
+      if (!Array.isArray(msg.content)) continue;
+
+      for (let c = msg.content.length - 1; c >= 0; c--) {
+        const item = msg.content[c];
+        // tool_result with image inside, or direct image block
+        if (item.type === 'image') {
+          imageLocations.push({ msgIdx: m, contentIdx: c });
+        } else if (item.type === 'tool_result' && Array.isArray(item.content)) {
+          for (let i = item.content.length - 1; i >= 0; i--) {
+            if (item.content[i].type === 'image') {
+              imageLocations.push({ msgIdx: m, contentIdx: c });
+              break; // One image per tool_result is enough to track
+            }
+          }
+        }
+      }
+    }
+
+    // Remove images beyond the keep limit (oldest first)
+    if (imageLocations.length > keepImages) {
+      const toRemove = imageLocations.slice(keepImages); // These are the oldest
+      for (const loc of toRemove) {
+        const content = messages[loc.msgIdx].content[loc.contentIdx];
+        if (content.type === 'image') {
+          // Replace image with placeholder text
+          messages[loc.msgIdx].content[loc.contentIdx] = {
+            type: 'text',
+            text: '[Screenshot removed to save context]',
+          };
+        } else if (content.type === 'tool_result' && Array.isArray(content.content)) {
+          // Replace images inside tool_result
+          content.content = content.content.map((c: any) =>
+            c.type === 'image' ? { type: 'text', text: '[Screenshot removed]' } : c
+          );
+        }
+      }
+    }
   }
 }

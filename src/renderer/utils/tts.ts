@@ -1,14 +1,18 @@
 /**
- * Simple TTS wrapper using Web Speech API.
- * Zero dependencies, works in Electron renderer.
+ * TTS wrapper — Edge TTS (via main process) with Web Speech API fallback.
+ *
+ * Flow:
+ * 1. Try Edge TTS via IPC (high-quality neural voice, free)
+ * 2. If Edge TTS fails or is disabled, fall back to Web Speech API (renderer-side)
  */
 
 let ttsEnabled = true;
 let ttsVoice: SpeechSynthesisVoice | null = null;
 let ttsRate = 1.0;
+let currentAudio: HTMLAudioElement | null = null;
 
 /**
- * Initialize TTS — find the best Polish voice.
+ * Initialize TTS — find the best Polish voice for Web Speech API fallback.
  */
 export function initTTS(): void {
   if (!('speechSynthesis' in window)) return;
@@ -26,13 +30,49 @@ export function initTTS(): void {
 }
 
 /**
- * Speak text aloud. Cancels any ongoing speech.
+ * Speak text aloud. Tries Edge TTS first, falls back to Web Speech API.
+ * Cancels any ongoing speech.
  */
-export function speak(text: string): void {
-  if (!ttsEnabled || !('speechSynthesis' in window)) return;
+export async function speak(text: string): Promise<void> {
+  if (!ttsEnabled) return;
 
   // Cancel any ongoing speech
-  speechSynthesis.cancel();
+  stopSpeaking();
+
+  // Try Edge TTS via main process first
+  try {
+    if (window.kxai?.ttsSpeak) {
+      const result = await window.kxai.ttsSpeak(text);
+      if (result.success && result.audioPath) {
+        // Play the generated audio file
+        currentAudio = new Audio(`file://${result.audioPath}`);
+        currentAudio.volume = 0.8;
+        currentAudio.playbackRate = ttsRate;
+        currentAudio.play().catch(() => {
+          // Audio playback failed — try Web Speech API fallback
+          speakWebSpeechAPI(text);
+        });
+        return;
+      }
+      // If fallback flag set, use Web Speech API
+      if (result.fallback) {
+        speakWebSpeechAPI(text);
+        return;
+      }
+    }
+  } catch {
+    // Edge TTS IPC failed — fall back
+  }
+
+  // Fallback: Web Speech API
+  speakWebSpeechAPI(text);
+}
+
+/**
+ * Fallback TTS via Web Speech API (built-in, lower quality).
+ */
+function speakWebSpeechAPI(text: string): void {
+  if (!('speechSynthesis' in window)) return;
 
   // Clean text — strip markdown, emojis, code blocks
   const clean = text
@@ -41,7 +81,7 @@ export function speak(text: string): void {
     .replace(/\*\*([^*]+)\*\*/g, '$1')         // bold
     .replace(/\*([^*]+)\*/g, '$1')             // italic
     .replace(/#{1,6}\s/g, '')                  // headers
-    .replace(/[🤖💡📋📸⚙️🎮✅⛔⚠️●]/gu, '')  // common emojis
+    .replace(/[🤖💡📋📸⚙️🎮✅⛔⚠️●🔔]/gu, '')  // common emojis
     .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')   // links
     .trim();
 
@@ -60,9 +100,13 @@ export function speak(text: string): void {
 }
 
 /**
- * Stop any ongoing speech.
+ * Stop any ongoing speech (both Edge TTS audio and Web Speech API).
  */
 export function stopSpeaking(): void {
+  if (currentAudio) {
+    currentAudio.pause();
+    currentAudio = null;
+  }
   if ('speechSynthesis' in window) {
     speechSynthesis.cancel();
   }

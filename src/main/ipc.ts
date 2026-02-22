@@ -17,6 +17,8 @@ import { BrowserService } from './services/browser-service';
 import { PluginService } from './services/plugin-service';
 import { SecurityGuard } from './services/security-guard';
 import { SystemMonitor } from './services/system-monitor';
+import { TTSService } from './services/tts-service';
+import { ScreenMonitorService } from './services/screen-monitor';
 
 interface Services {
   configService: ConfigService;
@@ -34,10 +36,12 @@ interface Services {
   pluginService: PluginService;
   securityGuardService: SecurityGuard;
   systemMonitorService: SystemMonitor;
+  ttsService: TTSService;
+  screenMonitorService: ScreenMonitorService;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
-  const { configService, securityService, memoryService, aiService, screenCapture, cronService, toolsService, workflowService, agentLoop, ragService, automationService, browserService, pluginService, securityGuardService, systemMonitorService } = services;
+  const { configService, securityService, memoryService, aiService, screenCapture, cronService, toolsService, workflowService, agentLoop, ragService, automationService, browserService, pluginService, securityGuardService, systemMonitorService, ttsService, screenMonitorService } = services;
 
   // ──────────────── AI Messages ────────────────
   ipcMain.handle('ai:send-message', async (_event, message: string, context?: string) => {
@@ -78,15 +82,20 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
           });
           // Run take-control in background (don't block the IPC response)
           mainWindow.webContents.send('agent:control-state', { active: true });
+          // Open a new stream in the UI so chunks are visible
+          mainWindow.webContents.send('ai:stream', { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie...\n' });
           agentLoop.startTakeControl(
             pendingTask,
             (status) => mainWindow.webContents.send('automation:status-update', status),
             (chunk) => mainWindow.webContents.send('ai:stream', { chunk }),
             true
           ).then(() => {
+            mainWindow.webContents.send('ai:stream', { done: true });
             mainWindow.webContents.send('agent:control-state', { active: false });
           }).catch((err) => {
             console.error('Take-control error:', err);
+            mainWindow.webContents.send('ai:stream', { chunk: `\n❌ Błąd: ${err.message}\n` });
+            mainWindow.webContents.send('ai:stream', { done: true });
             mainWindow.webContents.send('agent:control-state', { active: false });
           });
         }
@@ -269,36 +278,55 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   ipcMain.handle('proactive:set-mode', async (_event, enabled: boolean) => {
     configService.set('proactiveMode', enabled);
     if (enabled) {
-      screenCapture.startWatching(
-        configService.get('proactiveIntervalMs') || 30000,
-        async (screenshots: ScreenshotData[]) => {
-          const analysis = await aiService.analyzeScreens(screenshots);
-          if (analysis && analysis.hasInsight) {
-            // Log to workflow service
-            agentLoop.logScreenActivity(analysis.context, analysis.message);
-
-            // Save to conversation history so it appears in chat
-            memoryService.addMessage({
-              id: `proactive-${Date.now()}`,
-              role: 'assistant',
-              content: `\ud83d\udca1 **Obserwacja KxAI:**\n${analysis.message}${analysis.context ? `\n\n\ud83d\udccb ${analysis.context}` : ''}`,
+      // Start smart companion monitoring (tiered: T0 free/2s, T1 OCR free/12s, T2 vision periodic/3min)
+      screenMonitorService.start(
+        // T0: Window change
+        (_info) => { /* tracked internally by monitor */ },
+        // T1: Content change
+        (ctx) => {
+          if (ctx.contentChanged && ctx.ocrText.length > 50) {
+            mainWindow.webContents.send('agent:companion-state', { wantsToSpeak: true });
+          }
+        },
+        // T2: Vision needed — full AI analysis on significant changes or periodic
+        async (ctx, screenshotBase64) => {
+          try {
+            const analysis = await aiService.analyzeScreens([{
+              base64: `data:image/png;base64,${screenshotBase64}`,
+              width: 1024,
+              height: 768,
+              displayId: 0,
+              displayLabel: 'monitor',
               timestamp: Date.now(),
-              type: 'proactive',
-            });
+            }]);
+            if (analysis && analysis.hasInsight) {
+              agentLoop.logScreenActivity(analysis.context, analysis.message);
 
-            mainWindow.webContents.send('ai:proactive', {
-              type: 'screen-analysis',
-              message: analysis.message,
-              context: analysis.context,
-            });
+              memoryService.addMessage({
+                id: `proactive-${Date.now()}`,
+                role: 'assistant',
+                content: `💡 **Obserwacja KxAI:**\n${analysis.message}${analysis.context ? `\n\n📋 ${analysis.context}` : ''}`,
+                timestamp: Date.now(),
+                type: 'proactive',
+              });
+
+              mainWindow.webContents.send('agent:companion-state', { hasSuggestion: true });
+              mainWindow.webContents.send('ai:proactive', {
+                type: 'screen-analysis',
+                message: analysis.message,
+                context: analysis.context,
+              });
+            }
+          } catch (err) {
+            console.error('[Proactive] Vision analysis error:', err);
           }
         }
       );
 
       // Start heartbeat for autonomous operations
-      agentLoop.startHeartbeat(15 * 60 * 1000); // 15 min
+      agentLoop.startHeartbeat(5 * 60 * 1000); // 5 min
     } else {
-      screenCapture.stopWatching();
+      screenMonitorService.stop();
       agentLoop.stopHeartbeat();
     }
     return { success: true };
@@ -462,14 +490,18 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     });
 
     try {
+      mainWindow.webContents.send('ai:stream', { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie...\n' });
       const result = await agentLoop.startTakeControl(
         task,
         (status) => mainWindow.webContents.send('automation:status-update', status),
         (chunk) => mainWindow.webContents.send('ai:stream', { chunk }),
         true // confirmed via dialog above
       );
+      mainWindow.webContents.send('ai:stream', { done: true });
       return { success: true, data: result };
     } catch (error: any) {
+      mainWindow.webContents.send('ai:stream', { chunk: `\n❌ Błąd: ${error.message}\n` });
+      mainWindow.webContents.send('ai:stream', { done: true });
       return { success: false, error: error.message };
     }
   });
@@ -534,5 +566,54 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   ipcMain.handle('system:warnings', async () => {
     return systemMonitorService.getWarnings();
+  });
+
+  // ──────────────── TTS (Edge TTS) ────────────────
+  ipcMain.handle('tts:speak', async (_event, text: string) => {
+    try {
+      const audioPath = await ttsService.speak(text);
+      if (!audioPath) {
+        // Edge TTS unavailable or disabled — renderer should use Web Speech API fallback
+        return { success: false, fallback: true };
+      }
+      return { success: true, audioPath };
+    } catch (error: any) {
+      return { success: false, fallback: true, error: error.message };
+    }
+  });
+
+  ipcMain.handle('tts:stop', async () => {
+    ttsService.stop();
+    return { success: true };
+  });
+
+  ipcMain.handle('tts:get-config', async () => {
+    return ttsService.getConfig();
+  });
+
+  ipcMain.handle('tts:set-config', async (_event, updates: Record<string, any>) => {
+    ttsService.setConfig(updates);
+    return { success: true };
+  });
+
+  // ──────────────── Bootstrap ────────────────
+  ipcMain.handle('bootstrap:is-pending', async () => {
+    return memoryService.isBootstrapPending();
+  });
+
+  ipcMain.handle('bootstrap:complete', async () => {
+    await memoryService.completeBootstrap();
+    return { success: true };
+  });
+
+  // ──────────────── HEARTBEAT.md ────────────────
+  ipcMain.handle('heartbeat:get-config', async () => {
+    const content = await memoryService.get('HEARTBEAT.md');
+    return { content: content || '' };
+  });
+
+  ipcMain.handle('heartbeat:set-config', async (_event, content: string) => {
+    await memoryService.set('HEARTBEAT.md', content);
+    return { success: true };
   });
 }

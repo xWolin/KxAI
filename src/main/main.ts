@@ -16,6 +16,8 @@ import { BrowserService } from './services/browser-service';
 import { PluginService } from './services/plugin-service';
 import { SecurityGuard } from './services/security-guard';
 import { SystemMonitor } from './services/system-monitor';
+import { TTSService } from './services/tts-service';
+import { ScreenMonitorService } from './services/screen-monitor';
 import { setupIPC } from './ipc';
 
 let mainWindow: BrowserWindow | null = null;
@@ -53,8 +55,70 @@ let browserService: BrowserService;
 let pluginService: PluginService;
 let securityGuardService: SecurityGuard;
 let systemMonitorService: SystemMonitor;
+let ttsService: TTSService;
+let screenMonitorService: ScreenMonitorService;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
+
+/**
+ * Start the smart companion monitor with all tiered callbacks.
+ * Reused for both auto-start and manual proactive:set-mode toggle.
+ */
+function startCompanionMonitor(win: BrowserWindow): void {
+  const safeSend = (channel: string, data?: any) => {
+    if (win && !win.isDestroyed()) {
+      win.webContents.send(channel, data);
+    }
+  };
+
+  screenMonitorService.start(
+    // T0: Window change
+    (_info) => {
+      // Just track — T1/T2 will pick up the actual content
+    },
+    // T1: Content change (OCR detected significant text change)
+    (ctx) => {
+      if (ctx.contentChanged && ctx.ocrText.length > 50) {
+        safeSend('agent:companion-state', { wantsToSpeak: true });
+      }
+    },
+    // T2: Vision needed — full AI analysis
+    async (ctx, screenshotBase64) => {
+      try {
+        console.log('[Proactive] T2 callback triggered — starting AI analysis...');
+        const analysis = await aiService.analyzeScreens([{
+          base64: `data:image/png;base64,${screenshotBase64}`,
+          width: 1024,
+          height: 768,
+          displayId: 0,
+          displayLabel: 'monitor',
+          timestamp: Date.now(),
+        }]);
+        console.log('[Proactive] AI analysis result:', analysis ? `hasInsight=${analysis.hasInsight}` : 'null');
+        if (analysis && analysis.hasInsight) {
+          agentLoop.logScreenActivity(analysis.context, analysis.message);
+
+          memoryService.addMessage({
+            id: `proactive-${Date.now()}`,
+            role: 'assistant',
+            content: `💡 **Obserwacja KxAI:**\n${analysis.message}${analysis.context ? `\n\n📋 ${analysis.context}` : ''}`,
+            timestamp: Date.now(),
+            type: 'proactive',
+          });
+
+          safeSend('agent:companion-state', { hasSuggestion: true });
+          safeSend('ai:proactive', {
+            type: 'screen-analysis',
+            message: analysis.message,
+            context: analysis.context,
+          });
+        }
+      } catch (err) {
+        console.error('[Proactive] Vision analysis error:', err);
+      }
+    }
+  );
+}
 
 function createMainWindow(): BrowserWindow {
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
@@ -153,6 +217,7 @@ async function initializeServices(): Promise<void> {
   pluginService = new PluginService();
   securityGuardService = new SecurityGuard();
   systemMonitorService = new SystemMonitor();
+  ttsService = new TTSService();
 
   await memoryService.initialize();
   await embeddingService.initialize();
@@ -188,6 +253,11 @@ async function initializeServices(): Promise<void> {
   agentLoop.setAutomationService(automationService);
   agentLoop.setScreenCaptureService(screenCapture);
 
+  // Screen monitor — tiered smart companion
+  screenMonitorService = new ScreenMonitorService();
+  screenMonitorService.setScreenCapture(screenCapture);
+  agentLoop.setScreenMonitorService(screenMonitorService);
+
   // Start cron jobs
   cronService.startAll();
 }
@@ -215,7 +285,17 @@ app.whenReady().then(async () => {
     pluginService,
     securityGuardService,
     systemMonitorService,
+    ttsService,
+    screenMonitorService,
   });
+
+  // Auto-restore proactive mode (smart companion) if it was enabled before restart
+  const proactiveSaved = configService.get('proactiveMode');
+  if (proactiveSaved) {
+    console.log('[KxAI] Proactive mode was enabled — auto-starting screen monitor...');
+    startCompanionMonitor(mainWindow);
+    agentLoop.startHeartbeat(5 * 60 * 1000); // 5 min
+  }
 
   // Global shortcut to toggle window
   globalShortcut.register('Alt+K', () => {
@@ -229,29 +309,86 @@ app.whenReady().then(async () => {
 
   // Global shortcut to toggle take-control mode
   globalShortcut.register('Ctrl+Shift+K', async () => {
-    if (!mainWindow) return;
+    const windowRef = mainWindow;
+    if (!windowRef) return;
+
+    const safeSend = (channel: string, data?: any) => {
+      if (windowRef && !windowRef.isDestroyed()) {
+        windowRef.webContents.send(channel, data);
+      }
+    };
 
     if (agentLoop.isTakeControlActive()) {
       // Stop take-control
       agentLoop.stopTakeControl();
-      mainWindow.webContents.send('automation:status-update', '⛔ Sterowanie przerwane (Ctrl+Shift+K)');
-      mainWindow.webContents.send('agent:control-state', { active: false });
+      safeSend('automation:status-update', '⛔ Sterowanie przerwane (Ctrl+Shift+K)');
+      safeSend('agent:control-state', { active: false });
     } else {
       // Start take-control — ask AI what to do based on current screen
-      mainWindow.webContents.send('agent:control-state', { active: true, pending: true });
+      safeSend('agent:control-state', { active: true, pending: true });
+      safeSend('ai:stream', { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie (Ctrl+Shift+K)...\n' });
 
       try {
         const result = await agentLoop.startTakeControl(
           'Użytkownik nacisnął Ctrl+Shift+K — przejmujesz sterowanie. Obserwuj ekran i kontynuuj pracę użytkownika. Gdy skończysz lub nie masz co robić, odpowiedz TASK_COMPLETE.',
-          (status) => mainWindow!.webContents.send('automation:status-update', status),
-          (chunk) => mainWindow!.webContents.send('ai:stream', { chunk }),
+          (status) => safeSend('automation:status-update', status),
+          (chunk) => safeSend('ai:stream', { chunk }),
           true // confirmed via keyboard shortcut
         );
-        mainWindow.webContents.send('agent:control-state', { active: false });
+        safeSend('ai:stream', { done: true });
+        safeSend('agent:control-state', { active: false });
       } catch (err: any) {
         console.error('Take-control shortcut error:', err);
-        mainWindow.webContents.send('agent:control-state', { active: false });
+        safeSend('ai:stream', { chunk: `\n❌ Błąd: ${err.message}\n` });
+        safeSend('ai:stream', { done: true });
+        safeSend('agent:control-state', { active: false });
       }
+    }
+  });
+
+  // Global shortcut: Agent speaks — force screen analysis + insight
+  globalShortcut.register('Ctrl+Shift+P', async () => {
+    const windowRef = mainWindow;
+    if (!windowRef || windowRef.isDestroyed()) return;
+
+    const safeSend = (channel: string, data?: any) => {
+      if (windowRef && !windowRef.isDestroyed()) {
+        windowRef.webContents.send(channel, data);
+      }
+    };
+
+    // Show chat and open stream
+    safeSend('ai:stream', { takeControlStart: true, chunk: '👁️ Analizuję co widzę na ekranie...\n' });
+
+    try {
+      // Force an OCR check to get fresh screen context
+      const ocrText = await screenMonitorService.forceOcrCheck();
+      const ctx = screenMonitorService.buildMonitorContext();
+
+      // Ask AI for insight based on screen context
+      const prompt = `Użytkownik nacisnął Ctrl+Shift+P — chce żebyś się odezwał. 
+Oto co widzisz na ekranie:
+
+${ctx || '(brak kontekstu ekranu)'}
+
+Powiedz użytkownikowi co widzisz, zaproponuj coś przydatnego, daj wskazówkę lub skomentuj to co robi.
+Bądź pomocny, krótki i konkretny. Mów po polsku.`;
+
+      // Stream the response
+      await agentLoop.streamWithTools(
+        prompt,
+        undefined, // no extra context
+        (chunk: string) => safeSend('ai:stream', { chunk }),
+        true // skip intent detection for this forced interaction
+      );
+      safeSend('ai:stream', { done: true });
+      
+      // Clear companion state
+      safeSend('agent:companion-state', { hasSuggestion: false, wantsToSpeak: false });
+    } catch (err: any) {
+      console.error('Ctrl+Shift+P error:', err);
+      safeSend('ai:stream', { chunk: `\n❌ Błąd: ${err.message}\n` });
+      safeSend('ai:stream', { done: true });
     }
   });
 });

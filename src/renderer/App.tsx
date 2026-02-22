@@ -22,6 +22,9 @@ export default function App() {
   const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0);
   // Take-control state from Ctrl+Shift+K
   const [controlActive, setControlActive] = useState(false);
+  // Smart companion states
+  const [hasSuggestion, setHasSuggestion] = useState(false);
+  const [wantsToSpeak, setWantsToSpeak] = useState(false);
 
   useEffect(() => {
     async function init() {
@@ -76,10 +79,17 @@ export default function App() {
       setControlActive(data.active);
     });
 
+    // Listen for companion state changes (suggestion / wantsToSpeak)
+    const cleanupCompanion = window.kxai.onCompanionState((data) => {
+      if (data.hasSuggestion !== undefined) setHasSuggestion(data.hasSuggestion);
+      if (data.wantsToSpeak !== undefined) setWantsToSpeak(data.wantsToSpeak);
+    });
+
     return () => {
       cleanupProactive();
       cleanupNavigate();
       cleanupControl();
+      cleanupCompanion();
     };
   }, []);
 
@@ -126,12 +136,17 @@ export default function App() {
           emoji={config?.agentEmoji || '🤖'}
           name={config?.agentName || 'KxAI'}
           onClick={() => {
+            // Clear companion states when opening chat
+            setHasSuggestion(false);
+            setWantsToSpeak(false);
             // Resize window for chat view before switching
             window.kxai.setWindowSize(420, 600);
             setView('chat');
           }}
           hasNotification={proactiveMessages.length > 0}
           controlActive={controlActive}
+          hasSuggestion={hasSuggestion}
+          wantsToSpeak={wantsToSpeak}
         />
       )}
 

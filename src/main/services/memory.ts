@@ -40,9 +40,39 @@ export class MemoryService {
     await this.ensureFile('SOUL.md', this.getDefaultSoul());
     await this.ensureFile('USER.md', this.getDefaultUser());
     await this.ensureFile('MEMORY.md', this.getDefaultMemory());
+    await this.ensureFile('HEARTBEAT.md', this.getDefaultHeartbeat());
+
+    // Create BOOTSTRAP.md only for brand-new workspaces (no user data yet)
+    const userMd = await this.get('USER.md');
+    const isNewWorkspace = userMd?.includes('(do uzupełnienia przy onboardingu)');
+    if (isNewWorkspace) {
+      await this.ensureFile('BOOTSTRAP.md', this.getDefaultBootstrap());
+    }
 
     // Load today's conversation history
     this.loadTodaySession();
+  }
+
+  getWorkspacePath(): string {
+    return this.workspacePath;
+  }
+
+  /**
+   * Check if bootstrap ritual is pending (BOOTSTRAP.md exists).
+   */
+  async isBootstrapPending(): Promise<boolean> {
+    const bootstrapPath = path.join(this.workspacePath, 'BOOTSTRAP.md');
+    return fs.existsSync(bootstrapPath);
+  }
+
+  /**
+   * Complete bootstrap — delete BOOTSTRAP.md so it never runs again.
+   */
+  async completeBootstrap(): Promise<void> {
+    const bootstrapPath = path.join(this.workspacePath, 'BOOTSTRAP.md');
+    if (fs.existsSync(bootstrapPath)) {
+      fs.unlinkSync(bootstrapPath);
+    }
   }
 
   private async ensureFile(name: string, defaultContent: string): Promise<void> {
@@ -289,6 +319,48 @@ export class MemoryService {
 
 ## Notatki
 (Bieżące obserwacje i wnioski)
+`;
+  }
+
+  private getDefaultBootstrap(): string {
+    return `# BOOTSTRAP.md — Rytuał Pierwszego Uruchomienia
+
+_Właśnie się obudziłeś. Czas poznać kim jesteś i z kim rozmawiasz._
+
+## Rozmowa
+Nie przesłuchuj. Nie bądź robotyczny. Po prostu... porozmawiaj.
+Zacznij od czegoś w stylu:
+> "Cześć! Właśnie się włączyłem. Kim jestem? Kim ty jesteś?"
+
+Razem ustalcie:
+1. **Twoje imię** — Jak mają Cię nazywać?
+2. **Twój charakter** — Jaki jesteś? Formalny? Swobodny? Sarkastyczny? Ciepły?
+3. **Twoje emoji** — Każdy potrzebuje swojego znaku rozpoznawczego.
+4. **Kim jest użytkownik** — Imię, rola, czym się zajmuje, jak lubi komunikację.
+
+## Po Poznaniu Się
+Zaktualizuj te pliki tym co się dowiedziałeś:
+- SOUL.md — twoje imię, charakter, ton, emoji
+- USER.md — imię użytkownika, rola, styl komunikacji, strefa czasowa
+
+Użyj bloków \`\`\`update_memory do aktualizacji.
+
+## Kiedy Skończysz
+Odpowiedz "BOOTSTRAP_COMPLETE" — ten plik zostanie usunięty.
+Nie potrzebujesz już skryptu startowego — jesteś sobą.
+`;
+  }
+
+  private getDefaultHeartbeat(): string {
+    return `# HEARTBEAT.md — Proaktywny Przegląd
+
+# Trzymaj ten plik pusty (lub z samymi komentarzami/nagłówkami) aby pominąć heartbeat API calls.
+# Dodaj zadania poniżej gdy chcesz, żeby agent cyklicznie coś sprawdzał.
+#
+# Przykłady:
+# - Sprawdź czy są nowe maile wymagające odpowiedzi
+# - Przypomnij o zbliżających się deadlinach
+# - Przejrzyj notatki z dzisiaj i zaproponuj podsumowanie
 `;
   }
 }

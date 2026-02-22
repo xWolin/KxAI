@@ -720,8 +720,12 @@ export class ToolsService {
   /**
    * Returns tool descriptions formatted for AI system prompt injection.
    */
-  getToolsPrompt(): string {
-    const tools = this.definitions.map((t) => {
+  getToolsPrompt(excludeCategories?: string[]): string {
+    const filtered = excludeCategories
+      ? this.definitions.filter((t) => !excludeCategories.includes(t.category))
+      : this.definitions;
+
+    const tools = filtered.map((t) => {
       const params = Object.entries(t.parameters)
         .map(([k, v]) => `  - ${k} (${v.type}${v.required ? ', required' : ''}): ${v.description}`)
         .join('\n');

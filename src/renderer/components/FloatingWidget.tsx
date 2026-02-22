@@ -6,9 +6,11 @@ interface FloatingWidgetProps {
   onClick: () => void;
   hasNotification: boolean;
   controlActive?: boolean;
+  hasSuggestion?: boolean;
+  wantsToSpeak?: boolean;
 }
 
-export function FloatingWidget({ emoji, name, onClick, hasNotification, controlActive }: FloatingWidgetProps) {
+export function FloatingWidget({ emoji, name, onClick, hasNotification, controlActive, hasSuggestion, wantsToSpeak }: FloatingWidgetProps) {
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const windowPosRef = useRef<[number, number]>([0, 0]);
@@ -66,16 +68,35 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
     window.addEventListener('mouseup', onMouseUp);
   }, [onClick]);
 
+  // Priority: control > suggestion > speak > notify > normal
+  const stateClass = controlActive
+    ? ' floating-widget--control'
+    : hasSuggestion
+      ? ' floating-widget--suggestion'
+      : wantsToSpeak
+        ? ' floating-widget--speak'
+        : hasNotification
+          ? ' floating-widget--notify'
+          : '';
+
+  const titleText = controlActive
+    ? `${name} — sterowanie aktywne (Ctrl+Shift+K aby zatrzymać)`
+    : hasSuggestion
+      ? `${name} — mam sugestię! Kliknij aby zobaczyć`
+      : wantsToSpeak
+        ? `${name} — chcę coś powiedzieć (Ctrl+Shift+P)`
+        : `${name} — kliknij aby otworzyć`;
+
   return (
     <div
       onMouseDown={handleMouseDown}
-      className={`floating-widget${hasNotification ? ' floating-widget--notify' : ''}${controlActive ? ' floating-widget--control' : ''}`}
-      title={`${name}${controlActive ? ' — sterowanie aktywne (Ctrl+Shift+K aby zatrzymać)' : ' — kliknij aby otworzyć'}`}
+      className={`floating-widget${stateClass}`}
+      title={titleText}
     >
       <span className="floating-widget__emoji">{emoji}</span>
       
       {/* Notification badge */}
-      {hasNotification && (
+      {(hasNotification || hasSuggestion || wantsToSpeak) && (
         <div className="floating-widget__badge" />
       )}
 

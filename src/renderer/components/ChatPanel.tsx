@@ -1,5 +1,68 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { marked } from 'marked';
 import type { ConversationMessage, KxAIConfig } from '../types';
+
+// Configure marked for chat messages
+marked.setOptions({
+  breaks: true,    // GFM line breaks
+  gfm: true,
+});
+
+/**
+ * Strip internal AI control blocks (tool, cron, take_control, update_memory)
+ * from the displayed message — users shouldn't see raw JSON blocks.
+ */
+function stripControlBlocks(text: string): string {
+  return text
+    .replace(/```(?:tool|cron|take_control|update_memory)\s*\n[\s\S]*?\n```/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Render markdown to sanitized HTML.
+ */
+function renderMarkdown(text: string): string {
+  const cleaned = stripControlBlocks(text);
+  if (!cleaned) return '';
+  const html = marked.parse(cleaned);
+  // marked.parse can return string | Promise<string> — we only use sync mode
+  return typeof html === 'string' ? html : '';
+}
+
+/**
+ * Memoized markdown message bubble with copy button.
+ */
+function MessageContent({ content }: { content: string }) {
+  const html = useMemo(() => renderMarkdown(content), [content]);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    const cleaned = stripControlBlocks(content);
+    try {
+      await navigator.clipboard.writeText(cleaned);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  }, [content]);
+
+  if (!html) return null;
+  return (
+    <div className="chat-bubble-wrapper">
+      <button
+        className={`chat-copy-btn${copied ? ' chat-copy-btn--copied' : ''}`}
+        onClick={handleCopy}
+        title="Kopiuj wiadomość"
+      >
+        {copied ? '✓' : '📋'}
+      </button>
+      <div
+        className="chat-markdown"
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </div>
+  );
+}
 
 interface ChatPanelProps {
   config: KxAIConfig;
@@ -27,6 +90,13 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, refresh
 
     // Listen for streaming chunks
     const cleanup = window.kxai.onAIStream((data) => {
+      if (data.takeControlStart) {
+        // Take-control mode starting — open a new stream to show output
+        setIsStreaming(true);
+        setStreamingContent(data.chunk || '');
+        streamingContentRef.current = data.chunk || '';
+        return;
+      }
       if (data.done) {
         // Capture the streamed content before clearing
         const finalContent = streamingContentRef.current;
@@ -286,7 +356,11 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, refresh
             className={`fade-in chat-msg chat-msg--${msg.role}`}
           >
             <div className={`chat-bubble chat-bubble--${msg.role}`}>
-              {msg.content}
+              {msg.role === 'assistant' ? (
+                <MessageContent content={msg.content} />
+              ) : (
+                msg.content
+              )}
             </div>
             <div className="chat-msg__time">
               {formatTime(msg.timestamp)}
@@ -298,7 +372,9 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, refresh
         {isStreaming && (
           <div className="fade-in chat-streaming">
             <div className="chat-bubble chat-bubble--assistant">
-              {streamingContent || (
+              {streamingContent ? (
+                <MessageContent content={streamingContent} />
+              ) : (
                 <div className="chat-typing">
                   <span className="chat-typing__dot-1">●</span>
                   <span className="chat-typing__dot-2">●</span>
