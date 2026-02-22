@@ -46,6 +46,15 @@ export class AgentLoop {
   private afkTasksDone: Set<string> = new Set(); // Track which AFK tasks were done this session
   private onHeartbeatResult?: (message: string) => void; // Callback for heartbeat messages
 
+  // ─── Observation History — continuity between heartbeats ───
+  private observationHistory: Array<{
+    timestamp: number;
+    windowTitle: string;
+    summary: string;        // Short description of what was observed
+    response: string;       // What the agent said (first 200 chars)
+  }> = [];
+  private readonly MAX_OBSERVATIONS = 10;
+
   /**
    * Reset session-level state (call when conversation history is cleared or a new session starts).
    * This re-enables memory flush for the next compaction cycle.
@@ -53,6 +62,7 @@ export class AgentLoop {
   resetSessionState(): void {
     this.memoryFlushDone = false;
     this.totalSessionTokens = 0;
+    this.observationHistory = [];
   }
 
   constructor(
@@ -362,7 +372,7 @@ export class AgentLoop {
 
   /**
    * Heartbeat: agent checks HEARTBEAT.md for tasks, reviews patterns, may suggest cron jobs.
-   * Skips API call if HEARTBEAT.md is effectively empty (only headers/comments).
+   * Includes observation history for continuity — agent remembers what it already saw.
    * Suppresses response if agent replies with HEARTBEAT_OK.
    */
   private async heartbeat(): Promise<string | null> {
@@ -385,6 +395,7 @@ export class AgentLoop {
     const monitorCtx = this.screenMonitor?.isRunning()
       ? this.screenMonitor.buildMonitorContext()
       : '';
+    const currentWindowTitle = this.screenMonitor?.getCurrentWindow()?.title || '';
 
     // Skip API call only if BOTH heartbeat is empty AND no screen context
     if (heartbeatEmpty && !monitorCtx) {
@@ -399,11 +410,24 @@ export class AgentLoop {
       ? `\n--- HEARTBEAT.md ---\n${heartbeatMd}\n--- END HEARTBEAT.md ---\n\nWykonaj zadania z HEARTBEAT.md. Nie wymyślaj zadań — rób TYLKO to co jest w pliku.`
       : '';
 
+    // Build observation history context — what the agent already observed
+    const observationCtx = this.buildObservationContext(currentWindowTitle);
+
     const screenSection = monitorCtx
-      ? `\n${monitorCtx}\nUWAGA: Okno "KxAI" to Twój własny interfejs — NIE komentuj go, nie opisuj i nie traktuj jako aktywność użytkownika.\nJeśli widzisz coś INNEGO na ekranie co warto skomentować, zaproponować lub na co zwrócić uwagę — zrób to. Bądź zwięzły i konkretny.`
+      ? `\n${monitorCtx}\nUWAGA: Okno "KxAI" to Twój własny interfejs — NIE komentuj go, nie opisuj i nie traktuj jako aktywność użytkownika.`
       : '';
 
-    const prompt = `[HEARTBEAT — Cichy przegląd]\n\n${timeCtx}\n\nAktywne cron joby:\n${jobsSummary || '(brak)'}${heartbeatSection}${screenSection}\n\nJeśli nie masz nic ważnego do powiedzenia, odpowiedz "HEARTBEAT_OK".`;
+    const prompt = `[HEARTBEAT — Obserwacja]\n\n${timeCtx}\n\nAktywne cron joby:\n${jobsSummary || '(brak)'}${heartbeatSection}${observationCtx}${screenSection}
+
+## Zasady obserwacji:
+1. PAMIĘTAJ poprzednie obserwacje (powyżej). NIE powtarzaj tego co już powiedziałeś.
+2. Jeśli użytkownik robi TO SAMO co wcześniej (np. ogląda ten sam film, koduje w tym samym pliku):
+   - NIE opisuj ponownie co robi — wiesz to z historii obserwacji
+   - Zamiast tego: zapytaj ile jeszcze planuje, zaproponuj pomoc, zaproponuj coś do zrobienia w tle, albo odpowiedz HEARTBEAT_OK
+3. Reaguj tylko na ZMIANY — nowe okno, nowa aktywność, zmiana kontekstu.
+4. Bądź jak prawdziwy asystent: zapytaj o plany, zaproponuj konkretną pomoc, zaoferuj coś pożytecznego.
+5. Jeśli nie masz nic NOWEGO i wartościowego do powiedzenia — odpowiedz "HEARTBEAT_OK".
+6. Nie opisuj za każdym razem co widzisz na ekranie — to nudne i powtarzalne.`;
 
     try {
       const response = await this.ai.sendMessage(prompt);
@@ -411,8 +435,13 @@ export class AgentLoop {
       // Suppress HEARTBEAT_OK — don't bother the user
       const normalized = response.trim().replace(/[\s\n]+/g, ' ');
       if (normalized === 'HEARTBEAT_OK' || normalized === 'NO_REPLY' || normalized.length < 10) {
+        // Still track the observation even if suppressed — so next heartbeat knows
+        this.recordObservation(currentWindowTitle, monitorCtx, '(bez komentarza)');
         return null;
       }
+
+      // Record this observation for future continuity
+      this.recordObservation(currentWindowTitle, monitorCtx, response);
 
       // Check if agent wants to create a cron job — queue for review
       const cronSuggestion = this.parseCronSuggestion(response);
@@ -538,6 +567,124 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       return false; // found actual content
     }
     return true;
+  }
+
+  // ─── Observation History — continuity between heartbeats ───
+
+  /**
+   * Record what the agent observed for future reference.
+   */
+  private recordObservation(windowTitle: string, screenContext: string, agentResponse: string): void {
+    // Extract a short summary from screen context
+    const summary = this.extractObservationSummary(windowTitle, screenContext);
+
+    this.observationHistory.push({
+      timestamp: Date.now(),
+      windowTitle: windowTitle.slice(0, 100),
+      summary,
+      response: agentResponse.slice(0, 200),
+    });
+
+    // Keep only the last N observations
+    if (this.observationHistory.length > this.MAX_OBSERVATIONS) {
+      this.observationHistory = this.observationHistory.slice(-this.MAX_OBSERVATIONS);
+    }
+  }
+
+  /**
+   * Extract a concise summary of the current screen state.
+   */
+  private extractObservationSummary(windowTitle: string, screenContext: string): string {
+    const parts: string[] = [];
+    if (windowTitle) parts.push(windowTitle.slice(0, 80));
+
+    // Extract key info from monitor context (first meaningful line after the header)
+    const lines = screenContext.split('\n').filter(l => l.trim() && !l.startsWith('##'));
+    for (const line of lines.slice(0, 3)) {
+      parts.push(line.trim().slice(0, 80));
+    }
+
+    return parts.join(' | ') || '(brak danych)';
+  }
+
+  /**
+   * Build observation history context for the heartbeat prompt.
+   * Detects scene continuity and provides explicit instructions.
+   */
+  private buildObservationContext(currentWindowTitle: string): string {
+    if (this.observationHistory.length === 0) {
+      return '\n## 📋 Historia obserwacji\n(To jest pierwsza obserwacja w tej sesji)\n';
+    }
+
+    // Check for scene continuity — is the user doing the same thing?
+    const lastObs = this.observationHistory[this.observationHistory.length - 1];
+    const minutesAgo = Math.round((Date.now() - lastObs.timestamp) / 60000);
+    const isSameScene = this.isSimilarScene(currentWindowTitle, lastObs.windowTitle);
+
+    // Count how long the user has been doing the same thing
+    let sameSceneDuration = 0;
+    if (isSameScene) {
+      for (let i = this.observationHistory.length - 1; i >= 0; i--) {
+        if (this.isSimilarScene(currentWindowTitle, this.observationHistory[i].windowTitle)) {
+          sameSceneDuration = Math.round((Date.now() - this.observationHistory[i].timestamp) / 60000);
+        } else {
+          break;
+        }
+      }
+    }
+
+    let ctx = '\n## 📋 Historia obserwacji (PAMIĘTAJ — nie powtarzaj się!)\n';
+
+    // Show recent observations
+    const recentObs = this.observationHistory.slice(-5);
+    for (const obs of recentObs) {
+      const ago = Math.round((Date.now() - obs.timestamp) / 60000);
+      ctx += `- ${ago}min temu: [${obs.windowTitle.slice(0, 50)}] → ${obs.response.slice(0, 100)}\n`;
+    }
+
+    // Add continuity indicator
+    if (isSameScene && sameSceneDuration > 0) {
+      ctx += `\n⚡ CIĄGŁOŚĆ: Użytkownik robi TO SAMO od ~${sameSceneDuration} minut (${currentWindowTitle.slice(0, 50)}).\n`;
+      ctx += `→ NIE opisuj ponownie co robi! Zamiast tego: zapytaj o plany, zaproponuj pomoc, lub odpowiedz HEARTBEAT_OK.\n`;
+      ctx += `→ Przykłady wartościowych reakcji na ciągłość:\n`;
+      ctx += `  • "Widzę że nadal [X]. Daj znać jak skończysz, mogę [Y]"\n`;
+      ctx += `  • "Chcesz żebym w międzyczasie zrobił [Z]?"\n`;
+      ctx += `  • "Ile jeszcze planujesz? Mogę przygotować [X] na potem"\n`;
+      ctx += `  • HEARTBEAT_OK (jeśli nie masz nic nowego)\n`;
+    } else if (this.observationHistory.length > 0) {
+      ctx += `\n🔄 ZMIANA: Użytkownik zmienił aktywność (wcześniej: "${lastObs.windowTitle.slice(0, 40)}", teraz: "${currentWindowTitle.slice(0, 40)}").\n`;
+      ctx += `→ Możesz krótko skomentować nową aktywność, ale nie opisuj szczegółowo ekranu.\n`;
+    }
+
+    return ctx;
+  }
+
+  /**
+   * Check if two window titles represent the same scene/activity.
+   */
+  private isSimilarScene(titleA: string, titleB: string): boolean {
+    if (!titleA || !titleB) return false;
+    const a = titleA.toLowerCase().trim();
+    const b = titleB.toLowerCase().trim();
+
+    // Exact match
+    if (a === b) return true;
+
+    // Same app (compare process/app name — typically the part after " - " or " — ")
+    const appA = a.split(/\s[-—]\s/).pop() || a;
+    const appB = b.split(/\s[-—]\s/).pop() || b;
+    if (appA === appB && appA.length > 3) return true;
+
+    // Same browser with similar content (both YouTube, both Google, etc.)
+    const browserPatterns = [
+      /youtube/i, /google/i, /github/i, /stackoverflow/i,
+      /reddit/i, /twitter/i, /facebook/i, /twitch/i,
+    ];
+    for (const pattern of browserPatterns) {
+      if (pattern.test(a) && pattern.test(b)) return true;
+    }
+
+    return false;
   }
 
   /**
