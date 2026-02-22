@@ -606,16 +606,24 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     return systemMonitorService.getWarnings();
   });
 
-  // ──────────────── TTS (Edge TTS) ────────────────
+  // ──────────────── TTS (ElevenLabs / OpenAI / Web Speech fallback) ────────────────
   ipcMain.handle('tts:speak', async (_event, text: string) => {
     try {
       const audioPath = await ttsService.speak(text);
       if (!audioPath) {
-        // Edge TTS unavailable or disabled — renderer should use Web Speech API fallback
+        // ElevenLabs + OpenAI both failed or disabled — renderer should use Web Speech API fallback
         return { success: false, fallback: true };
       }
-      return { success: true, audioPath };
+      // Read audio file and return as base64 data URL (file:// protocol blocked by Electron security)
+      const fs = await import('fs');
+      const audioBuffer = fs.readFileSync(audioPath);
+      const base64 = audioBuffer.toString('base64');
+      const dataUrl = `data:audio/mpeg;base64,${base64}`;
+      // Clean up temp file
+      try { fs.unlinkSync(audioPath); } catch { /* non-critical */ }
+      return { success: true, audioData: dataUrl };
     } catch (error: any) {
+      console.error('[TTS] IPC speak error:', error.message);
       return { success: false, fallback: true, error: error.message };
     }
   });

@@ -102,7 +102,7 @@ export interface KxAIBridge {
   systemWarnings: () => Promise<string[]>;
 
   // TTS (Edge TTS)
-  ttsSpeak: (text: string) => Promise<{ success: boolean; audioPath?: string; fallback?: boolean; error?: string }>;
+  ttsSpeak: (text: string) => Promise<{ success: boolean; audioData?: string; fallback?: boolean; error?: string }>;
   ttsStop: () => Promise<{ success: boolean }>;
   ttsGetConfig: () => Promise<TTSConfig>;
   ttsSetConfig: (updates: Partial<TTSConfig>) => Promise<{ success: boolean }>;

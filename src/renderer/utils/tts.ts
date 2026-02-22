@@ -43,13 +43,13 @@ export async function speak(text: string): Promise<void> {
   try {
     if (window.kxai?.ttsSpeak) {
       const result = await window.kxai.ttsSpeak(text);
-      if (result.success && result.audioPath) {
-        // Play the generated audio file
-        currentAudio = new Audio(`file://${result.audioPath}`);
+      if (result.success && result.audioData) {
+        // Play the generated audio via base64 data URL
+        currentAudio = new Audio(result.audioData);
         currentAudio.volume = 0.8;
         currentAudio.playbackRate = ttsRate;
-        currentAudio.play().catch(() => {
-          // Audio playback failed — try Web Speech API fallback
+        currentAudio.play().catch((err) => {
+          console.warn('[TTS] Audio playback failed, falling back to Web Speech:', err);
           speakWebSpeechAPI(text);
         });
         return;
@@ -60,8 +60,8 @@ export async function speak(text: string): Promise<void> {
         return;
       }
     }
-  } catch {
-    // Main process TTS failed — fall back
+  } catch (err) {
+    console.warn('[TTS] Main process TTS failed, falling back:', err);
   }
 
   // Fallback: Web Speech API
