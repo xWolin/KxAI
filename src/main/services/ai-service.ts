@@ -220,10 +220,16 @@ export class AIService {
     throw new Error('No AI client configured');
   }
 
-  async sendMessage(userMessage: string, extraContext?: string, systemContextOverride?: string): Promise<string> {
+  async sendMessage(
+    userMessage: string,
+    extraContext?: string,
+    systemContextOverride?: string,
+    options?: { skipHistory?: boolean }
+  ): Promise<string> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
     const model = this.config.get('aiModel') || 'gpt-5';
+    const skipHistory = options?.skipHistory ?? false;
 
     // Build system context from memory (or use override from agent-loop)
     const systemContext = systemContextOverride
@@ -263,8 +269,8 @@ export class AIService {
 
     messages.push({ role: 'user', content: fullMessage });
 
-    // Store message in history
-    if (this.memoryService) {
+    // Store message in history (skip for internal heartbeat/background calls)
+    if (this.memoryService && !skipHistory) {
       this.memoryService.addMessage({
         id: uuidv4(),
         role: 'user',
@@ -306,8 +312,8 @@ export class AIService {
       );
     }
 
-    // Store response in history
-    if (this.memoryService) {
+    // Store response in history (skip for internal heartbeat/background calls)
+    if (this.memoryService && !skipHistory) {
       this.memoryService.addMessage({
         id: uuidv4(),
         role: 'assistant',

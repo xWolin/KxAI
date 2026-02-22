@@ -430,7 +430,7 @@ export class AgentLoop {
 6. Nie opisuj za każdym razem co widzisz na ekranie — to nudne i powtarzalne.`;
 
     try {
-      const response = await this.ai.sendMessage(prompt);
+      const response = await this.ai.sendMessage(prompt, undefined, undefined, { skipHistory: true });
 
       // Suppress HEARTBEAT_OK — don't bother the user
       const normalized = response.trim().replace(/[\s\n]+/g, ' ');
@@ -489,7 +489,10 @@ export class AgentLoop {
     try {
       const timeCtx = this.workflow.buildTimeContext();
       const response = await this.ai.sendMessage(
-        `[AFK MODE — Użytkownik jest nieaktywny od ${afkMinutes} minut]\n\n${timeCtx}\n\n${task.prompt}\n\nOdpowiedz zwięźle. Użyj bloków \`\`\`update_memory jeśli chcesz coś zapamiętać.\nJeśli nie masz nic wartościowego do zrobienia, odpowiedz "HEARTBEAT_OK".`
+        `[AFK MODE — Użytkownik jest nieaktywny od ${afkMinutes} minut]\n\n${timeCtx}\n\n${task.prompt}\n\nOdpowiedz zwięźle. Użyj bloków \`\`\`update_memory jeśli chcesz coś zapamiętać.\nJeśli nie masz nic wartościowego do zrobienia, odpowiedz "HEARTBEAT_OK".`,
+        undefined,
+        undefined,
+        { skipHistory: true }
       );
 
       const normalized = response.trim().replace(/[\s\n]+/g, ' ');

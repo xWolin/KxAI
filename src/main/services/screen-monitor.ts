@@ -332,32 +332,44 @@ Write-Output "$title<SEP>$proc"
     if (!this.isUserActive) return;
 
     try {
-      // Capture screenshot for OCR
+      // Capture all screens for OCR (multi-monitor support)
       if (!this.screenCapture) return;
-      const capture = await this.screenCapture.captureForComputerUse();
-      if (!capture) return;
+      const allScreens = await this.screenCapture.captureAllScreens();
+      if (allScreens.length === 0) return;
 
-      // Extract text via platform OCR
-      const ocrText = await this.extractText(capture.dataUrl);
+      // Combine OCR text from all screens
+      const ocrTexts: string[] = [];
+      for (const screen of allScreens) {
+        const text = await this.extractText(screen.base64);
+        if (text && text.length > 10) {
+          ocrTexts.push(allScreens.length > 1
+            ? `[${screen.displayLabel}] ${text}`
+            : text
+          );
+        }
+      }
+      const combinedOcr = ocrTexts.join('\n---\n');
 
       // Calculate text difference
-      const diffRatio = this.textDiffRatio(this.lastOcrText, ocrText);
+      const diffRatio = this.textDiffRatio(this.lastOcrText, combinedOcr);
       const significantChange = diffRatio > this.ocrChangeThreshold;
 
-      this.lastOcrText = ocrText;
+      this.lastOcrText = combinedOcr;
       this.lastOcrTimestamp = Date.now();
       this.t1PendingCheck = false;
 
-      if (significantChange && ocrText.length > 20) {
+      if (significantChange && combinedOcr.length > 20) {
         const ctx = this.getScreenContext();
         ctx.contentChanged = true;
 
         this.onContentChange?.(ctx);
 
         // T2: Trigger vision if we have a callback and content changed meaningfully
-        if (this.onVisionNeeded) {
+        // Send first screen's base64 for vision (primary monitor)
+        if (this.onVisionNeeded && allScreens[0]) {
           this.lastVisionTimestamp = Date.now();
-          this.onVisionNeeded(ctx, capture.base64);
+          const base64 = allScreens[0].base64.replace(/^data:image\/\w+;base64,/, '');
+          this.onVisionNeeded(ctx, base64);
         }
       }
     } catch (error) {
@@ -379,16 +391,27 @@ Write-Output "$title<SEP>$proc"
     if (Date.now() - this.lastVisionTimestamp < 90_000) return;
 
     try {
-      const capture = await this.screenCapture.captureForComputerUse();
-      if (!capture) {
+      // Capture all screens for multi-monitor awareness
+      const allScreens = await this.screenCapture.captureAllScreens();
+      if (allScreens.length === 0) {
         console.log('[ScreenMonitor] Periodic T2 — no capture returned');
         return;
       }
-      console.log(`[ScreenMonitor] Periodic T2 — capture OK, base64 length: ${capture.base64?.length || 0}`);
+      console.log(`[ScreenMonitor] Periodic T2 — ${allScreens.length} screen(s) captured`);
 
-      // Also grab OCR text if we have none yet
+      // Also grab OCR text from all screens if we have none yet
       if (!this.lastOcrText) {
-        this.lastOcrText = await this.extractText(capture.dataUrl);
+        const ocrTexts: string[] = [];
+        for (const screen of allScreens) {
+          const text = await this.extractText(screen.base64);
+          if (text && text.length > 10) {
+            ocrTexts.push(allScreens.length > 1
+              ? `[${screen.displayLabel}] ${text}`
+              : text
+            );
+          }
+        }
+        this.lastOcrText = ocrTexts.join('\n---\n');
         this.lastOcrTimestamp = Date.now();
       }
 
@@ -397,7 +420,10 @@ Write-Output "$title<SEP>$proc"
       ctx.contentChanged = true; // Force — periodic check
 
       console.log(`[ScreenMonitor] Periodic T2 vision check — window: ${ctx.windowTitle}`);
-      this.onVisionNeeded(ctx, capture.base64);
+
+      // Send primary screen for vision analysis
+      const base64 = allScreens[0].base64.replace(/^data:image\/\w+;base64,/, '');
+      this.onVisionNeeded(ctx, base64);
     } catch (error) {
       console.error('[ScreenMonitor] Periodic vision error:', error);
     }
