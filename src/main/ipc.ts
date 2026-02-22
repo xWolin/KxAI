@@ -332,8 +332,34 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
           } catch (err) {
             console.error('[Proactive] Vision analysis error:', err);
           }
+        },
+        // Idle start — user went AFK
+        () => {
+          agentLoop.setAfkState(true);
+          mainWindow.webContents.send('agent:companion-state', { isAfk: true });
+        },
+        // Idle end — user is back
+        () => {
+          agentLoop.setAfkState(false);
+          mainWindow.webContents.send('agent:companion-state', { isAfk: false });
         }
       );
+
+      // Set heartbeat callback to deliver results to UI
+      agentLoop.setHeartbeatCallback((message) => {
+        memoryService.addMessage({
+          id: `heartbeat-${Date.now()}`,
+          role: 'assistant',
+          content: `🤖 **KxAI (autonomiczny):**\n${message}`,
+          timestamp: Date.now(),
+          type: 'proactive',
+        });
+        mainWindow.webContents.send('agent:companion-state', { hasSuggestion: true });
+        mainWindow.webContents.send('ai:proactive', {
+          type: 'heartbeat',
+          message,
+        });
+      });
 
       // Start heartbeat for autonomous operations
       agentLoop.startHeartbeat(5 * 60 * 1000); // 5 min

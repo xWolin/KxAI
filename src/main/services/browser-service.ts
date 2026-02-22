@@ -539,19 +539,29 @@ export class BrowserService {
         return { success: false, error: `Element [${ref}] nie znaleziony. Weź nowy snapshot.` };
       }
 
+      const urlBefore = page.url();
+
       if (options?.doubleClick) {
         await loc.dblclick({ button: options?.button || 'left', timeout: 10000 });
       } else {
         await loc.click({ button: options?.button || 'left', timeout: 10000 });
       }
 
-      await page.waitForTimeout(300);
+      // Smart wait: if click triggered navigation, wait for load; otherwise short delay
+      try {
+        await page.waitForLoadState('domcontentloaded', { timeout: 3000 });
+      } catch {
+        // Timeout = no navigation happened, that's fine
+      }
+      const urlAfter = page.url();
+      const navigated = urlAfter !== urlBefore;
       return {
         success: true,
         data: {
           action: options?.doubleClick ? 'double-click' : 'click',
           ref,
-          url: page.url(),
+          navigated,
+          url: urlAfter,
           title: await page.title(),
         },
       };
@@ -660,6 +670,75 @@ export class BrowserService {
       return { success: true, data: { action: 'scroll', direction, amount } };
     } catch (err: any) {
       return { success: false, error: `Scroll: ${err.message}` };
+    }
+  }
+
+  /**
+   * Scroll to a specific element by ref — brings it into view.
+   */
+  async scrollToRef(ref: string): Promise<BrowserResult> {
+    const page = this.getActivePage();
+    if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
+
+    try {
+      const loc = page.locator(`[data-kxref="${ref}"]`);
+      if (await loc.count() === 0) {
+        return { success: false, error: `Element [${ref}] nie znaleziony. Weź nowy snapshot.` };
+      }
+      await loc.scrollIntoViewIfNeeded({ timeout: 5000 });
+      await page.waitForTimeout(300);
+      return { success: true, data: { action: 'scroll-to-ref', ref } };
+    } catch (err: any) {
+      return { success: false, error: `ScrollToRef [${ref}]: ${err.message}` };
+    }
+  }
+
+  /**
+   * Dismiss cookie/consent banners — tries common patterns.
+   */
+  async dismissPopups(): Promise<BrowserResult> {
+    const page = this.getActivePage();
+    if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
+
+    try {
+      const dismissed: string[] = [];
+      // Common cookie consent selectors
+      const selectors = [
+        '[id*="cookie"] button[id*="accept"]',
+        '[id*="cookie"] button[id*="agree"]',
+        '[class*="cookie"] button[class*="accept"]',
+        '[class*="consent"] button[class*="accept"]',
+        '[id*="consent"] button:first-of-type',
+        'button[id*="accept-cookies"]',
+        'button[id*="onetrust-accept"]',
+        '.cc-btn.cc-dismiss',
+        '#CybotCookiebotDialogBodyLevelButtonLevelOptinAllowAll',
+        'button[data-testid*="cookie-accept"]',
+        '[aria-label*="Accept"]',
+        '[aria-label*="Akceptuj"]',
+        '[aria-label*="Zamknij"]',
+      ];
+
+      for (const sel of selectors) {
+        try {
+          const btn = page.locator(sel).first();
+          if (await btn.isVisible({ timeout: 500 })) {
+            await btn.click({ timeout: 2000 });
+            dismissed.push(sel);
+            await page.waitForTimeout(500);
+            break; // One dismissal is usually enough
+          }
+        } catch { /* selector not found — try next */ }
+      }
+
+      return {
+        success: true,
+        data: dismissed.length > 0
+          ? { dismissed: dismissed.length, selectors: dismissed }
+          : { dismissed: 0, message: 'Nie znaleziono popupów do zamknięcia' },
+      };
+    } catch (err: any) {
+      return { success: false, error: `DismissPopups: ${err.message}` };
     }
   }
 

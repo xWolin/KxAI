@@ -122,8 +122,36 @@ function startCompanionMonitor(win: BrowserWindow): void {
       } catch (err) {
         console.error('[Proactive] Vision analysis error:', err);
       }
+    },
+    // Idle start — user went AFK
+    () => {
+      console.log('[Companion] User is now AFK');
+      agentLoop.setAfkState(true);
+      safeSend('agent:companion-state', { isAfk: true });
+    },
+    // Idle end — user is back
+    () => {
+      console.log('[Companion] User is back from AFK');
+      agentLoop.setAfkState(false);
+      safeSend('agent:companion-state', { isAfk: false });
     }
   );
+
+  // Set heartbeat callback to deliver results to UI
+  agentLoop.setHeartbeatCallback((message) => {
+    memoryService.addMessage({
+      id: `heartbeat-${Date.now()}`,
+      role: 'assistant',
+      content: `🤖 **KxAI (autonomiczny):**\n${message}`,
+      timestamp: Date.now(),
+      type: 'proactive',
+    });
+    safeSend('agent:companion-state', { hasSuggestion: true });
+    safeSend('ai:proactive', {
+      type: 'heartbeat',
+      message,
+    });
+  });
 }
 
 function createMainWindow(): BrowserWindow {

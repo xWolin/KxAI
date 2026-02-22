@@ -835,11 +835,27 @@ export class ToolsService {
     }, async (params) => browser.scroll(params.direction, params.amount));
 
     this.register({
-      name: 'browser_fill_form',
-      description: 'Wypełnia wiele pól formularza naraz. fields: [{ref, value}]',
+      name: 'browser_scroll_to_element',
+      description: 'Scrolluje stronę do konkretnego elementu po ref — przydatne do elementów poza widokiem',
       category: 'browser',
       parameters: {
-        fields: { type: 'array', description: 'Tablica obiektów {ref: string, value: string}', required: true },
+        ref: { type: 'string', description: 'Ref elementu ze snapshota (np. "e5")', required: true },
+      },
+    }, async (params) => browser.scrollToRef(params.ref));
+
+    this.register({
+      name: 'browser_dismiss_popups',
+      description: 'Próbuje zamknąć popupy cookie/consent na stronie — automatycznie szuka typowych przycisków',
+      category: 'browser',
+      parameters: {},
+    }, async () => browser.dismissPopups());
+
+    this.register({
+      name: 'browser_fill_form',
+      description: 'Wypełnia wiele pól formularza naraz',
+      category: 'browser',
+      parameters: {
+        fields: { type: 'array', description: 'Tablica obiektów: [{"ref": "e3", "value": "tekst"}, {"ref": "e5", "value": "inny tekst"}]', required: true },
       },
     }, async (params) => browser.fillForm(params.fields));
 
@@ -915,20 +931,20 @@ export class ToolsService {
 
     this.register({
       name: 'browser_extract_text',
-      description: 'Pobiera tekst ze strony (opcjonalnie z konkretnego selektora CSS). Aliasy: browser_get_content',
+      description: 'Pobiera pełny tekst ze strony (cały DOM, nie tylko widoczna część). Opcjonalnie z konkretnego selektora CSS. Limit: 15000 znaków.',
       category: 'browser',
       parameters: {
         selector: { type: 'string', description: 'CSS selector (opcjonalny, domyślnie cała strona)' },
       },
     }, async (params) => browser.extractText(params.selector));
 
-    // Alias: browser_get_content → browser_extract_text (AI sometimes hallucinates this name)
+    // Alias: browser_get_content → browser_extract_text
     this.register({
       name: 'browser_get_content',
-      description: 'Alias dla browser_extract_text — pobiera tekst ze strony (opcjonalnie z konkretnego selektora CSS)',
+      description: '[Alias browser_extract_text] Pobiera tekst ze strony',
       category: 'browser',
       parameters: {
-        selector: { type: 'string', description: 'CSS selector (opcjonalny, domyślnie cała strona)' },
+        selector: { type: 'string', description: 'CSS selector (opcjonalny)' },
       },
     }, async (params) => browser.extractText(params.selector));
 

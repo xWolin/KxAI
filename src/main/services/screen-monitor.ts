@@ -1,5 +1,6 @@
 import { exec } from 'child_process';
 import * as os from 'os';
+import { powerMonitor } from 'electron';
 import { ScreenCaptureService } from './screen-capture';
 
 /**
@@ -75,6 +76,8 @@ export class ScreenMonitorService {
   private onWindowChange: ((info: WindowInfo) => void) | null = null;
   private onContentChange: ((ctx: ScreenContext) => void) | null = null;
   private onVisionNeeded: ((ctx: ScreenContext, screenshotBase64: string) => void) | null = null;
+  private onIdleStart: (() => void) | null = null;
+  private onIdleEnd: (() => void) | null = null;
 
   // Config
   private t0IntervalMs = 2000;   // Check window title every 2s
@@ -101,11 +104,15 @@ export class ScreenMonitorService {
   start(
     onWindowChange?: (info: WindowInfo) => void,
     onContentChange?: (ctx: ScreenContext) => void,
-    onVisionNeeded?: (ctx: ScreenContext, screenshotBase64: string) => void
+    onVisionNeeded?: (ctx: ScreenContext, screenshotBase64: string) => void,
+    onIdleStart?: () => void,
+    onIdleEnd?: () => void
   ): void {
     this.onWindowChange = onWindowChange || null;
     this.onContentChange = onContentChange || null;
     this.onVisionNeeded = onVisionNeeded || null;
+    this.onIdleStart = onIdleStart || null;
+    this.onIdleEnd = onIdleEnd || null;
 
     // Stop any existing intervals first
     this.stop();
@@ -207,10 +214,28 @@ export class ScreenMonitorService {
         this.onWindowChange?.(info);
       }
 
-      // Idle detection
-      const timeSinceActivity = Date.now() - this.lastActivityTime;
-      if (timeSinceActivity > this.idleThresholdMs && this.isUserActive) {
-        this.isUserActive = false;
+      // Idle detection — use Electron powerMonitor for accurate system-wide idle time
+      // (counts seconds since last mouse/keyboard input, not just window changes)
+      try {
+        const systemIdleSeconds = powerMonitor.getSystemIdleTime();
+        const wasActive = this.isUserActive;
+        this.isUserActive = systemIdleSeconds < (this.idleThresholdMs / 1000);
+        if (this.isUserActive) {
+          this.lastActivityTime = Date.now();
+        }
+        // Emit idle/active transitions for AFK mode
+        if (wasActive && !this.isUserActive) {
+          this.onIdleStart?.();
+        } else if (!wasActive && this.isUserActive) {
+          this.onIdleEnd?.();
+        }
+      } catch {
+        // Fallback: use window change detection if powerMonitor unavailable
+        const timeSinceActivity = Date.now() - this.lastActivityTime;
+        if (timeSinceActivity > this.idleThresholdMs && this.isUserActive) {
+          this.isUserActive = false;
+          this.onIdleStart?.();
+        }
       }
     } catch (error) {
       // T0 errors are non-critical
@@ -529,6 +554,17 @@ print(text)
 
   isIdle(): boolean {
     return !this.isUserActive;
+  }
+
+  /**
+   * Get system idle time in seconds (time since last mouse/keyboard input).
+   */
+  getIdleSeconds(): number {
+    try {
+      return powerMonitor.getSystemIdleTime();
+    } catch {
+      return this.isUserActive ? 0 : Math.floor((Date.now() - this.lastActivityTime) / 1000);
+    }
   }
 
   /**

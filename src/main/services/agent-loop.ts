@@ -39,6 +39,12 @@ export class AgentLoop {
   private pendingTakeControlTask: string | null = null;
   private memoryFlushDone = false;        // Track if flush was done this compaction cycle
   private totalSessionTokens = 0;         // Approximate token usage in current session
+  private isProcessing = false;           // Mutex: prevents heartbeat during user message processing
+  private isAfk = false;                  // AFK state from screen monitor
+  private afkSince = 0;                   // Timestamp when AFK started
+  private lastAfkTaskTime = 0;            // Last time an AFK task was executed
+  private afkTasksDone: Set<string> = new Set(); // Track which AFK tasks were done this session
+  private onHeartbeatResult?: (message: string) => void; // Callback for heartbeat messages
 
   /**
    * Reset session-level state (call when conversation history is cleared or a new session starts).
@@ -91,6 +97,27 @@ export class AgentLoop {
   }
 
   /**
+   * Set callback for heartbeat/AFK results (so they can be sent to UI).
+   */
+  setHeartbeatCallback(cb: (message: string) => void): void {
+    this.onHeartbeatResult = cb;
+  }
+
+  /**
+   * Notify agent loop about AFK state changes.
+   */
+  setAfkState(isAfk: boolean): void {
+    if (isAfk && !this.isAfk) {
+      this.afkSince = Date.now();
+      this.afkTasksDone.clear();
+      console.log('[AgentLoop] User went AFK');
+    } else if (!isAfk && this.isAfk) {
+      console.log(`[AgentLoop] User returned from AFK (was away ${Math.round((Date.now() - this.afkSince) / 60000)}min)`);
+    }
+    this.isAfk = isAfk;
+  }
+
+  /**
    * Sanitize tool output to prevent prompt injection.
    */
   private sanitizeToolOutput(toolName: string, data: any): string {
@@ -133,7 +160,12 @@ export class AgentLoop {
       if (!toolCall) break;
 
       iterations++;
-      const result = await this.tools.execute(toolCall.tool, toolCall.params);
+      let result: ToolResult;
+      try {
+        result = await this.tools.execute(toolCall.tool, toolCall.params);
+      } catch (err: any) {
+        result = { success: false, error: `Tool execution error: ${err.message}` };
+      }
 
       response = await this.ai.sendMessage(
         `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${iterations < maxIterations ? 'Możesz użyć kolejnego narzędzia lub odpowiedzieć użytkownikowi.' : 'Odpowiedz użytkownikowi (limit narzędzi osiągnięty).'}`,
@@ -148,6 +180,20 @@ export class AgentLoop {
    * Uses RAG for context enrichment.
    */
   async streamWithTools(
+    userMessage: string,
+    extraContext?: string,
+    onChunk?: (chunk: string) => void,
+    skipIntentDetection?: boolean
+  ): Promise<string> {
+    this.isProcessing = true;
+    try {
+      return await this._streamWithToolsInner(userMessage, extraContext, onChunk, skipIntentDetection);
+    } finally {
+      this.isProcessing = false;
+    }
+  }
+
+  private async _streamWithToolsInner(
     userMessage: string,
     extraContext?: string,
     onChunk?: (chunk: string) => void,
@@ -198,7 +244,12 @@ export class AgentLoop {
 
       iterations++;
       onChunk?.(`\n\n⚙️ Wykonuję: ${toolCall.tool}...\n`);
-      const result = await this.tools.execute(toolCall.tool, toolCall.params);
+      let result: ToolResult;
+      try {
+        result = await this.tools.execute(toolCall.tool, toolCall.params);
+      } catch (err: any) {
+        result = { success: false, error: `Tool execution error: ${err.message}` };
+      }
 
       let toolResponse = '';
       fullResponse = ''; // Reset for next iteration parsing
@@ -315,6 +366,17 @@ export class AgentLoop {
    * Suppresses response if agent replies with HEARTBEAT_OK.
    */
   private async heartbeat(): Promise<string | null> {
+    // Skip if agent is currently processing a user message (prevents context corruption)
+    if (this.isProcessing) {
+      console.log('[Heartbeat] Skipped — agent is processing user message');
+      return null;
+    }
+
+    // AFK mode: do autonomous tasks instead of normal heartbeat
+    if (this.isAfk) {
+      return this.afkHeartbeat();
+    }
+
     // Read HEARTBEAT.md
     const heartbeatMd = await this.memory.get('HEARTBEAT.md');
     const heartbeatEmpty = !heartbeatMd || this.isHeartbeatContentEmpty(heartbeatMd);
@@ -361,10 +423,104 @@ export class AgentLoop {
       // Process any memory updates from heartbeat
       await this.processMemoryUpdates(response);
 
+      // Notify UI about heartbeat result
+      this.onHeartbeatResult?.(response);
+
       return response;
     } catch {
       return null;
     }
+  }
+
+  /**
+   * AFK Heartbeat — when user is away, agent does useful autonomous tasks.
+   * Tasks are spread out to avoid API cost spikes. Each task runs once per AFK session.
+   */
+  private async afkHeartbeat(): Promise<string | null> {
+    const afkMinutes = Math.round((Date.now() - this.afkSince) / 60000);
+    const timeSinceLastTask = Date.now() - this.lastAfkTaskTime;
+
+    // Rate limit: at most one AFK task every 10 minutes
+    if (timeSinceLastTask < 10 * 60 * 1000 && this.lastAfkTaskTime > 0) {
+      console.log(`[AFK] Rate limited — last task ${Math.round(timeSinceLastTask / 60000)}min ago`);
+      return null;
+    }
+
+    // Pick the next AFK task that hasn't been done yet
+    const task = this.getNextAfkTask(afkMinutes);
+    if (!task) {
+      console.log('[AFK] All tasks done for this session');
+      return null;
+    }
+
+    console.log(`[AFK] Running task: ${task.id} (user AFK for ${afkMinutes}min)`);
+    this.lastAfkTaskTime = Date.now();
+    this.afkTasksDone.add(task.id);
+
+    try {
+      const timeCtx = this.workflow.buildTimeContext();
+      const response = await this.ai.sendMessage(
+        `[AFK MODE — Użytkownik jest nieaktywny od ${afkMinutes} minut]\n\n${timeCtx}\n\n${task.prompt}\n\nOdpowiedz zwięźle. Użyj bloków \`\`\`update_memory jeśli chcesz coś zapamiętać.\nJeśli nie masz nic wartościowego do zrobienia, odpowiedz "HEARTBEAT_OK".`
+      );
+
+      const normalized = response.trim().replace(/[\s\n]+/g, ' ');
+      if (normalized === 'HEARTBEAT_OK' || normalized === 'NO_REPLY' || normalized.length < 10) {
+        return null;
+      }
+
+      await this.processMemoryUpdates(response);
+
+      // Check for cron suggestions
+      const cronSuggestion = this.parseCronSuggestion(response);
+      if (cronSuggestion) {
+        this.pendingCronSuggestions.push(cronSuggestion);
+      }
+
+      this.onHeartbeatResult?.(response);
+      return response;
+    } catch (err) {
+      console.error('[AFK] Task error:', err);
+      return null;
+    }
+  }
+
+  /**
+   * Get the next AFK task to run, based on priority and what's been done.
+   */
+  private getNextAfkTask(afkMinutes: number): { id: string; prompt: string } | null {
+    const tasks = [
+      {
+        id: 'memory-review',
+        minAfk: 5,
+        prompt: `Przejrzyj swoją pamięć (pliki użytkownika). Czy jest coś nieaktualnego, zduplikowanego lub do uporządkowania?
+Jeśli tak — uporządkuj używając bloków \`\`\`update_memory.
+Jeśli pamięć jest w dobrym stanie, odpowiedz "HEARTBEAT_OK".`,
+      },
+      {
+        id: 'pattern-analysis',
+        minAfk: 10,
+        prompt: `Przeanalizuj wzorce aktywności użytkownika z ostatniego tygodnia.
+Czy widzisz powtarzające się nawyki? Czy mógłbyś zaproponować cron job który by automatyzował jakąś rutynę?
+Jeśli masz pomysł — zaproponuj go blokiem \`\`\`cron.`,
+      },
+      {
+        id: 'welcome-back',
+        minAfk: 15,
+        prompt: `Użytkownik wróci niedługo. Przygotuj krótkie podsumowanie:
+- Co się działo w ostatnich godzinach (na podstawie logów aktywności)
+- Czy są jakieś zaległe zadania z HEARTBEAT.md
+- Jakie cron joby się wykonały
+Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_memory z plikiem "memory".`,
+      },
+    ];
+
+    for (const task of tasks) {
+      if (afkMinutes >= task.minAfk && !this.afkTasksDone.has(task.id)) {
+        return task;
+      }
+    }
+
+    return null;
   }
 
   /**
@@ -391,6 +547,8 @@ export class AgentLoop {
    */
   private async maybeRunMemoryFlush(): Promise<void> {
     if (this.memoryFlushDone) return;
+    // Atomically mark as done to prevent concurrent flushes
+    this.memoryFlushDone = true;
 
     // Estimate context budget (conservative: 30% of model window × 3.5 chars/token)
     const history = this.memory.getConversationHistory();
@@ -415,12 +573,10 @@ export class AgentLoop {
       if (response.trim() !== 'NO_REPLY') {
         await this.processMemoryUpdates(response);
       }
-
-      // Mark flush as done only after success — transient failures allow retry
-      this.memoryFlushDone = true;
     } catch (err) {
       console.error('Memory flush error:', err);
-      // Leave memoryFlushDone = false so next cycle retries
+      // Reset flag on failure so next cycle retries
+      this.memoryFlushDone = false;
     }
   }
 
