@@ -823,6 +823,14 @@ Nie aktualizuj pamięci przy każdej wiadomości — tylko gdy jest coś wartego
       ? this.screenMonitor.buildMonitorContext()
       : '';
 
+    const diagnosticInstructions = `
+## 🔬 Self-Test / Diagnostyka
+Gdy użytkownik prosi o self-test, diagnostykę, lub mówi "przetestuj się", "sprawdź się", "jak działasz":
+- Użyj narzędzia \`self_test\` — uruchomi pełną diagnostykę wszystkich podsystemów
+- Wyniki zawierają: status każdego serwisu, czasy odpowiedzi, ostrzeżenia
+- Przedstaw wyniki czytelnie, skomentuj co działa a co wymaga uwagi
+`;
+
     return [
       baseCtx,
       '\n',
@@ -840,6 +848,7 @@ Nie aktualizuj pamięci przy każdej wiadomości — tylko gdy jest coś wartego
       cronInstructions,
       takeControlInstructions,
       memoryUpdateInstructions,
+      diagnosticInstructions,
     ].join('\n');
   }
 

@@ -21,6 +21,7 @@ import { ScreenMonitorService } from './services/screen-monitor';
 import { TranscriptionService } from './services/transcription-service';
 import { MeetingCoachService } from './services/meeting-coach';
 import { DashboardServer } from './services/dashboard-server';
+import { DiagnosticService } from './services/diagnostic-service';
 import { setupIPC } from './ipc';
 
 let mainWindow: BrowserWindow | null = null;
@@ -63,6 +64,7 @@ let screenMonitorService: ScreenMonitorService;
 let transcriptionService: TranscriptionService;
 let meetingCoachService: MeetingCoachService;
 let dashboardServer: DashboardServer;
+let diagnosticService: DiagnosticService;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -322,6 +324,38 @@ async function initializeServices(): Promise<void> {
   dashboardServer.start().catch(err => {
     console.error('[KxAI] Dashboard server failed to start:', err);
   });
+
+  // Diagnostic service — self-test tool
+  diagnosticService = new DiagnosticService({
+    ai: aiService,
+    memory: memoryService,
+    config: configService,
+    cron: cronService,
+    workflow: workflowService,
+    tools: toolsService,
+    systemMonitor: systemMonitorService,
+    rag: ragService,
+    browser: browserService,
+    screenMonitor: screenMonitorService,
+    screenCapture: screenCapture,
+    tts: ttsService,
+  });
+
+  toolsService.register(
+    {
+      name: 'self_test',
+      description: 'Uruchamia pełną diagnostykę agenta — testuje wszystkie podsystemy (AI, pamięć, narzędzia, przeglądarkę, RAG, cron, TTS, screen monitor, zasoby systemowe). Użyj gdy użytkownik prosi o self-test lub "przetestuj się".',
+      category: 'system',
+      parameters: {},
+    },
+    async () => {
+      const report = await diagnosticService.runFullDiagnostic();
+      return {
+        success: report.summary.fail === 0,
+        data: DiagnosticService.formatReport(report),
+      };
+    }
+  );
 
   // Start cron jobs
   cronService.startAll();
