@@ -29,7 +29,6 @@
     "electron-store": "^8.2.0",
     "express": "^5.2.1",
     "marked": "^15.0.0",
-    "node-edge-tts": "^1.2.10",
     "openai": "^4.73.0",
     "playwright-core": "^1.58.2",
     "screenshot-desktop": "^1.15.0",

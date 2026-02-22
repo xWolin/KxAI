@@ -1,9 +1,9 @@
 /**
- * TTS wrapper — Edge TTS (via main process) with Web Speech API fallback.
+ * TTS wrapper — ElevenLabs / OpenAI TTS (via main process) with Web Speech API fallback.
  *
  * Flow:
- * 1. Try Edge TTS via IPC (high-quality neural voice, free)
- * 2. If Edge TTS fails or is disabled, fall back to Web Speech API (renderer-side)
+ * 1. Try ElevenLabs or OpenAI TTS via IPC (high-quality voices)
+ * 2. If both fail or are disabled, fall back to Web Speech API (renderer-side)
  */
 
 let ttsEnabled = true;
@@ -30,7 +30,7 @@ export function initTTS(): void {
 }
 
 /**
- * Speak text aloud. Tries Edge TTS first, falls back to Web Speech API.
+ * Speak text aloud. Tries main process TTS first (ElevenLabs/OpenAI), falls back to Web Speech API.
  * Cancels any ongoing speech.
  */
 export async function speak(text: string): Promise<void> {
@@ -39,7 +39,7 @@ export async function speak(text: string): Promise<void> {
   // Cancel any ongoing speech
   stopSpeaking();
 
-  // Try Edge TTS via main process first
+  // Try main process TTS (ElevenLabs → OpenAI)
   try {
     if (window.kxai?.ttsSpeak) {
       const result = await window.kxai.ttsSpeak(text);
@@ -61,7 +61,7 @@ export async function speak(text: string): Promise<void> {
       }
     }
   } catch {
-    // Edge TTS IPC failed — fall back
+    // Main process TTS failed — fall back
   }
 
   // Fallback: Web Speech API
@@ -100,7 +100,7 @@ function speakWebSpeechAPI(text: string): void {
 }
 
 /**
- * Stop any ongoing speech (both Edge TTS audio and Web Speech API).
+ * Stop any ongoing speech (both main process TTS audio and Web Speech API).
  */
 export function stopSpeaking(): void {
   if (currentAudio) {

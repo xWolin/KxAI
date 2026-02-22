@@ -488,6 +488,20 @@ export class AgentLoop {
   private detectTakeControlIntent(userMessage: string): string | null {
     if (!this.automation) return null;
     const lower = userMessage.toLowerCase();
+
+    // Exclude web/browser intents — these should use browser tools, not take_control
+    const webPatterns = [
+      /wyszukaj|szukaj|znajd[źz].*w\s+(internecie|necie|sieci|google|przeglądarce)/,
+      /otw[oó]rz.*stron[eę]|otw[oó]rz.*url|otw[oó]rz.*link/,
+      /poka[zż].*stron[eę]|poka[zż].*w\s+przeglądarce/,
+      /przegląd(aj|nij)|browse|search.*web|google/,
+      /odpal.*przeglądarke|uruchom.*przeglądarke|włącz.*przeglądarke/,
+      /w\s+chrome|w\s+przeglądarce|w\s+google/,
+      /sprawdź.*online|sprawdź.*w\s+(necie|internecie)/,
+      /newsy|wiadomości.*internet|pogoda.*internet/,
+    ];
+    if (webPatterns.some((p) => p.test(lower))) return null;
+
     const patterns = [
       /przejmij\s+(kontrol[eę]|sterowanie)/,
       /take\s*control/,
@@ -575,6 +589,18 @@ export class AgentLoop {
       ? `\n## Desktop Automation\nMasz możliwość przejęcia sterowania pulpitem użytkownika (myszka + klawiatura) w trybie autonomicznym.\nAby to zrobić, MUSISZ użyć bloku \`\`\`take_control (patrz instrukcje niżej).\nNIE próbuj sterować komputerem za pomocą narzędzi (mouse_click, keyboard_type itp.) w normalnym czacie — one działają TYLKO w trybie take_control.\n`
       : '';
 
+    const browserGuidance = `
+## 🌐 Przeglądarka i Internet — PRIORYTET
+Kiedy użytkownik prosi o wyszukanie czegoś w internecie, sprawdzenie strony, otwarcie URL, przeglądanie stron:
+- ZAWSZE używaj narzędzi browser: browser_launch → browser_navigate → browser_snapshot → browser_click/type
+- Możesz też użyć web_search (DuckDuckGo API) lub fetch_url do prostego pobrania treści
+- NIGDY nie używaj take_control do zadań internetowych — przeglądarka jest od tego!
+- Workflow: browser_launch → browser_navigate(url) → browser_snapshot (żeby zobaczyć stronę) → interakcja
+
+Tryb take_control jest TYLKO do zadań wymagających kontroli nad pulpitem/innymi aplikacjami,
+których NIE da się wykonać narzędziami browser (np. sterowanie Photoshopem, plik managerem, itd.).
+`;
+
     const cronInstructions = `
 ## Tworzenie Cron Jobów
 Możesz zasugerować nowy cron job odpowiadając blokiem:
@@ -641,6 +667,7 @@ Nie aktualizuj pamięci przy każdej wiadomości — tylko gdy jest coś wartego
       cronCtx,
       ragCtx,
       automationCtx,
+      browserGuidance,
       monitorCtx,
       systemCtx,
       '\n',

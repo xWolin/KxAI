@@ -1,12 +1,12 @@
 /**
- * TTS Service — Text-to-Speech via ElevenLabs (primary) or Edge TTS (fallback).
+ * TTS Service — Text-to-Speech via ElevenLabs (primary) or OpenAI TTS (fallback).
  *
  * Provider priority:
  * 1. 'elevenlabs' — High-quality ElevenLabs voices (requires API key)
- * 2. 'edge' — Free Microsoft Edge TTS neural voices (node-edge-tts)
- * 3. 'web' — Renderer-side Web Speech API (lowest quality fallback)
+ * 2. 'openai' — OpenAI TTS (requires OpenAI API key, high quality)
+ * 3. 'web' — Renderer-side Web Speech API (lowest quality, last resort)
  *
- * Runs in main process because both ElevenLabs HTTP and node-edge-tts require Node.js.
+ * Runs in main process because both ElevenLabs HTTP and OpenAI require Node.js.
  * Renderer communicates via IPC: tts:speak, tts:stop, tts:set-config.
  */
 
@@ -18,23 +18,21 @@ import { SecurityService } from './security';
 
 export interface TTSConfig {
   enabled: boolean;
-  provider: 'elevenlabs' | 'edge' | 'web';
-  voice: string;                   // Edge TTS voice name (used when provider='edge')
+  provider: 'elevenlabs' | 'openai' | 'web';
   elevenLabsVoiceId: string;       // ElevenLabs voice ID
   elevenLabsModel: string;         // ElevenLabs model
-  rate: string;                    // Edge TTS rate e.g. '+0%', '+20%'
-  volume: string;                  // Edge TTS volume e.g. '+0%'
+  openaiVoice: string;             // OpenAI TTS voice (alloy, echo, fable, onyx, nova, shimmer)
+  openaiModel: string;             // OpenAI TTS model (tts-1, tts-1-hd)
   maxChars: number;                // Max characters to speak (truncate longer text)
 }
 
 const DEFAULT_CONFIG: TTSConfig = {
   enabled: true,
   provider: 'elevenlabs',
-  voice: 'pl-PL-MarekNeural',     // Edge TTS fallback voice
   elevenLabsVoiceId: 'onwK4e9ZLuTAKqWW03F9', // "Daniel" — clear male voice
   elevenLabsModel: 'eleven_multilingual_v2',
-  rate: '+0%',
-  volume: '+0%',
+  openaiVoice: 'onyx',              // Deep male voice, good for Polish
+  openaiModel: 'tts-1-hd',          // High quality
   maxChars: 500,
 };
 
@@ -44,6 +42,8 @@ const DEFAULT_CONFIG: TTSConfig = {
 // pFZP5JQG7iQjIQuC4Bku — Lily (British female)
 // TX3LPaxmHKxFdv7VOQHJ — Liam (American male)
 // JBFqnCBsd6RMkjVDRZzb — George (British male)
+
+// OpenAI TTS voices: alloy, echo, fable, onyx, nova, shimmer
 
 export class TTSService {
   private config: TTSConfig;
@@ -61,7 +61,7 @@ export class TTSService {
   }
 
   /**
-   * Speak text. Tries ElevenLabs first (if configured), then Edge TTS, then returns null for Web Speech fallback.
+   * Speak text. Tries ElevenLabs first (if configured), then OpenAI TTS, then returns null for Web Speech fallback.
    * Returns path to generated audio file or null.
    */
   async speak(text: string): Promise<string | null> {
@@ -79,15 +79,19 @@ export class TTSService {
       ? clean.slice(0, this.config.maxChars) + '...'
       : clean;
 
-    // Try ElevenLabs first (if provider is 'elevenlabs' or auto-fallback)
+    // Try ElevenLabs first (if provider is 'elevenlabs')
     if (this.config.provider === 'elevenlabs') {
       const elResult = await this.speakElevenLabs(truncated);
       if (elResult) return elResult;
-      console.warn('ElevenLabs TTS failed — falling back to Edge TTS');
+      console.warn('ElevenLabs TTS failed — falling back to OpenAI TTS');
     }
 
-    // Fallback to Edge TTS
-    return this.speakEdge(truncated);
+    // Fallback / explicit provider: OpenAI TTS
+    const oaiResult = await this.speakOpenAI(truncated);
+    if (oaiResult) return oaiResult;
+
+    console.warn('OpenAI TTS also failed — renderer will use Web Speech API');
+    return null;
   }
 
   /**
@@ -173,29 +177,81 @@ export class TTSService {
   }
 
   /**
-   * Generate speech via Edge TTS (free, neural voices).
+   * Generate speech via OpenAI TTS API.
+   * Uses the same API key as the main AI service.
    */
-  private async speakEdge(text: string): Promise<string | null> {
-    const audioPath = path.join(this.tempDir, `tts-${Date.now()}.mp3`);
+  private async speakOpenAI(text: string): Promise<string | null> {
+    if (!this.security) return null;
+
+    const apiKey = await this.security.getApiKey('openai');
+    if (!apiKey) {
+      console.warn('OpenAI TTS: no API key configured');
+      return null;
+    }
+
+    const voice = this.config.openaiVoice || DEFAULT_CONFIG.openaiVoice;
+    const model = this.config.openaiModel || DEFAULT_CONFIG.openaiModel;
+    const audioPath = path.join(this.tempDir, `tts-oai-${Date.now()}.mp3`);
 
     try {
-      const { EdgeTTS } = await import('node-edge-tts');
-      const tts = new EdgeTTS({
-        voice: this.config.voice,
-        rate: this.config.rate,
-        volume: this.config.volume,
-      });
-
       this.speaking = true;
-      await tts.ttsPromise(text, audioPath);
+      const audioBuffer = await this.openaiTTSRequest(apiKey, model, voice, text);
+      fs.writeFileSync(audioPath, audioBuffer);
       this.speaking = false;
-
       return audioPath;
     } catch (err) {
       this.speaking = false;
-      console.error('Edge TTS error:', err);
-      return null; // Fallback: renderer will use Web Speech API
+      console.error('OpenAI TTS error:', err);
+      return null;
     }
+  }
+
+  /**
+   * HTTPS request to OpenAI TTS API.
+   */
+  private openaiTTSRequest(
+    apiKey: string, model: string, voice: string, text: string
+  ): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const body = JSON.stringify({
+        model,
+        input: text,
+        voice,
+        response_format: 'mp3',
+      });
+
+      const REQUEST_TIMEOUT_MS = 30_000;
+
+      const req = https.request({
+        hostname: 'api.openai.com',
+        path: '/v1/audio/speech',
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'Content-Length': Buffer.byteLength(body),
+        },
+        timeout: REQUEST_TIMEOUT_MS,
+      }, (res) => {
+        if (res.statusCode !== 200) {
+          let errBody = '';
+          res.on('data', (chunk: Buffer) => errBody += chunk.toString());
+          res.on('end', () => reject(new Error(`OpenAI TTS API ${res.statusCode}: ${errBody.slice(0, 200)}`)));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', reject);
+      });
+
+      req.on('timeout', () => {
+        req.destroy(new Error(`OpenAI TTS request timed out after ${REQUEST_TIMEOUT_MS}ms`));
+      });
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
   }
 
   /**

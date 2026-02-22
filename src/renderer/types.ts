@@ -280,12 +280,11 @@ export interface SecurityStats {
 // ──────────────── TTS ────────────────
 export interface TTSConfig {
   enabled: boolean;
-  provider: 'elevenlabs' | 'edge' | 'web';
-  voice: string;
+  provider: 'elevenlabs' | 'openai' | 'web';
   elevenLabsVoiceId: string;
   elevenLabsModel: string;
-  rate: string;
-  volume: string;
+  openaiVoice: string;
+  openaiModel: string;
   maxChars: number;
 }
 
