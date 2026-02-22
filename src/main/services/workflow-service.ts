@@ -109,21 +109,24 @@ export class WorkflowService {
 
     if (recent.length < 5) return '';
 
-    // Analyze patterns per day of week and hour
-    const dayHourCounts: Record<string, number> = {};
+    // Analyze patterns per day of week and hour — count UNIQUE DAYS, not entries
+    const dayHourDays: Record<string, Set<string>> = {};
     for (const a of recent) {
       const key = `${a.dayOfWeek}-${a.hour}-${a.category}`;
-      dayHourCounts[key] = (dayHourCounts[key] || 0) + 1;
+      if (!dayHourDays[key]) dayHourDays[key] = new Set();
+      // Use date string to count unique calendar days
+      const dateStr = new Date(a.timestamp).toISOString().slice(0, 10);
+      dayHourDays[key].add(dateStr);
     }
 
-    // Find recurring patterns (seen 2+ times at same day/hour)
-    const recurring = Object.entries(dayHourCounts)
-      .filter(([, count]) => count >= 2)
-      .sort(([, a], [, b]) => b - a)
+    // Find recurring patterns (seen on 2+ unique days at same day/hour)
+    const recurring = Object.entries(dayHourDays)
+      .filter(([, days_set]) => days_set.size >= 2)
+      .sort(([, a], [, b]) => b.size - a.size)
       .slice(0, 10)
-      .map(([key, count]) => {
+      .map(([key, days_set]) => {
         const [dow, hour, cat] = key.split('-');
-        return `  ${days[parseInt(dow)]} ~${hour}:00 — ${cat} (${count}x/tydzień)`;
+        return `  ${days[parseInt(dow)]} ~${hour}:00 — ${cat} (${days_set.size}x/tydzień)`;
       });
 
     if (recurring.length === 0) return '';

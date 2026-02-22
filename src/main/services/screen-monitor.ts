@@ -158,15 +158,18 @@ export class ScreenMonitorService {
     const ctx = this.getScreenContext();
     const parts: string[] = [];
 
-    if (ctx.windowTitle) {
+    // Filter out KxAI's own window — the agent shouldn't comment on itself
+    const isOwnWindow = (title: string) => /kxai/i.test(title);
+
+    if (ctx.windowTitle && !isOwnWindow(ctx.windowTitle)) {
       parts.push(`Aktywne okno: ${ctx.windowTitle}`);
     }
-    if (ctx.processName) {
+    if (ctx.processName && !isOwnWindow(ctx.processName)) {
       parts.push(`Proces: ${ctx.processName}`);
     }
     if (ctx.recentWindows.length > 1) {
-      const unique = [...new Set(ctx.recentWindows)].slice(0, 5);
-      parts.push(`Ostatnie okna: ${unique.join(' → ')}`);
+      const unique = [...new Set(ctx.recentWindows)].filter((w) => !isOwnWindow(w)).slice(0, 5);
+      if (unique.length > 0) parts.push(`Ostatnie okna: ${unique.join(' → ')}`);
     }
     if (ctx.ocrText) {
       // Limit OCR text to ~500 chars for context

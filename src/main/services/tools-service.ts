@@ -915,7 +915,17 @@ export class ToolsService {
 
     this.register({
       name: 'browser_extract_text',
-      description: 'Pobiera tekst ze strony (opcjonalnie z konkretnego selektora CSS)',
+      description: 'Pobiera tekst ze strony (opcjonalnie z konkretnego selektora CSS). Aliasy: browser_get_content',
+      category: 'browser',
+      parameters: {
+        selector: { type: 'string', description: 'CSS selector (opcjonalny, domyślnie cała strona)' },
+      },
+    }, async (params) => browser.extractText(params.selector));
+
+    // Alias: browser_get_content → browser_extract_text (AI sometimes hallucinates this name)
+    this.register({
+      name: 'browser_get_content',
+      description: 'Alias dla browser_extract_text — pobiera tekst ze strony (opcjonalnie z konkretnego selektora CSS)',
       category: 'browser',
       parameters: {
         selector: { type: 'string', description: 'CSS selector (opcjonalny, domyślnie cała strona)' },

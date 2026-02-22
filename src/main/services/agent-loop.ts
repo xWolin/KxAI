@@ -338,7 +338,7 @@ export class AgentLoop {
       : '';
 
     const screenSection = monitorCtx
-      ? `\n${monitorCtx}\nJeśli widzisz coś na ekranie co warto skomentować, zaproponować lub na co zwrócić uwagę — zrób to. Bądź zwięzły i konkretny.`
+      ? `\n${monitorCtx}\nUWAGA: Okno "KxAI" to Twój własny interfejs — NIE komentuj go, nie opisuj i nie traktuj jako aktywność użytkownika.\nJeśli widzisz coś INNEGO na ekranie co warto skomentować, zaproponować lub na co zwrócić uwagę — zrób to. Bądź zwięzły i konkretny.`
       : '';
 
     const prompt = `[HEARTBEAT — Cichy przegląd]\n\n${timeCtx}\n\nAktywne cron joby:\n${jobsSummary || '(brak)'}${heartbeatSection}${screenSection}\n\nJeśli nie masz nic ważnego do powiedzenia, odpowiedz "HEARTBEAT_OK".`;
@@ -609,6 +609,14 @@ Możesz zasugerować nowy cron job odpowiadając blokiem:
 \`\`\`
 Dozwolone schedule: "30s", "5m", "1h", "every 30 minutes", lub cron expression "*/5 * * * *"
 Kategorie: routine, workflow, reminder, cleanup, health-check, custom
+
+Bądź PROAKTYWNY z cron jobami! Gdy widzisz powtarzające się wzorce zachowań użytkownika,
+zaproponuj cron job który automatyzuje lub wspiera tę aktywność.
+Przykłady kiedy proponować:
+- Użytkownik regularnie koduje o tej samej porze → cron z daily standup/podsumowaniem
+- Użytkownik często sprawdza newsy → cron zbierający najważniejsze nagłówki
+- Wykryto wzorzec pracy → cron z przypomnieniem o przerwie/rozciąganiu
+- Poranne godziny pracy → cron z briefingiem dnia (pogoda, kalendarz, zadania)
 `;
 
     const takeControlInstructions = this.automation ? `
