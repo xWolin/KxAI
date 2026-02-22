@@ -40,6 +40,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [model, setModel] = useState(config.aiModel || 'gpt-5');
   const [apiKey, setApiKey] = useState('');
   const [hasKey, setHasKey] = useState(false);
+  const [elevenLabsKey, setElevenLabsKey] = useState('');
+  const [hasElevenLabsKey, setHasElevenLabsKey] = useState(false);
   const [proactiveInterval, setProactiveInterval] = useState(
     (config.proactiveIntervalMs || 30000) / 1000
   );
@@ -58,6 +60,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   async function checkApiKey() {
     const has = await window.kxai.hasApiKey(provider);
     setHasKey(has);
+    const hasEl = await window.kxai.hasApiKey('elevenlabs');
+    setHasElevenLabsKey(hasEl);
   }
 
   async function loadFiles() {
@@ -82,6 +86,13 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         await window.kxai.setApiKey(provider, apiKey.trim());
         setApiKey('');
         setHasKey(true);
+      }
+
+      // Save ElevenLabs key if provided
+      if (elevenLabsKey.trim()) {
+        await window.kxai.setApiKey('elevenlabs', elevenLabsKey.trim());
+        setElevenLabsKey('');
+        setHasElevenLabsKey(true);
       }
 
       onConfigUpdate();
@@ -220,6 +231,25 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               />
               <p className="settings-hint">
                 Co ile sekund agent analizuje ekran (min. 5s). Niższa wartość = więcej API calls.
+              </p>
+            </div>
+
+            {/* ElevenLabs / Meeting Coach */}
+            <div className="settings-section">
+              <h3 className="settings-section__title">🎙️ Meeting Coach (ElevenLabs)</h3>
+
+              <label className={labelClass}>
+                Klucz API ElevenLabs {hasElevenLabsKey ? '✅' : '❌'}
+              </label>
+              <input
+                type="password"
+                className={inputClass}
+                value={elevenLabsKey}
+                onChange={(e) => setElevenLabsKey(e.target.value)}
+                placeholder={hasElevenLabsKey ? '••••••••••• (zmień)' : 'Wklej klucz API ElevenLabs'}
+              />
+              <p className="settings-hint">
+                Wymagany do transkrypcji w czasie rzeczywistym (Scribe v2). Plan Pro ($99/mies) daje 48h transkrypcji.
               </p>
             </div>
 

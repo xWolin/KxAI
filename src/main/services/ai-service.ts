@@ -720,15 +720,10 @@ Mów po polsku, bądź zwięzły ale pomocny.`;
   }
 
   /**
-   * Get the appropriate Computer Use tool version for the current model.
+   * Get the Computer Use tool version.
+   * All Claude 4 models use computer_20250124.
    */
   private getComputerUseToolVersion(): string {
-    const model = this.config.get('aiModel') || '';
-    // Claude Opus 4.5+, Opus 4.6, Sonnet 4.5+, Sonnet 4.6 support computer_20251124
-    if (/claude-(opus|sonnet)-(4-[5-9]|4\.[5-9]|4\.\d{2,})/.test(model)) {
-      return 'computer_20251124';
-    }
-    // All other Claude models (Sonnet 4, Opus 4, Opus 4.1, Haiku 4.5, 3.7) use computer_20250124
     return 'computer_20250124';
   }
 
@@ -736,8 +731,6 @@ Mów po polsku, bądź zwięzły ale pomocny.`;
    * Get the beta flag for the Computer Use API version.
    */
   private getComputerUseBetaFlag(): string {
-    const toolVersion = this.getComputerUseToolVersion();
-    if (toolVersion === 'computer_20251124') return 'computer-use-2025-11-24';
     return 'computer-use-2025-01-24';
   }
 

@@ -99,7 +99,7 @@ export class AutomationService {
     });
   }
 
-  async mouseClick(x?: number, y?: number, button: 'left' | 'right' = 'left'): Promise<AutomationResult> {
+  async mouseClick(x?: number, y?: number, button: 'left' | 'right' | 'middle' = 'left'): Promise<AutomationResult> {
     if (x !== undefined && y !== undefined) {
       const check = this.validateCoords(x, y);
       if (!check.valid) return { success: false, error: check.error! };
@@ -113,6 +113,9 @@ export class AutomationService {
           ? `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${sx}, ${sy}); Start-Sleep -Milliseconds 50; `
           : '';
 
+        const downFlag = button === 'right' ? '0x0008' : button === 'middle' ? '0x0020' : '0x0002';
+        const upFlag = button === 'right' ? '0x0010' : button === 'middle' ? '0x0040' : '0x0004';
+
         return this.runPowerShell(
           `Add-Type -AssemblyName System.Windows.Forms; ` +
           `${moveCmd}` +
@@ -121,23 +124,23 @@ export class AutomationService {
 public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
 "@; ` +
           `$mouse = Add-Type -MemberDefinition $signature -Name "Win32Mouse" -Namespace "Win32" -PassThru; ` +
-          `$mouse::mouse_event(${button === 'right' ? '0x0008' : '0x0002'}, 0, 0, 0, 0); ` +
+          `$mouse::mouse_event(${downFlag}, 0, 0, 0, 0); ` +
           `Start-Sleep -Milliseconds 50; ` +
-          `$mouse::mouse_event(${button === 'right' ? '0x0010' : '0x0004'}, 0, 0, 0, 0)`
+          `$mouse::mouse_event(${upFlag}, 0, 0, 0, 0)`
         );
       } else if (this.platform === 'darwin') {
         // macOS: use cliclick for coordinate-based clicking (brew install cliclick)
         if (sx !== undefined && sy !== undefined) {
-          const btn = button === 'right' ? 'rc' : 'c';
+          const btn = button === 'right' ? 'rc' : button === 'middle' ? 'mc' : 'c';
           return this.runCommand(`cliclick ${btn}:${sx},${sy}`);
         } else {
           // Click at current position
-          const btn = button === 'right' ? 'rc' : 'c';
+          const btn = button === 'right' ? 'rc' : button === 'middle' ? 'mc' : 'c';
           return this.runCommand(`cliclick ${btn}:.`);
         }
       } else {
         const moveCmd = sx !== undefined && sy !== undefined ? `xdotool mousemove ${sx} ${sy} && ` : '';
-        const btn = button === 'right' ? '3' : '1';
+        const btn = button === 'right' ? '3' : button === 'middle' ? '2' : '1';
         return this.runCommand(`${moveCmd}xdotool click ${btn}`);
       }
     });

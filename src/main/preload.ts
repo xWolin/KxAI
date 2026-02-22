@@ -132,7 +132,7 @@ contextBridge.exposeInMainWorld('kxai', {
   },
 
   // Browser
-  browserListSessions: () => ipcRenderer.invoke('browser:list-sessions'),
+  browserStatus: () => ipcRenderer.invoke('browser:status'),
   browserCloseAll: () => ipcRenderer.invoke('browser:close-all'),
 
   // Plugins
@@ -162,4 +162,47 @@ contextBridge.exposeInMainWorld('kxai', {
   // HEARTBEAT.md
   heartbeatGetConfig: () => ipcRenderer.invoke('heartbeat:get-config'),
   heartbeatSetConfig: (content: string) => ipcRenderer.invoke('heartbeat:set-config', content),
+
+  // Meeting Coach
+  meetingStart: (title?: string) => ipcRenderer.invoke('meeting:start', title),
+  meetingStop: () => ipcRenderer.invoke('meeting:stop'),
+  meetingGetState: () => ipcRenderer.invoke('meeting:get-state'),
+  meetingGetConfig: () => ipcRenderer.invoke('meeting:get-config'),
+  meetingSetConfig: (updates: Record<string, any>) => ipcRenderer.invoke('meeting:set-config', updates),
+  meetingGetSummaries: () => ipcRenderer.invoke('meeting:get-summaries'),
+  meetingGetSummary: (id: string) => ipcRenderer.invoke('meeting:get-summary', id),
+  meetingGetDashboardUrl: () => ipcRenderer.invoke('meeting:get-dashboard-url'),
+  meetingSendAudio: (source: string, chunk: ArrayBuffer) => {
+    ipcRenderer.send('meeting:audio-chunk', source, Buffer.from(chunk));
+  },
+  onMeetingState: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('meeting:state', handler);
+    return () => { ipcRenderer.removeListener('meeting:state', handler); };
+  },
+  onMeetingTranscript: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('meeting:transcript', handler);
+    return () => { ipcRenderer.removeListener('meeting:transcript', handler); };
+  },
+  onMeetingCoaching: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('meeting:coaching', handler);
+    return () => { ipcRenderer.removeListener('meeting:coaching', handler); };
+  },
+  onMeetingError: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('meeting:error', handler);
+    return () => { ipcRenderer.removeListener('meeting:error', handler); };
+  },
+  onMeetingStopCapture: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on('meeting:stop-capture', handler);
+    return () => { ipcRenderer.removeListener('meeting:stop-capture', handler); };
+  },
+  onMeetingDetected: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('meeting:detected', handler);
+    return () => { ipcRenderer.removeListener('meeting:detected', handler); };
+  },
 });

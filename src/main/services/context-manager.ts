@@ -88,7 +88,14 @@ export class ContextManager {
     history: ConversationMessage[],
     systemPromptTokens: number = 0,
   ): ContextWindow {
-    const availableTokens = this.config.maxContextTokens - this.config.reserveForResponse - systemPromptTokens;
+    const rawAvailable = this.config.maxContextTokens - this.config.reserveForResponse - systemPromptTokens;
+    const availableTokens = Math.max(0, rawAvailable);
+
+    if (rawAvailable < 0) {
+      console.warn(
+        `[ContextManager] availableTokens clamped to 0 (maxContext=${this.config.maxContextTokens}, reserve=${this.config.reserveForResponse}, systemPrompt=${systemPromptTokens}, deficit=${-rawAvailable})`
+      );
+    }
 
     if (history.length === 0) {
       return { messages: [], summary: null, totalTokens: 0, droppedCount: 0 };

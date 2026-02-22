@@ -438,47 +438,205 @@ export class ToolsService {
   }
 
   /**
-   * Safe math expression evaluator — no eval(), only arithmetic.
+   * Safe math expression evaluator — recursive descent parser, no eval()/Function().
+   *
+   * Supports: numbers, +, -, *, /, %, ^ (power), parentheses,
+   * functions (sqrt, abs, round, floor, ceil, sin, cos, tan, log, log10, pow, min, max),
+   * constants (PI, E).
    */
   private safeMathEval(expr: string): number {
-    // Sanitize: only allow digits, operators, parentheses, decimal points, spaces, and Math functions
-    const sanitized = expr.replace(/\s/g, '');
-    if (!/^[0-9+\-*/().,%^a-zA-Z]+$/.test(sanitized)) {
-      throw new Error('Wyrażenie zawiera niedozwolone znaki');
-    }
+    const tokens = this.tokenizeMathExpr(expr);
+    let pos = 0;
 
-    // Replace common math functions with Math.* equivalents
-    let processed = sanitized
-      .replace(/\bsqrt\(/g, 'Math.sqrt(')
-      .replace(/\babs\(/g, 'Math.abs(')
-      .replace(/\bround\(/g, 'Math.round(')
-      .replace(/\bfloor\(/g, 'Math.floor(')
-      .replace(/\bceil\(/g, 'Math.ceil(')
-      .replace(/\bsin\(/g, 'Math.sin(')
-      .replace(/\bcos\(/g, 'Math.cos(')
-      .replace(/\btan\(/g, 'Math.tan(')
-      .replace(/\blog\(/g, 'Math.log(')
-      .replace(/\blog10\(/g, 'Math.log10(')
-      .replace(/\bpow\(/g, 'Math.pow(')
-      .replace(/\bmin\(/g, 'Math.min(')
-      .replace(/\bmax\(/g, 'Math.max(')
-      .replace(/\bPI\b/g, 'Math.PI')
-      .replace(/\bE\b/g, 'Math.E')
-      .replace(/\^/g, '**'); // Power operator
+    const peek = (): string | undefined => tokens[pos];
+    const consume = (expected?: string): string => {
+      const tok = tokens[pos];
+      if (tok === undefined) throw new Error('Nieoczekiwany koniec wyrażenia');
+      if (expected !== undefined && tok !== expected) {
+        throw new Error(`Oczekiwano '${expected}', otrzymano '${tok}'`);
+      }
+      pos++;
+      return tok;
+    };
 
-    // Final security check — only allow Math.*, numbers, and operators
-    if (/[a-zA-Z]/.test(processed.replace(/Math\.[a-zA-Z]+/g, ''))) {
-      throw new Error('Wyrażenie zawiera niedozwolone identyfikatory');
-    }
+    // Allowed functions → arity and implementation
+    const FUNCS: Record<string, { arity: number; fn: (...args: number[]) => number }> = {
+      sqrt:  { arity: 1, fn: Math.sqrt },
+      abs:   { arity: 1, fn: Math.abs },
+      round: { arity: 1, fn: Math.round },
+      floor: { arity: 1, fn: Math.floor },
+      ceil:  { arity: 1, fn: Math.ceil },
+      sin:   { arity: 1, fn: Math.sin },
+      cos:   { arity: 1, fn: Math.cos },
+      tan:   { arity: 1, fn: Math.tan },
+      log:   { arity: 1, fn: Math.log },
+      log10: { arity: 1, fn: Math.log10 },
+      pow:   { arity: 2, fn: Math.pow },
+      min:   { arity: 2, fn: Math.min },
+      max:   { arity: 2, fn: Math.max },
+    };
 
-    // Use Function() with strict restrictions instead of eval
-    const fn = new Function(`"use strict"; return (${processed});`);
-    const result = fn();
+    const CONSTANTS: Record<string, number> = { PI: Math.PI, E: Math.E };
+
+    // Grammar: expr → add
+    // add  → mul (('+' | '-') mul)*
+    // mul  → pow (('*' | '/' | '%') pow)*
+    // pow  → unary ('^' unary)*          (right-assoc handled iteratively with stack)
+    // unary → ('-' | '+') unary | atom
+    // atom → NUMBER | CONSTANT | FUNC '(' args ')' | '(' expr ')'
+
+    const parseExpr = (): number => {
+      const result = parseAdd();
+      if (pos < tokens.length) {
+        throw new Error(`Nieoczekiwany token: '${tokens[pos]}'`);
+      }
+      return result;
+    };
+
+    const parseAdd = (): number => {
+      let left = parseMul();
+      while (peek() === '+' || peek() === '-') {
+        const op = consume();
+        const right = parseMul();
+        left = op === '+' ? left + right : left - right;
+      }
+      return left;
+    };
+
+    const parseMul = (): number => {
+      let left = parsePow();
+      while (peek() === '*' || peek() === '/' || peek() === '%') {
+        const op = consume();
+        const right = parsePow();
+        if (op === '*') left = left * right;
+        else if (op === '/') left = left / right;
+        else left = left % right;
+      }
+      return left;
+    };
+
+    const parsePow = (): number => {
+      // Right-associative: 2^3^2 = 2^(3^2) = 512
+      const bases: number[] = [parseUnary()];
+      while (peek() === '^') {
+        consume('^');
+        bases.push(parseUnary());
+      }
+      let result = bases[bases.length - 1];
+      for (let i = bases.length - 2; i >= 0; i--) {
+        result = bases[i] ** result;
+      }
+      return result;
+    };
+
+    const parseUnary = (): number => {
+      if (peek() === '-') { consume('-'); return -parseUnary(); }
+      if (peek() === '+') { consume('+'); return parseUnary(); }
+      return parseAtom();
+    };
+
+    const parseAtom = (): number => {
+      const tok = peek();
+      if (tok === undefined) throw new Error('Nieoczekiwany koniec wyrażenia');
+
+      // Parenthesized expression
+      if (tok === '(') {
+        consume('(');
+        const val = parseAdd();
+        consume(')');
+        return val;
+      }
+
+      // Constant
+      if (tok in CONSTANTS) {
+        consume();
+        return CONSTANTS[tok];
+      }
+
+      // Function call
+      if (tok in FUNCS) {
+        const funcName = consume();
+        const def = FUNCS[funcName];
+        consume('(');
+        const args: number[] = [parseAdd()];
+        while (peek() === ',') {
+          consume(',');
+          args.push(parseAdd());
+        }
+        consume(')');
+        if (args.length < def.arity) {
+          throw new Error(`${funcName}() wymaga co najmniej ${def.arity} argumentów`);
+        }
+        return def.fn(...args);
+      }
+
+      // Number
+      const num = parseFloat(tok);
+      if (!isNaN(num)) {
+        consume();
+        return num;
+      }
+
+      throw new Error(`Wyrażenie zawiera niedozwolone identyfikatory: '${tok}'`);
+    };
+
+    const result = parseExpr();
 
     if (typeof result !== 'number' || !isFinite(result)) {
       throw new Error('Wynik nie jest skończoną liczbą');
     }
     return result;
+  }
+
+  /**
+   * Tokenizer for math expressions.
+   * Returns tokens: numbers, identifiers (function/constant names), operators, parens, commas.
+   */
+  private tokenizeMathExpr(expr: string): string[] {
+    const tokens: string[] = [];
+    const src = expr.replace(/\s+/g, '');
+    let i = 0;
+
+    while (i < src.length) {
+      const ch = src[i];
+
+      // Number (integer or decimal, including leading dot like .5)
+      if (ch >= '0' && ch <= '9' || (ch === '.' && i + 1 < src.length && src[i + 1] >= '0' && src[i + 1] <= '9')) {
+        let num = '';
+        while (i < src.length && ((src[i] >= '0' && src[i] <= '9') || src[i] === '.')) {
+          num += src[i++];
+        }
+        tokens.push(num);
+        continue;
+      }
+
+      // Identifier (function name or constant)
+      if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
+        let id = '';
+        while (i < src.length && ((src[i] >= 'a' && src[i] <= 'z') || (src[i] >= 'A' && src[i] <= 'Z') || (src[i] >= '0' && src[i] <= '9'))) {
+          id += src[i++];
+        }
+        tokens.push(id);
+        continue;
+      }
+
+      // Operators and delimiters
+      if ('+-*/%^(),'.includes(ch)) {
+        // Handle ** as ^ (power)
+        if (ch === '*' && i + 1 < src.length && src[i + 1] === '*') {
+          tokens.push('^');
+          i += 2;
+        } else {
+          tokens.push(ch);
+          i++;
+        }
+        continue;
+      }
+
+      throw new Error(`Wyrażenie zawiera niedozwolone znaki: '${ch}'`);
+    }
+
+    return tokens;
   }
 
   // ─── Automation Tools ───
@@ -556,93 +714,220 @@ export class ToolsService {
     });
   }
 
-  // ─── Browser Tools ───
+  // ─── Browser Tools (Playwright + CDP) ───
 
   private registerBrowserTools(): void {
     if (!this.browserService) return;
     const browser = this.browserService;
 
+    // ── Launch / Close ──
+
     this.register({
-      name: 'browser_open',
-      description: 'Otwiera nową sesję przeglądarki i nawiguje na URL',
+      name: 'browser_launch',
+      description: 'Uruchamia przeglądarkę Chrome/Edge (widoczną na ekranie). Opcjonalnie otwiera URL.',
       category: 'browser',
       parameters: {
-        url: { type: 'string', description: 'URL strony do otwarcia', required: true },
-        visible: { type: 'boolean', description: 'Czy okno ma być widoczne (domyślnie: false)' },
+        url: { type: 'string', description: 'URL do otwarcia (opcjonalny)' },
+        headless: { type: 'boolean', description: 'Tryb bez okna (domyślnie: false — widoczna)' },
       },
-    }, async (params) => {
-      const session = await browser.open(params.url, { visible: params.visible });
-      return { success: true, data: session };
-    });
+    }, async (params) => browser.launch({ url: params.url, headless: params.headless }));
+
+    this.register({
+      name: 'browser_close',
+      description: 'Zamyka przeglądarkę',
+      category: 'browser',
+      parameters: {},
+    }, async () => { await browser.close(); return { success: true, data: 'Przeglądarka zamknięta' }; });
+
+    // ── Navigation ──
 
     this.register({
       name: 'browser_navigate',
-      description: 'Nawiguje do nowego URL w istniejącej sesji',
+      description: 'Nawiguje aktywny tab do podanego URL',
       category: 'browser',
       parameters: {
-        sessionId: { type: 'string', description: 'ID sesji przeglądarki', required: true },
         url: { type: 'string', description: 'URL docelowy', required: true },
       },
-    }, async (params) => browser.navigate(params.sessionId, params.url));
+    }, async (params) => browser.navigate(params.url));
+
+    this.register({
+      name: 'browser_back',
+      description: 'Cofnij w historii przeglądarki',
+      category: 'browser',
+      parameters: {},
+    }, async () => browser.goBack());
+
+    this.register({
+      name: 'browser_forward',
+      description: 'Do przodu w historii przeglądarki',
+      category: 'browser',
+      parameters: {},
+    }, async () => browser.goForward());
+
+    // ── Snapshot (key feature) ──
+
+    this.register({
+      name: 'browser_snapshot',
+      description: 'Pobiera snapshot strony — drzewo tekstowe z elementami interaktywnymi oznaczonymi [e1], [e2]... Używaj PRZED kliknięciem/pisaniem, żeby poznać ref elementów.',
+      category: 'browser',
+      parameters: {},
+    }, async () => browser.snapshot());
+
+    // ── Actions (ref-based) ──
+
+    this.register({
+      name: 'browser_click',
+      description: 'Klika element po ref ze snapshota (np. "e5"). Weź snapshot najpierw!',
+      category: 'browser',
+      parameters: {
+        ref: { type: 'string', description: 'Ref elementu ze snapshota, np. "e5"', required: true },
+        doubleClick: { type: 'boolean', description: 'Podwójne kliknięcie (domyślnie: false)' },
+      },
+    }, async (params) => browser.click(params.ref, { doubleClick: params.doubleClick }));
+
+    this.register({
+      name: 'browser_type',
+      description: 'Wpisuje tekst w pole input po ref ze snapshota',
+      category: 'browser',
+      parameters: {
+        ref: { type: 'string', description: 'Ref elementu input/textarea', required: true },
+        text: { type: 'string', description: 'Tekst do wpisania', required: true },
+        submit: { type: 'boolean', description: 'Naciśnij Enter po wpisaniu (domyślnie: false)' },
+      },
+    }, async (params) => browser.type(params.ref, params.text, { submit: params.submit }));
+
+    this.register({
+      name: 'browser_hover',
+      description: 'Najeżdża na element po ref (hover)',
+      category: 'browser',
+      parameters: {
+        ref: { type: 'string', description: 'Ref elementu', required: true },
+      },
+    }, async (params) => browser.hover(params.ref));
+
+    this.register({
+      name: 'browser_select',
+      description: 'Wybiera opcję z elementu <select> po ref',
+      category: 'browser',
+      parameters: {
+        ref: { type: 'string', description: 'Ref elementu <select>', required: true },
+        value: { type: 'string', description: 'Wartość opcji do wybrania', required: true },
+      },
+    }, async (params) => browser.selectOption(params.ref, params.value));
+
+    this.register({
+      name: 'browser_press',
+      description: 'Naciska klawisz na klawiaturze (np. "Enter", "Tab", "Escape", "Control+a")',
+      category: 'browser',
+      parameters: {
+        key: { type: 'string', description: 'Klawisz do naciśnięcia', required: true },
+      },
+    }, async (params) => browser.press(params.key));
+
+    this.register({
+      name: 'browser_scroll',
+      description: 'Przewija stronę (up/down/top/bottom)',
+      category: 'browser',
+      parameters: {
+        direction: { type: 'string', description: 'Kierunek: "up", "down", "top", "bottom"', required: true },
+        amount: { type: 'number', description: 'Piksele przewijania (domyślnie 500)' },
+      },
+    }, async (params) => browser.scroll(params.direction, params.amount));
+
+    this.register({
+      name: 'browser_fill_form',
+      description: 'Wypełnia wiele pól formularza naraz. fields: [{ref, value}]',
+      category: 'browser',
+      parameters: {
+        fields: { type: 'array', description: 'Tablica obiektów {ref: string, value: string}', required: true },
+      },
+    }, async (params) => browser.fillForm(params.fields));
+
+    // ── Screenshot ──
+
+    this.register({
+      name: 'browser_screenshot',
+      description: 'Robi screenshot strony (zwraca base64 JPEG)',
+      category: 'browser',
+      parameters: {
+        fullPage: { type: 'boolean', description: 'Cała strona vs widoczna część (domyślnie: false)' },
+        ref: { type: 'string', description: 'Screenshot konkretnego elementu po ref' },
+      },
+    }, async (params) => browser.screenshot({ fullPage: params.fullPage, ref: params.ref }));
+
+    // ── Tabs ──
+
+    this.register({
+      name: 'browser_tabs',
+      description: 'Lista otwartych tabów',
+      category: 'browser',
+      parameters: {},
+    }, async () => browser.tabs());
+
+    this.register({
+      name: 'browser_tab_new',
+      description: 'Otwiera nowy tab (opcjonalnie z URL)',
+      category: 'browser',
+      parameters: {
+        url: { type: 'string', description: 'URL do otwarcia w nowym tabie' },
+      },
+    }, async (params) => browser.newTab(params.url));
+
+    this.register({
+      name: 'browser_tab_switch',
+      description: 'Przełącza aktywny tab po indeksie',
+      category: 'browser',
+      parameters: {
+        index: { type: 'number', description: 'Indeks taba (od 0)', required: true },
+      },
+    }, async (params) => browser.switchTab(params.index));
+
+    this.register({
+      name: 'browser_tab_close',
+      description: 'Zamyka tab po indeksie (lub aktywny)',
+      category: 'browser',
+      parameters: {
+        index: { type: 'number', description: 'Indeks taba do zamknięcia (domyślnie aktywny)' },
+      },
+    }, async (params) => browser.closeTab(params.index));
+
+    // ── Other ──
+
+    this.register({
+      name: 'browser_evaluate',
+      description: 'Wykonuje kod JavaScript na stronie i zwraca wynik',
+      category: 'browser',
+      parameters: {
+        script: { type: 'string', description: 'Kod JS do wykonania', required: true },
+      },
+    }, async (params) => browser.evaluate(params.script));
+
+    this.register({
+      name: 'browser_wait',
+      description: 'Czeka na warunek: selector / url / load / timeout',
+      category: 'browser',
+      parameters: {
+        type: { type: 'string', description: '"selector" | "url" | "load" | "timeout"', required: true },
+        value: { type: 'string', description: 'Selector CSS, wzorzec URL, lub czas w ms' },
+        timeout: { type: 'number', description: 'Max czas oczekiwania w ms (domyślnie 10000)' },
+      },
+    }, async (params) => browser.wait({ type: params.type, value: params.value, timeout: params.timeout }));
 
     this.register({
       name: 'browser_extract_text',
       description: 'Pobiera tekst ze strony (opcjonalnie z konkretnego selektora CSS)',
       category: 'browser',
       parameters: {
-        sessionId: { type: 'string', description: 'ID sesji', required: true },
         selector: { type: 'string', description: 'CSS selector (opcjonalny, domyślnie cała strona)' },
       },
-    }, async (params) => browser.extractText(params.sessionId, params.selector));
+    }, async (params) => browser.extractText(params.selector));
 
     this.register({
-      name: 'browser_click',
-      description: 'Klika element na stronie po CSS selektorze',
+      name: 'browser_page_info',
+      description: 'Pobiera info o aktywnej stronie (URL, tytuł, numer taba)',
       category: 'browser',
-      parameters: {
-        sessionId: { type: 'string', description: 'ID sesji', required: true },
-        selector: { type: 'string', description: 'CSS selector elementu', required: true },
-      },
-    }, async (params) => browser.click(params.sessionId, params.selector));
-
-    this.register({
-      name: 'browser_type',
-      description: 'Wpisuje tekst w pole input na stronie',
-      category: 'browser',
-      parameters: {
-        sessionId: { type: 'string', description: 'ID sesji', required: true },
-        selector: { type: 'string', description: 'CSS selector pola input', required: true },
-        text: { type: 'string', description: 'Tekst do wpisania', required: true },
-      },
-    }, async (params) => browser.type(params.sessionId, params.selector, params.text));
-
-    this.register({
-      name: 'browser_evaluate',
-      description: 'Wykonuje JavaScript na stronie i zwraca wynik',
-      category: 'browser',
-      parameters: {
-        sessionId: { type: 'string', description: 'ID sesji', required: true },
-        script: { type: 'string', description: 'Kod JavaScript do wykonania', required: true },
-      },
-    }, async (params) => browser.evaluate(params.sessionId, params.script));
-
-    this.register({
-      name: 'browser_get_links',
-      description: 'Pobiera listę linków ze strony',
-      category: 'browser',
-      parameters: {
-        sessionId: { type: 'string', description: 'ID sesji', required: true },
-      },
-    }, async (params) => browser.getLinks(params.sessionId));
-
-    this.register({
-      name: 'browser_close',
-      description: 'Zamyka sesję przeglądarki',
-      category: 'browser',
-      parameters: {
-        sessionId: { type: 'string', description: 'ID sesji', required: true },
-      },
-    }, async (params) => browser.close(params.sessionId));
+      parameters: {},
+    }, async () => browser.getPageInfo());
   }
 
   // ─── RAG Tools ───

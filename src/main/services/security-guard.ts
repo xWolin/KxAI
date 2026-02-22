@@ -132,6 +132,16 @@ export class SecurityGuard {
     // Check against dangerous command patterns
     const allBlocked = [...DANGEROUS_COMMANDS, ...this.config.blockedCommands];
     for (const pattern of allBlocked) {
+      // Guard against ReDoS from user-supplied patterns
+      if (!this.isSafeRegexPattern(pattern)) {
+        // Fall back to substring match for unsafe/too-long patterns
+        if (normalized.includes(pattern.toLowerCase())) {
+          this.audit('shell_command', { command }, 'tool', 'blocked', `Zablokowana komenda: zawiera "${pattern}"`);
+          return { allowed: false, reason: `Komenda zablokowana ze względów bezpieczeństwa` };
+        }
+        continue;
+      }
+
       try {
         const regex = new RegExp(pattern, 'i');
         if (regex.test(normalized)) {
@@ -295,6 +305,39 @@ export class SecurityGuard {
     } catch {
       return { allowed: false, reason: 'Nieprawidłowy URL' };
     }
+  }
+
+  // ─── Regex Safety ───
+
+  /**
+   * Check if a regex pattern is safe to compile and run (no ReDoS risk).
+   * Rejects patterns that are too long or contain known catastrophic constructs.
+   */
+  private isSafeRegexPattern(pattern: string): boolean {
+    // Reject overly long patterns
+    if (pattern.length > 200) {
+      console.warn(`[SecurityGuard] Rejected regex pattern (too long: ${pattern.length} chars): "${pattern.slice(0, 50)}..."`);
+      return false;
+    }
+
+    // Detect nested quantifiers and catastrophic backtracking constructs:
+    //   (.*)*  (.+)+  (a*)*  (a+)+  (.+)*  (.*)+  (\w+)+  etc.
+    //   Also: {n,}){n,}  and similar nested repeats
+    const nestedQuantifiers = /(\((?:[^()]*(?:\.\*|\.\+|\w[*+]))[^()]*\))[*+]|\{[0-9]+,?\}[)][*+{]/;
+    if (nestedQuantifiers.test(pattern)) {
+      console.warn(`[SecurityGuard] Rejected regex pattern (nested quantifiers / ReDoS risk): "${pattern.slice(0, 80)}"`);
+      this.audit('regex_rejected', { pattern: pattern.slice(0, 100) }, 'tool', 'blocked', 'Wzorzec regex z zagnieżdżonymi kwantyfikatorami');
+      return false;
+    }
+
+    // Check it actually compiles (syntax validity)
+    try {
+      new RegExp(pattern, 'i');
+    } catch {
+      return false;
+    }
+
+    return true;
   }
 
   // ─── Rate Limiting ───

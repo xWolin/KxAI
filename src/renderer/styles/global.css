@@ -322,7 +322,7 @@ html, body, #root {
   color: var(--text-primary);
   font-size: 13px;
   line-height: 1.5;
-  word-break: break-word;
+  overflow-wrap: break-word;
   white-space: pre-wrap;
 }
 
@@ -1408,4 +1408,267 @@ html, body, #root {
   font-size: 11px;
   color: rgba(255, 255, 255, 0.4);
   line-height: 1.3;
+}
+
+/* ──────────────── Meeting Coach / Coaching Overlay ──────────────── */
+
+.coaching-overlay {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.coaching-overlay__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  -webkit-app-region: drag;
+}
+
+.coaching-overlay__back {
+  background: none;
+  border: none;
+  color: #58a6ff;
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  -webkit-app-region: no-drag;
+}
+.coaching-overlay__back:hover { background: rgba(88, 166, 255, 0.1); }
+
+.coaching-overlay__title {
+  font-size: 1rem;
+  font-weight: 600;
+  flex: 1;
+}
+
+.coaching-overlay__actions {
+  -webkit-app-region: no-drag;
+}
+
+.coaching-overlay__error {
+  padding: 0.5rem 1rem;
+  background: rgba(248, 81, 73, 0.15);
+  color: #f85149;
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(248, 81, 73, 0.3);
+}
+
+.coaching-overlay__controls {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #30363d;
+}
+
+.coaching-overlay__btn {
+  border: none;
+  border-radius: 8px;
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s;
+  -webkit-app-region: no-drag;
+}
+.coaching-overlay__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.coaching-overlay__btn--start {
+  background: #da3633;
+  color: white;
+  width: 100%;
+  font-weight: 600;
+  padding: 0.65rem;
+}
+.coaching-overlay__btn--start:hover:not(:disabled) {
+  background: #f85149;
+}
+
+.coaching-overlay__btn--stop {
+  background: #30363d;
+  color: #e6edf3;
+  font-size: 0.8rem;
+  padding: 0.4rem 0.75rem;
+}
+.coaching-overlay__btn--stop:hover:not(:disabled) {
+  background: #484f58;
+}
+
+.coaching-overlay__btn--dashboard {
+  background: none;
+  color: #8b949e;
+  padding: 0.25rem 0.5rem;
+  font-size: 1.1rem;
+}
+.coaching-overlay__btn--dashboard:hover { color: #e6edf3; }
+
+.coaching-overlay__btn--link {
+  background: #21262d;
+  color: #58a6ff;
+  padding: 0.5rem 1rem;
+}
+.coaching-overlay__btn--link:hover { background: #30363d; }
+
+.coaching-overlay__active-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.coaching-overlay__status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.coaching-overlay__recording-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #da3633;
+  animation: coaching-pulse 1.5s infinite;
+}
+
+@keyframes coaching-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.coaching-overlay__app-badge {
+  font-size: 0.75rem;
+  background: #21262d;
+  padding: 0.1rem 0.5rem;
+  border-radius: 12px;
+  color: #8b949e;
+}
+
+.coaching-overlay__line-count {
+  color: #8b949e;
+  font-size: 0.8rem;
+}
+
+.coaching-overlay__content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.coaching-overlay__tabs {
+  display: flex;
+  border-bottom: 1px solid #30363d;
+}
+
+.coaching-overlay__tab {
+  flex: 1;
+  background: none;
+  border: none;
+  color: #8b949e;
+  padding: 0.5rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+.coaching-overlay__tab:hover { color: #e6edf3; }
+.coaching-overlay__tab--active {
+  color: #58a6ff;
+  border-bottom-color: #58a6ff;
+}
+
+.coaching-overlay__transcript {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+  font-size: 0.82rem;
+  scroll-behavior: smooth;
+}
+
+.coaching-overlay__line {
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  margin-bottom: 2px;
+}
+.coaching-overlay__line:hover { background: #161b22; }
+.coaching-overlay__line--partial { opacity: 0.5; font-style: italic; }
+
+.coaching-overlay__line-time {
+  color: #484f58;
+  font-size: 0.75rem;
+  margin-right: 0.4rem;
+}
+.coaching-overlay__line-speaker {
+  font-weight: 600;
+  color: #58a6ff;
+  margin-right: 0.3rem;
+}
+.coaching-overlay__line-speaker--me {
+  color: #3fb950;
+}
+.coaching-overlay__line-text { color: #c9d1d9; }
+
+.coaching-overlay__tips {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0.5rem;
+}
+
+.coaching-overlay__tip {
+  background: #161b22;
+  border-left: 3px solid #d29922;
+  padding: 0.6rem 0.75rem;
+  margin-bottom: 0.5rem;
+  border-radius: 0 6px 6px 0;
+}
+
+.coaching-overlay__tip-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 0.25rem;
+}
+.coaching-overlay__tip-category {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: #d29922;
+  font-weight: 600;
+}
+.coaching-overlay__tip-time {
+  font-size: 0.7rem;
+  color: #484f58;
+}
+.coaching-overlay__tip-text {
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.coaching-overlay__empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  color: #484f58;
+  font-size: 0.9rem;
+}
+
+.coaching-overlay__idle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+.coaching-overlay__idle-info {
+  text-align: center;
+  color: #8b949e;
+  font-size: 0.9rem;
+  line-height: 1.5;
 }

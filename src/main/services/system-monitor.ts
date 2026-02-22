@@ -81,6 +81,7 @@ interface ProcessInfo {
 interface CacheEntry<T> {
   data: T;
   timestamp: number;
+  ttl?: number; // per-entry TTL in ms; falls back to CACHE_TTL_MS if unset
 }
 
 export class SystemMonitor {
@@ -246,13 +247,25 @@ export class SystemMonitor {
     if (cached) return cached;
 
     try {
-      const result = await this.execCommand(
-        process.platform === 'win32'
-          ? 'wmic logicaldisk get size,freespace,caption /format:csv'
-          : 'df -B1 --output=target,size,avail 2>/dev/null || df -k'
-      );
+      // df -B1 outputs bytes; df -k outputs kilobytes (macOS/BSD fallback)
+      const isWin = process.platform === 'win32';
+      const dfCmd = 'df -B1 --output=target,size,avail 2>/dev/null';
+      const dfFallback = 'df -k';
+      let unitMultiplier = 1; // bytes by default
 
-      const disks = this.parseDiskOutput(result);
+      let result: string;
+      if (isWin) {
+        result = await this.execCommand('wmic logicaldisk get size,freespace,caption /format:csv');
+      } else {
+        try {
+          result = await this.execCommand(dfCmd);
+        } catch {
+          result = await this.execCommand(dfFallback);
+          unitMultiplier = 1024; // df -k outputs kilobytes
+        }
+      }
+
+      const disks = this.parseDiskOutput(result, unitMultiplier);
       this.setCache('disk', disks, 30000); // 30s cache for disk
       return disks;
     } catch {
@@ -260,11 +273,11 @@ export class SystemMonitor {
     }
   }
 
-  private parseDiskOutput(output: string): DiskInfo[] {
+  private parseDiskOutput(output: string, unitMultiplier: number = 1): DiskInfo[] {
     const disks: DiskInfo[] = [];
 
     if (process.platform === 'win32') {
-      // Parse wmic CSV output
+      // Parse wmic CSV output (always bytes)
       const lines = output.trim().split('\n').filter((l) => l.trim());
       for (const line of lines.slice(1)) { // Skip header
         const parts = line.trim().split(',');
@@ -284,17 +297,17 @@ export class SystemMonitor {
         }
       }
     } else {
-      // Parse df output
+      // Parse df output — unitMultiplier converts to bytes (1 for -B1, 1024 for -k)
       const lines = output.trim().split('\n').filter((l) => l.trim());
       for (const line of lines.slice(1)) {
         const parts = line.trim().split(/\s+/);
         if (parts.length >= 3) {
           const mount = parts[0];
-          const size = parseInt(parts[1], 10);
-          const avail = parseInt(parts[2], 10);
-          if (mount && size > 0 && mount.startsWith('/')) {
-            const totalBytes = size;
-            const freeBytes = avail;
+          const rawSize = parseInt(parts[1], 10);
+          const rawAvail = parseInt(parts[2], 10);
+          if (mount && rawSize > 0 && mount.startsWith('/')) {
+            const totalBytes = rawSize * unitMultiplier;
+            const freeBytes = rawAvail * unitMultiplier;
             disks.push({
               mount,
               totalGB: totalBytes / (1024 ** 3),
@@ -406,7 +419,7 @@ export class SystemMonitor {
       let output: string;
       if (process.platform === 'win32') {
         output = await this.execCommand(
-          `powershell -NoProfile -Command "Get-Process | Sort-Object CPU -Descending | Select-Object -First ${limit} Name,Id,CPU,@{N='MemMB';E={[math]::Round($_.WorkingSet64/1MB,1)}} | ConvertTo-Csv -NoTypeInformation"`
+          `powershell -NoProfile -Command "Get-Process | Where-Object {$_.Id -ne 0} | Sort-Object CPU -Descending | Select-Object -First ${limit} Name,Id,@{N='CpuPct';E={if($_.StartTime){[math]::Round(($_.CPU / ((Get-Date) - $_.StartTime).TotalSeconds) / [Environment]::ProcessorCount * 100, 1)}else{0}}},@{N='MemMB';E={[math]::Round($_.WorkingSet64/1MB,1)}} | ConvertTo-Csv -NoTypeInformation"`
         );
       } else {
         output = await this.execCommand(
@@ -473,16 +486,16 @@ export class SystemMonitor {
 
   // ─── Cache Helpers ───
 
-  private getFromCache<T>(key: string, ttl?: number): T | undefined {
+  private getFromCache<T>(key: string): T | undefined {
     const entry = this.cache.get(key);
-    if (entry && Date.now() - entry.timestamp < (ttl || this.CACHE_TTL_MS)) {
+    if (entry && Date.now() - entry.timestamp < (entry.ttl ?? this.CACHE_TTL_MS)) {
       return entry.data as T;
     }
     return undefined;
   }
 
   private setCache<T>(key: string, data: T, ttl?: number): void {
-    this.cache.set(key, { data, timestamp: Date.now() });
+    this.cache.set(key, { data, timestamp: Date.now(), ttl });
   }
 
   // ─── Exec Helper ───

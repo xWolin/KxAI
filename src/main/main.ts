@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, screen, nativeImage, globalShortcut } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, screen, nativeImage, globalShortcut, shell } from 'electron';
 import * as path from 'path';
 import { ScreenCaptureService } from './services/screen-capture';
 import { MemoryService } from './services/memory';
@@ -18,6 +18,9 @@ import { SecurityGuard } from './services/security-guard';
 import { SystemMonitor } from './services/system-monitor';
 import { TTSService } from './services/tts-service';
 import { ScreenMonitorService } from './services/screen-monitor';
+import { TranscriptionService } from './services/transcription-service';
+import { MeetingCoachService } from './services/meeting-coach';
+import { DashboardServer } from './services/dashboard-server';
 import { setupIPC } from './ipc';
 
 let mainWindow: BrowserWindow | null = null;
@@ -57,6 +60,9 @@ let securityGuardService: SecurityGuard;
 let systemMonitorService: SystemMonitor;
 let ttsService: TTSService;
 let screenMonitorService: ScreenMonitorService;
+let transcriptionService: TranscriptionService;
+let meetingCoachService: MeetingCoachService;
+let dashboardServer: DashboardServer;
 
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
@@ -153,6 +159,23 @@ function createMainWindow(): BrowserWindow {
   // Make window click-through when collapsed (just the floating icon)
   win.setIgnoreMouseEvents(false);
 
+  // ─── External link handling ───
+  // Intercept navigation — open external URLs in system browser instead of navigating the Electron window
+  const appOrigins = ['http://localhost:5173', `file://${path.join(__dirname, '..').replace(/\\/g, '/')}`];
+
+  win.webContents.on('will-navigate', (event, url) => {
+    const isInternal = appOrigins.some((origin) => url.startsWith(origin));
+    if (!isInternal) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
   return win;
 }
 
@@ -217,7 +240,7 @@ async function initializeServices(): Promise<void> {
   pluginService = new PluginService();
   securityGuardService = new SecurityGuard();
   systemMonitorService = new SystemMonitor();
-  ttsService = new TTSService();
+  ttsService = new TTSService(securityService);
 
   await memoryService.initialize();
   await embeddingService.initialize();
@@ -258,6 +281,20 @@ async function initializeServices(): Promise<void> {
   screenMonitorService.setScreenCapture(screenCapture);
   agentLoop.setScreenMonitorService(screenMonitorService);
 
+  // Meeting Coach — transcription + AI coaching
+  transcriptionService = new TranscriptionService(securityService);
+  meetingCoachService = new MeetingCoachService(
+    transcriptionService, aiService, configService, securityService
+  );
+
+  // Dashboard — localhost server for meeting summaries
+  const meetingConfig = meetingCoachService.getConfig();
+  dashboardServer = new DashboardServer(meetingCoachService, meetingConfig.dashboardPort);
+  // Start dashboard server in background (non-blocking)
+  dashboardServer.start().catch(err => {
+    console.error('[KxAI] Dashboard server failed to start:', err);
+  });
+
   // Start cron jobs
   cronService.startAll();
 }
@@ -287,6 +324,8 @@ app.whenReady().then(async () => {
     systemMonitorService,
     ttsService,
     screenMonitorService,
+    meetingCoachService,
+    dashboardServer,
   });
 
   // Auto-restore proactive mode (smart companion) if it was enabled before restart
@@ -399,8 +438,20 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('will-quit', () => {
+app.on('will-quit', async () => {
   globalShortcut.unregisterAll();
+  // Graceful shutdown of browser automation
+  if (browserService) {
+    await browserService.close().catch((err: any) =>
+      console.error('[KxAI] Browser service shutdown error:', err)
+    );
+  }
+  // Graceful shutdown of dashboard server
+  if (dashboardServer) {
+    await dashboardServer.stop().catch((err: any) =>
+      console.error('[KxAI] Dashboard server shutdown error:', err)
+    );
+  }
 });
 
 app.on('activate', () => {

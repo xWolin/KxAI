@@ -84,7 +84,7 @@ export interface KxAIBridge {
   onCompanionState: (callback: (data: { hasSuggestion?: boolean; wantsToSpeak?: boolean }) => void) => (() => void);
 
   // Browser
-  browserListSessions: () => Promise<BrowserSession[]>;
+  browserStatus: () => Promise<{ running: boolean }>;
   browserCloseAll: () => Promise<{ success: boolean }>;
 
   // Plugins
@@ -114,6 +114,23 @@ export interface KxAIBridge {
   // HEARTBEAT.md
   heartbeatGetConfig: () => Promise<{ content: string }>;
   heartbeatSetConfig: (content: string) => Promise<{ success: boolean }>;
+
+  // Meeting Coach
+  meetingStart: (title?: string) => Promise<{ success: boolean; data?: { id: string }; error?: string }>;
+  meetingStop: () => Promise<{ success: boolean; data?: MeetingSummaryMeta; error?: string }>;
+  meetingGetState: () => Promise<MeetingStateInfo>;
+  meetingGetConfig: () => Promise<MeetingCoachConfig>;
+  meetingSetConfig: (updates: Partial<MeetingCoachConfig>) => Promise<{ success: boolean }>;
+  meetingGetSummaries: () => Promise<MeetingSummaryMeta[]>;
+  meetingGetSummary: (id: string) => Promise<MeetingSummaryFull | null>;
+  meetingGetDashboardUrl: () => Promise<string>;
+  meetingSendAudio: (source: 'mic' | 'system', chunk: ArrayBuffer) => void;
+  onMeetingState: (callback: (state: MeetingStateInfo) => void) => (() => void);
+  onMeetingTranscript: (callback: (data: any) => void) => (() => void);
+  onMeetingCoaching: (callback: (tip: MeetingCoachingTip) => void) => (() => void);
+  onMeetingError: (callback: (data: { error: string }) => void) => (() => void);
+  onMeetingStopCapture: (callback: () => void) => (() => void);
+  onMeetingDetected: (callback: (data: { app: string; title: string }) => void) => (() => void);
 }
 
 export interface ConversationMessage {
@@ -230,8 +247,7 @@ export interface AutomationStatus {
 
 // ──────────────── Browser ────────────────
 export interface BrowserSession {
-  id: string;
-  url: string;
+  running: boolean;
 }
 
 // ──────────────── Plugins ────────────────
@@ -264,8 +280,10 @@ export interface SecurityStats {
 // ──────────────── TTS ────────────────
 export interface TTSConfig {
   enabled: boolean;
-  provider: 'edge' | 'web';
+  provider: 'elevenlabs' | 'edge' | 'web';
   voice: string;
+  elevenLabsVoiceId: string;
+  elevenLabsModel: string;
   rate: string;
   volume: string;
   maxChars: number;
@@ -279,8 +297,55 @@ export interface SystemSnapshot {
   disk: { mount: string; totalGB: number; usedGB: number; freeGB: number; usagePercent: number }[];
   battery: { percent: number; charging: boolean; timeRemaining: string } | null;
   network: { connected: boolean; interfaces: { name: string; ip: string; mac: string }[] };
-  system: { hostname: string; platform: string; arch: string; osVersion: string; uptimeHours: number };
+  system: { hostname: string; platform: string; arch: string; osVersion: string; uptimeHours: number; nodeVersion: string; electronVersion: string };
   topProcesses: { name: string; pid: number; cpuPercent: number; memoryMB: number }[];
+}
+
+// ──────────────── Meeting Coach ────────────────
+export interface MeetingStateInfo {
+  active: boolean;
+  meetingId: string | null;
+  startTime: number | null;
+  duration: number;
+  transcriptLineCount: number;
+  lastCoachingTip: string | null;
+  detectedApp: string | null;
+}
+
+export interface MeetingCoachConfig {
+  enabled: boolean;
+  autoDetect: boolean;
+  coachingEnabled: boolean;
+  coachingIntervalSec: number;
+  language: string;
+  dashboardPort: number;
+  captureSystemAudio: boolean;
+  captureMicrophone: boolean;
+}
+
+export interface MeetingSummaryMeta {
+  id: string;
+  title: string;
+  startTime: number;
+  duration: number;
+  participants: string[];
+}
+
+export interface MeetingSummaryFull extends MeetingSummaryMeta {
+  endTime: number;
+  transcript: Array<{ timestamp: number; speaker: string; text: string; source: 'mic' | 'system' }>;
+  coachingTips: MeetingCoachingTip[];
+  summary: string;
+  keyPoints: string[];
+  actionItems: string[];
+  detectedApp?: string;
+}
+
+export interface MeetingCoachingTip {
+  id: string;
+  timestamp: number;
+  tip: string;
+  category: string;
 }
 
 declare global {

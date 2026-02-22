@@ -5,10 +5,11 @@ import { OnboardingWizard } from './components/OnboardingWizard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { CronPanel } from './components/CronPanel';
 import { ProactiveNotification } from './components/ProactiveNotification';
+import { CoachingOverlay } from './components/CoachingOverlay';
 import { initTTS, speak } from './utils/tts';
 import type { ProactiveMessage, KxAIConfig } from './types';
 
-type View = 'widget' | 'chat' | 'settings' | 'onboarding' | 'cron';
+type View = 'widget' | 'chat' | 'settings' | 'onboarding' | 'cron' | 'meeting';
 
 export default function App() {
   const [view, setView] = useState<View>('widget');
@@ -160,12 +161,20 @@ export default function App() {
           }}
           onOpenSettings={() => setView('settings')}
           onOpenCron={() => setView('cron')}
+          onOpenMeeting={() => setView('meeting')}
           refreshTrigger={chatRefreshTrigger}
         />
       )}
 
       {view === 'cron' && (
         <CronPanel onBack={() => setView('chat')} />
+      )}
+
+      {view === 'meeting' && (
+        <CoachingOverlay
+          config={config!}
+          onBack={() => setView('chat')}
+        />
       )}
 
       {view === 'settings' && (

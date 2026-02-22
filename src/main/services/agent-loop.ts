@@ -40,6 +40,15 @@ export class AgentLoop {
   private memoryFlushDone = false;        // Track if flush was done this compaction cycle
   private totalSessionTokens = 0;         // Approximate token usage in current session
 
+  /**
+   * Reset session-level state (call when conversation history is cleared or a new session starts).
+   * This re-enables memory flush for the next compaction cycle.
+   */
+  resetSessionState(): void {
+    this.memoryFlushDone = false;
+    this.totalSessionTokens = 0;
+  }
+
   constructor(
     ai: AIService,
     tools: ToolsService,
@@ -161,8 +170,15 @@ export class AgentLoop {
     // Build enhanced system context with tools, cron, take_control, bootstrap, etc.
     const enhancedCtx = await this.buildEnhancedContext();
 
-    // Inject RAG context
-    const ragContext = this.rag ? await this.rag.buildRAGContext(userMessage) : '';
+    // Inject RAG context (gracefully degrade if embedding/RAG fails)
+    let ragContext = '';
+    if (this.rag) {
+      try {
+        ragContext = await this.rag.buildRAGContext(userMessage);
+      } catch (err) {
+        console.warn('AgentLoop: RAG context building failed, continuing without RAG:', err);
+      }
+    }
     const fullContext = [extraContext, ragContext].filter(Boolean).join('\n\n');
 
     let fullResponse = '';
@@ -384,8 +400,6 @@ export class AgentLoop {
     const FLUSH_THRESHOLD = 8000;
     if (historyTokens < FLUSH_THRESHOLD) return;
 
-    this.memoryFlushDone = true;
-
     try {
       const response = await this.ai.sendMessage(
         '[MEMORY FLUSH — Pre-kompakcja]\n\n' +
@@ -401,8 +415,12 @@ export class AgentLoop {
       if (response.trim() !== 'NO_REPLY') {
         await this.processMemoryUpdates(response);
       }
+
+      // Mark flush as done only after success — transient failures allow retry
+      this.memoryFlushDone = true;
     } catch (err) {
       console.error('Memory flush error:', err);
+      // Leave memoryFlushDone = false so next cycle retries
     }
   }
 
@@ -750,6 +768,9 @@ Nie aktualizuj pamięci przy każdej wiadomości — tylko gdy jest coś wartego
     onStatus?.('🤖 Przejmuje sterowanie (Computer Use API)...');
     onChunk?.(`\n🖥️ Rozdzielczość: ${initialCapture.width}x${initialCapture.height} (natywna: ${initialCapture.nativeWidth}x${initialCapture.nativeHeight})\n`);
 
+    // Track latest capture for coordinate scaling (updated after each action)
+    let latestCapture = initialCapture;
+
     while (!this.takeControlAbort && totalActions < maxActions) {
       // Prune old images to keep costs down (keep last 3)
       this.ai.pruneComputerUseImages(messages, 3);
@@ -813,10 +834,10 @@ Nie aktualizuj pamięci przy każdej wiadomości — tylko gdy jest coś wartego
           const actionStr = `${step.action.action}${step.action.coordinate ? ` (${step.action.coordinate.join(',')})` : ''}${step.action.text ? ` "${step.action.text.slice(0, 50)}"` : ''}`;
           onChunk?.(`\n⚙️ [${totalActions}/${maxActions}] ${actionStr}\n`);
 
-          // Execute the action with coordinate scaling
+          // Execute the action with coordinate scaling (use latest capture for accurate coords)
           let actionError: string | undefined;
           try {
-            await this.executeComputerUseAction(step.action, initialCapture);
+            await this.executeComputerUseAction(step.action, latestCapture);
           } catch (error: any) {
             actionError = error.message;
             onChunk?.(`❌ ${actionError}\n`);
@@ -825,12 +846,13 @@ Nie aktualizuj pamięci przy każdej wiadomości — tylko gdy jest coś wartego
           // Wait for UI to settle
           await new Promise((r) => setTimeout(r, step.action?.action === 'screenshot' ? 100 : 800));
 
-          // Take screenshot after action
+          // Take screenshot after action — becomes the latest for next scaling
           const capture = await this.screenCapture!.captureForComputerUse();
           if (!capture) {
             log.push(`[${totalActions}] Screenshot failed after action`);
             break;
           }
+          latestCapture = capture;
 
           // Add assistant message, then tool result
           messages.push({ role: 'assistant', content: assistantContent.splice(0) });
@@ -899,7 +921,9 @@ Nie aktualizuj pamięci przy każdej wiadomości — tylko gdy jest coś wartego
       case 'right_click':
       case 'middle_click':
       case 'double_click': {
-        const button = action.action === 'right_click' ? 'right' : 'left';
+        const button = action.action === 'right_click' ? 'right'
+          : action.action === 'middle_click' ? 'middle'
+          : 'left';
         if (action.coordinate) {
           const [x, y] = scaleCoord(action.coordinate);
           await this.automation.mouseClick(x, y, button);

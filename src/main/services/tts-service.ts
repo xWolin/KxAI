@@ -1,44 +1,58 @@
 /**
- * TTS Service — Text-to-Speech via Edge TTS (main process).
+ * TTS Service — Text-to-Speech via ElevenLabs (primary) or Edge TTS (fallback).
  *
- * Uses Microsoft Edge TTS (node-edge-tts) as the primary provider — free, high-quality neural voices.
- * Falls back to renderer-side Web Speech API if Edge TTS fails.
+ * Provider priority:
+ * 1. 'elevenlabs' — High-quality ElevenLabs voices (requires API key)
+ * 2. 'edge' — Free Microsoft Edge TTS neural voices (node-edge-tts)
+ * 3. 'web' — Renderer-side Web Speech API (lowest quality fallback)
  *
- * Runs in main process because node-edge-tts requires Node.js.
+ * Runs in main process because both ElevenLabs HTTP and node-edge-tts require Node.js.
  * Renderer communicates via IPC: tts:speak, tts:stop, tts:set-config.
  */
 
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import * as https from 'https';
+import { SecurityService } from './security';
 
 export interface TTSConfig {
   enabled: boolean;
-  provider: 'edge' | 'web';       // 'edge' = node-edge-tts (default), 'web' = renderer Web Speech API
-  voice: string;                   // Edge TTS voice name
-  rate: string;                    // e.g. '+0%', '+20%', '-10%'
-  volume: string;                  // e.g. '+0%'
+  provider: 'elevenlabs' | 'edge' | 'web';
+  voice: string;                   // Edge TTS voice name (used when provider='edge')
+  elevenLabsVoiceId: string;       // ElevenLabs voice ID
+  elevenLabsModel: string;         // ElevenLabs model
+  rate: string;                    // Edge TTS rate e.g. '+0%', '+20%'
+  volume: string;                  // Edge TTS volume e.g. '+0%'
   maxChars: number;                // Max characters to speak (truncate longer text)
 }
 
 const DEFAULT_CONFIG: TTSConfig = {
   enabled: true,
-  provider: 'edge',
-  voice: 'pl-PL-MarekNeural',     // Polish male voice (high quality)
+  provider: 'elevenlabs',
+  voice: 'pl-PL-MarekNeural',     // Edge TTS fallback voice
+  elevenLabsVoiceId: 'onwK4e9ZLuTAKqWW03F9', // "Daniel" — clear male voice
+  elevenLabsModel: 'eleven_multilingual_v2',
   rate: '+0%',
   volume: '+0%',
   maxChars: 500,
 };
 
-// Alternative voices for reference:
-// pl-PL-ZofiaNeural (female), en-US-MichelleNeural, en-US-GuyNeural
+// ElevenLabs voice IDs for reference:
+// onwK4e9ZLuTAKqWW03F9 — Daniel (clear male)
+// EXAVITQu4vr4xnSDxMaL — Sarah (warm female)
+// pFZP5JQG7iQjIQuC4Bku — Lily (British female)
+// TX3LPaxmHKxFdv7VOQHJ — Liam (American male)
+// JBFqnCBsd6RMkjVDRZzb — George (British male)
 
 export class TTSService {
   private config: TTSConfig;
   private speaking = false;
   private tempDir: string;
+  private security?: SecurityService;
 
-  constructor(config?: Partial<TTSConfig>) {
+  constructor(security?: SecurityService, config?: Partial<TTSConfig>) {
+    this.security = security;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tempDir = path.join(os.tmpdir(), 'kxai-tts');
     if (!fs.existsSync(this.tempDir)) {
@@ -47,13 +61,14 @@ export class TTSService {
   }
 
   /**
-   * Speak text using Edge TTS. Returns path to generated audio file.
-   * Returns null if disabled or provider is 'web' (handled by renderer).
+   * Speak text. Tries ElevenLabs first (if configured), then Edge TTS, then returns null for Web Speech fallback.
+   * Returns path to generated audio file or null.
    */
   async speak(text: string): Promise<string | null> {
-    if (!this.config.enabled || this.config.provider !== 'edge') {
-      return null; // Let renderer handle via Web Speech API
-    }
+    if (!this.config.enabled) return null;
+
+    // If provider is 'web', let renderer handle it
+    if (this.config.provider === 'web') return null;
 
     // Clean text — strip markdown, emojis, code blocks
     const clean = this.cleanText(text);
@@ -64,6 +79,103 @@ export class TTSService {
       ? clean.slice(0, this.config.maxChars) + '...'
       : clean;
 
+    // Try ElevenLabs first (if provider is 'elevenlabs' or auto-fallback)
+    if (this.config.provider === 'elevenlabs') {
+      const elResult = await this.speakElevenLabs(truncated);
+      if (elResult) return elResult;
+      console.warn('ElevenLabs TTS failed — falling back to Edge TTS');
+    }
+
+    // Fallback to Edge TTS
+    return this.speakEdge(truncated);
+  }
+
+  /**
+   * Generate speech via ElevenLabs Text-to-Speech REST API.
+   */
+  private async speakElevenLabs(text: string): Promise<string | null> {
+    if (!this.security) return null;
+
+    const apiKey = await this.security.getApiKey('elevenlabs');
+    if (!apiKey) {
+      console.warn('ElevenLabs TTS: no API key configured');
+      return null;
+    }
+
+    const voiceId = this.config.elevenLabsVoiceId || DEFAULT_CONFIG.elevenLabsVoiceId;
+    const model = this.config.elevenLabsModel || DEFAULT_CONFIG.elevenLabsModel;
+    const audioPath = path.join(this.tempDir, `tts-el-${Date.now()}.mp3`);
+
+    try {
+      this.speaking = true;
+      const audioBuffer = await this.elevenLabsRequest(apiKey, voiceId, model, text);
+      fs.writeFileSync(audioPath, audioBuffer);
+      this.speaking = false;
+      return audioPath;
+    } catch (err) {
+      this.speaking = false;
+      console.error('ElevenLabs TTS error:', err);
+      return null;
+    }
+  }
+
+  /**
+   * HTTPS request to ElevenLabs TTS API.
+   */
+  private elevenLabsRequest(
+    apiKey: string, voiceId: string, model: string, text: string
+  ): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+      const body = JSON.stringify({
+        text,
+        model_id: model,
+        voice_settings: {
+          stability: 0.5,
+          similarity_boost: 0.75,
+          style: 0.0,
+          use_speaker_boost: true,
+        },
+      });
+
+      const REQUEST_TIMEOUT_MS = 30_000;
+
+      const req = https.request({
+        hostname: 'api.elevenlabs.io',
+        path: `/v1/text-to-speech/${voiceId}`,
+        method: 'POST',
+        headers: {
+          'Accept': 'audio/mpeg',
+          'Content-Type': 'application/json',
+          'xi-api-key': apiKey,
+          'Content-Length': Buffer.byteLength(body),
+        },
+        timeout: REQUEST_TIMEOUT_MS,
+      }, (res) => {
+        if (res.statusCode !== 200) {
+          let errBody = '';
+          res.on('data', (chunk: Buffer) => errBody += chunk.toString());
+          res.on('end', () => reject(new Error(`ElevenLabs API ${res.statusCode}: ${errBody.slice(0, 200)}`)));
+          return;
+        }
+        const chunks: Buffer[] = [];
+        res.on('data', (chunk: Buffer) => chunks.push(chunk));
+        res.on('end', () => resolve(Buffer.concat(chunks)));
+        res.on('error', reject);
+      });
+
+      req.on('timeout', () => {
+        req.destroy(new Error(`ElevenLabs TTS request timed out after ${REQUEST_TIMEOUT_MS}ms`));
+      });
+      req.on('error', reject);
+      req.write(body);
+      req.end();
+    });
+  }
+
+  /**
+   * Generate speech via Edge TTS (free, neural voices).
+   */
+  private async speakEdge(text: string): Promise<string | null> {
     const audioPath = path.join(this.tempDir, `tts-${Date.now()}.mp3`);
 
     try {
@@ -75,7 +187,7 @@ export class TTSService {
       });
 
       this.speaking = true;
-      await tts.ttsPromise(truncated, audioPath);
+      await tts.ttsPromise(text, audioPath);
       this.speaking = false;
 
       return audioPath;

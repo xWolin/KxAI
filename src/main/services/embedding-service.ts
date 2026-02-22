@@ -72,7 +72,12 @@ export class EmbeddingService {
     let embedding: number[];
 
     if (this.openaiClient) {
-      embedding = await this.embedViaOpenAI(text);
+      try {
+        embedding = await this.embedViaOpenAI(text);
+      } catch (err) {
+        console.warn('EmbeddingService: OpenAI embedding failed, falling back to TF-IDF:', err);
+        embedding = this.tfidfEmbed(text);
+      }
     } else {
       embedding = this.tfidfEmbed(text);
     }
@@ -149,7 +154,10 @@ export class EmbeddingService {
    * Cosine similarity between two vectors.
    */
   cosineSimilarity(a: number[], b: number[]): number {
-    if (a.length !== b.length) return 0;
+    if (a.length !== b.length) {
+      console.error(`EmbeddingService: Vector dimension mismatch — a.length=${a.length}, b.length=${b.length}. Possible OpenAI/TF-IDF mixing.`);
+      throw new Error(`Embedding dimension mismatch: ${a.length} vs ${b.length}`);
+    }
 
     let dotProduct = 0;
     let normA = 0;

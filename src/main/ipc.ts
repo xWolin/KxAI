@@ -19,6 +19,8 @@ import { SecurityGuard } from './services/security-guard';
 import { SystemMonitor } from './services/system-monitor';
 import { TTSService } from './services/tts-service';
 import { ScreenMonitorService } from './services/screen-monitor';
+import { MeetingCoachService } from './services/meeting-coach';
+import { DashboardServer } from './services/dashboard-server';
 
 interface Services {
   configService: ConfigService;
@@ -38,10 +40,19 @@ interface Services {
   systemMonitorService: SystemMonitor;
   ttsService: TTSService;
   screenMonitorService: ScreenMonitorService;
+  meetingCoachService?: MeetingCoachService;
+  dashboardServer?: DashboardServer;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   const { configService, securityService, memoryService, aiService, screenCapture, cronService, toolsService, workflowService, agentLoop, ragService, automationService, browserService, pluginService, securityGuardService, systemMonitorService, ttsService, screenMonitorService } = services;
+
+  // Helper to safely send events to renderer
+  const safeSend = (channel: string, data?: any) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(channel, data);
+    }
+  };
 
   // ──────────────── AI Messages ────────────────
   ipcMain.handle('ai:send-message', async (_event, message: string, context?: string) => {
@@ -176,6 +187,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   ipcMain.handle('memory:clear-history', async () => {
     memoryService.clearConversationHistory();
+    agentLoop.resetSessionState();
     return { success: true };
   });
 
@@ -512,8 +524,8 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   // ──────────────── Browser ────────────────
-  ipcMain.handle('browser:list-sessions', async () => {
-    return browserService.listSessions();
+  ipcMain.handle('browser:status', async () => {
+    return { running: browserService.isRunning() };
   });
 
   ipcMain.handle('browser:close-all', async () => {
@@ -616,4 +628,69 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     await memoryService.set('HEARTBEAT.md', content);
     return { success: true };
   });
+
+  // ──────────────── Meeting Coach ────────────────
+  if (services.meetingCoachService) {
+    const meetingCoach = services.meetingCoachService;
+    const dashboardSrv = services.dashboardServer;
+
+    // Forward meeting events to renderer
+    const meetingEvents = ['meeting:state', 'meeting:transcript', 'meeting:coaching', 'meeting:error', 'meeting:stop-capture', 'meeting:detected'];
+    for (const event of meetingEvents) {
+      meetingCoach.on(event, (data: any) => {
+        safeSend(event, data);
+      });
+    }
+
+    ipcMain.handle('meeting:start', async (_event, title?: string) => {
+      try {
+        const id = await meetingCoach.startMeeting(title);
+        return { success: true, data: { id } };
+      } catch (err: any) {
+        return { success: false, error: err.message };
+      }
+    });
+
+    ipcMain.handle('meeting:stop', async () => {
+      try {
+        const summary = await meetingCoach.stopMeeting();
+        if (summary) {
+          return { success: true, data: { id: summary.id, title: summary.title, startTime: summary.startTime, duration: summary.duration, participants: summary.participants } };
+        }
+        return { success: true, data: null };
+      } catch (err: any) {
+        return { success: false, error: err.message };
+      }
+    });
+
+    ipcMain.handle('meeting:get-state', async () => {
+      return meetingCoach.getState();
+    });
+
+    ipcMain.handle('meeting:get-config', async () => {
+      return meetingCoach.getConfig();
+    });
+
+    ipcMain.handle('meeting:set-config', async (_event, updates: Record<string, any>) => {
+      meetingCoach.setConfig(updates);
+      return { success: true };
+    });
+
+    ipcMain.handle('meeting:get-summaries', async () => {
+      return meetingCoach.getSummaries();
+    });
+
+    ipcMain.handle('meeting:get-summary', async (_event, id: string) => {
+      return meetingCoach.getSummary(id);
+    });
+
+    ipcMain.handle('meeting:get-dashboard-url', async () => {
+      return dashboardSrv?.getUrl() || `http://localhost:5678`;
+    });
+
+    // Audio chunk from renderer (non-invoke, fire-and-forget)
+    ipcMain.on('meeting:audio-chunk', (_event, source: string, chunk: Buffer) => {
+      meetingCoach.sendAudioChunk(source as 'mic' | 'system', chunk);
+    });
+  }
 }

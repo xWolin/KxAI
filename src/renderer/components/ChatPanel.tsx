@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { marked } from 'marked';
+import DOMPurify from 'dompurify';
 import type { ConversationMessage, KxAIConfig } from '../types';
 
 // Configure marked for chat messages
@@ -7,6 +8,14 @@ marked.setOptions({
   breaks: true,    // GFM line breaks
   gfm: true,
 });
+
+// Override link renderer to open links externally
+const renderer = new marked.Renderer();
+renderer.link = ({ href, title, text }: { href: string; title?: string | null; text: string }) => {
+  const titleAttr = title ? ` title="${title}"` : '';
+  return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
+};
+marked.use({ renderer });
 
 /**
  * Strip internal AI control blocks (tool, cron, take_control, update_memory)
@@ -21,13 +30,15 @@ function stripControlBlocks(text: string): string {
 
 /**
  * Render markdown to sanitized HTML.
+ * Uses DOMPurify to prevent XSS via event handlers or malicious attributes.
  */
 function renderMarkdown(text: string): string {
   const cleaned = stripControlBlocks(text);
   if (!cleaned) return '';
   const html = marked.parse(cleaned);
   // marked.parse can return string | Promise<string> — we only use sync mode
-  return typeof html === 'string' ? html : '';
+  if (typeof html !== 'string') return '';
+  return DOMPurify.sanitize(html);
 }
 
 /**
@@ -69,10 +80,11 @@ interface ChatPanelProps {
   onClose: () => void;
   onOpenSettings: () => void;
   onOpenCron: () => void;
+  onOpenMeeting: () => void;
   refreshTrigger?: number;
 }
 
-export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, refreshTrigger }: ChatPanelProps) {
+export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenMeeting, refreshTrigger }: ChatPanelProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -314,6 +326,15 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, refresh
             className="chat-btn"
           >
             ⏰
+          </button>
+
+          {/* Meeting Coach */}
+          <button
+            onClick={onOpenMeeting}
+            title="Meeting Coach"
+            className="chat-btn"
+          >
+            🎙️
           </button>
 
           {/* Settings */}
