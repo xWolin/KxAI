@@ -74,8 +74,13 @@ export class EmbeddingService {
     if (this.openaiClient) {
       try {
         embedding = await this.embedViaOpenAI(text);
-      } catch (err) {
-        console.warn('EmbeddingService: OpenAI embedding failed, falling back to TF-IDF:', err);
+      } catch (err: any) {
+        console.warn('EmbeddingService: OpenAI embedding failed, falling back to TF-IDF:', err?.message || err);
+        // Permanently disable OpenAI on quota/auth errors to avoid repeated failures
+        if (err?.code === 'insufficient_quota' || err?.status === 401 || err?.status === 429) {
+          console.warn('EmbeddingService: Disabling OpenAI embeddings due to quota/auth error. Using TF-IDF fallback.');
+          this.openaiClient = null;
+        }
         embedding = this.tfidfEmbed(text);
       }
     } else {
@@ -126,8 +131,13 @@ export class EmbeddingService {
             results[idx] = embedding;
             this.cache.set(this.hashContent(batch[j]), embedding);
           }
-        } catch (err) {
-          console.error('EmbeddingService: Batch embedding failed:', err);
+        } catch (err: any) {
+          console.error('EmbeddingService: Batch embedding failed:', err?.message || err);
+          // Permanently disable OpenAI on quota/auth errors
+          if (err?.code === 'insufficient_quota' || err?.status === 401 || err?.status === 429) {
+            console.warn('EmbeddingService: Disabling OpenAI embeddings due to quota/auth error. Using TF-IDF fallback.');
+            this.openaiClient = null;
+          }
           // Fallback to TF-IDF for failed batch — also cache results
           for (let j = 0; j < batch.length; j++) {
             const idx = uncachedIndexes[start + j];

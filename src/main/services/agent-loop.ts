@@ -159,8 +159,15 @@ export class AgentLoop {
     // Build enhanced system context
     const enhancedCtx = await this.buildEnhancedContext();
 
-    // Inject RAG context if available
-    const ragContext = this.rag ? await this.rag.buildRAGContext(userMessage) : '';
+    // Inject RAG context if available (gracefully degrade on failure)
+    let ragContext = '';
+    if (this.rag) {
+      try {
+        ragContext = await this.rag.buildRAGContext(userMessage);
+      } catch (err) {
+        console.warn('AgentLoop: RAG context building failed, continuing without RAG:', err);
+      }
+    }
     const fullContext = [extraContext, ragContext].filter(Boolean).join('\n\n');
 
     let response = await this.ai.sendMessage(userMessage, fullContext || undefined, enhancedCtx);
