@@ -313,6 +313,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
     if (!SpeechRecognition) {
       console.warn('[ChatPanel] SpeechRecognition API niedostępne');
+      setInput(prev => prev || '⚠️ Rozpoznawanie mowy niedostępne w tej wersji');
       return;
     }
 
@@ -323,8 +324,10 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
     recognition.maxAlternatives = 1;
 
     let finalTranscript = '';
+    let hasReceivedResult = false;
 
     recognition.onresult = (event: any) => {
+      hasReceivedResult = true;
       let interim = '';
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const transcript = event.results[i][0].transcript;
@@ -342,6 +345,11 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
       console.error('[ChatPanel] Speech recognition error:', event.error);
       setIsRecording(false);
       recognitionRef.current = null;
+      if (event.error === 'not-allowed') {
+        setInput(prev => prev || '⚠️ Brak uprawnień do mikrofonu');
+      } else if (event.error === 'network') {
+        setInput(prev => prev || '⚠️ Błąd sieci — rozpoznawanie mowy wymaga połączenia z Google');
+      }
     };
 
     recognition.onend = () => {

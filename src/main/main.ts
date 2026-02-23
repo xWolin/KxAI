@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, screen, nativeImage, globalShortcut, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, Tray, Menu, screen, nativeImage, globalShortcut, shell, session, desktopCapturer } from 'electron';
 import * as path from 'path';
 import { ScreenCaptureService } from './services/screen-capture';
 import { MemoryService } from './services/memory';
@@ -186,6 +186,41 @@ function createMainWindow(): BrowserWindow {
   } else {
     win.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
+
+  // ─── Auto-grant media permissions (mic, screen, desktop audio) ───
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    const allowed = ['media', 'mediaKeySystem', 'display-capture', 'audioCapture'];
+    callback(allowed.includes(permission));
+  });
+
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    const allowed = ['media', 'mediaKeySystem', 'display-capture', 'audioCapture'];
+    return allowed.includes(permission);
+  });
+
+  // ─── Display media request handler for system audio ───
+  session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
+    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
+      if (sources.length > 0) {
+        callback({ video: sources[0] });
+      }
+    });
+  });
+
+  // ─── Renderer crash recovery ───
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error(`[Main] Renderer crashed: ${details.reason} (exit code: ${details.exitCode})`);
+    setTimeout(() => {
+      if (win && !win.isDestroyed()) {
+        console.log('[Main] Reloading renderer after crash...');
+        if (isDev) {
+          win.loadURL('http://localhost:5173');
+        } else {
+          win.loadFile(path.join(__dirname, '../renderer/index.html'));
+        }
+      }
+    }, 1000);
+  });
 
   // Make window click-through when collapsed (just the floating icon)
   win.setIgnoreMouseEvents(false);

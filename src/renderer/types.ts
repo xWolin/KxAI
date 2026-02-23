@@ -11,6 +11,7 @@ export interface KxAIBridge {
 
   // Screen capture
   captureScreen: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+  getDesktopSources: () => Promise<{ success: boolean; data?: Array<{ id: string; name: string }>; error?: string }>;
   startScreenWatch: (intervalMs: number) => Promise<{ success: boolean }>;
   stopScreenWatch: () => Promise<{ success: boolean }>;
 

@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('kxai', {
 
   // Screen capture
   captureScreen: () => ipcRenderer.invoke('screen:capture'),
+  getDesktopSources: () => ipcRenderer.invoke('screen:get-desktop-sources'),
   startScreenWatch: (intervalMs: number) =>
     ipcRenderer.invoke('screen:start-watch', intervalMs),
   stopScreenWatch: () => ipcRenderer.invoke('screen:stop-watch'),

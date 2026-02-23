@@ -216,12 +216,13 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
       // System audio (via desktopCapturer)
       try {
-        const sources = await (window as any).kxai.captureScreen();
-        if (sources?.success && sources.data?.length > 0) {
+        const sourcesResult = await window.kxai.getDesktopSources();
+        if (sourcesResult?.success && sourcesResult.data && sourcesResult.data.length > 0) {
+          const sourceId = sourcesResult.data[0].id;
           const systemStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-              // @ts-ignore — Electron-specific constraint
-              mandatory: { chromeMediaSource: 'desktop' },
+              // @ts-ignore — Electron-specific constraint: chromeMediaSourceId is REQUIRED in Electron 33+
+              mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId },
             } as any,
             video: false,
           });

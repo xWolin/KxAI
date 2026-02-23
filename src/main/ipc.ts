@@ -169,6 +169,16 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
+  // Desktop sources for system audio capture — returns source IDs needed by getUserMedia
+  ipcMain.handle('screen:get-desktop-sources', async () => {
+    try {
+      const sources = await desktopCapturer.getSources({ types: ['screen'] });
+      return { success: true, data: sources.map(s => ({ id: s.id, name: s.name })) };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
   ipcMain.handle('screen:start-watch', async (_event, intervalMs: number) => {
     screenCapture.startWatching(intervalMs, async (screenshots: ScreenshotData[]) => {
       // Send to AI for analysis
