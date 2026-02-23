@@ -136,6 +136,21 @@ export interface KxAIBridge {
   onMeetingError: (callback: (data: { error: string }) => void) => (() => void);
   onMeetingStopCapture: (callback: () => void) => (() => void);
   onMeetingDetected: (callback: (data: { app: string; title: string }) => void) => (() => void);
+
+  // Sub-agents
+  subagentSpawn: (task: string, allowedTools?: string[]) => Promise<{ success: boolean; data?: { id: string }; error?: string }>;
+  subagentKill: (agentId: string) => Promise<{ success: boolean }>;
+  subagentSteer: (agentId: string, instruction: string) => Promise<{ success: boolean }>;
+  subagentList: () => Promise<SubAgentInfo[]>;
+  subagentResults: () => Promise<SubAgentResult[]>;
+  onSubagentProgress: (callback: (data: { msg: string }) => void) => (() => void);
+
+  // Background exec
+  backgroundExec: (task: string) => Promise<{ success: boolean; data?: { id: string }; error?: string }>;
+  backgroundList: () => Promise<BackgroundTaskInfo[]>;
+
+  // Active hours
+  setActiveHours: (start: number | null, end: number | null) => Promise<{ success: boolean }>;
 }
 
 export interface ConversationMessage {
@@ -358,6 +373,36 @@ export interface MeetingCoachingTip {
   timestamp: number;
   tip: string;
   category: string;
+}
+
+// ──────────────── Sub-agents ────────────────
+export type SubAgentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'killed';
+
+export interface SubAgentInfo {
+  id: string;
+  task: string;
+  status: SubAgentStatus;
+  startedAt: number;
+  iterations: number;
+  toolsUsed: string[];
+}
+
+export interface SubAgentResult {
+  id: string;
+  task: string;
+  status: SubAgentStatus;
+  output: string;
+  toolsUsed: string[];
+  iterations: number;
+  durationMs: number;
+  error?: string;
+}
+
+// ──────────────── Background Exec ────────────────
+export interface BackgroundTaskInfo {
+  id: string;
+  task: string;
+  elapsed: number;
 }
 
 declare global {

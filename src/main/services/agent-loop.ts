@@ -10,6 +10,9 @@ import { AutomationService } from './automation-service';
 import { SystemMonitor } from './system-monitor';
 import { ScreenCaptureService, ComputerUseScreenshot } from './screen-capture';
 import { PromptService } from './prompt-service';
+import { ToolLoopDetector, LoopCheckResult } from './tool-loop-detector';
+import { IntentDetector } from './intent-detector';
+import { SubAgentManager, SubAgentResult, SubAgentInfo } from './sub-agent';
 
 /**
  * AgentLoop orchestrates the full agent lifecycle:
@@ -34,6 +37,8 @@ export class AgentLoop {
   private screenMonitor?: import('./screen-monitor').ScreenMonitorService;
   private systemMonitor: SystemMonitor;
   private promptService: PromptService;
+  private intentDetector: IntentDetector;
+  private subAgentManager: SubAgentManager;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private takeControlActive = false;
   private takeControlAbort = false;
@@ -47,6 +52,13 @@ export class AgentLoop {
   private lastAfkTaskTime = 0;            // Last time an AFK task was executed
   private afkTasksDone: Set<string> = new Set(); // Track which AFK tasks were done this session
   private onHeartbeatResult?: (message: string) => void; // Callback for heartbeat messages
+  private onSubAgentResult?: (result: SubAgentResult) => void; // Callback for sub-agent completions
+
+  // ─── Active Hours — heartbeat only during configured hours ───
+  private activeHours: { start: number; end: number } | null = null; // null = always active
+
+  // ─── Background Exec — track background tasks ───
+  private backgroundTasks: Map<string, { task: string; startedAt: number; promise: Promise<string> }> = new Map();
 
   // ─── Observation History — continuity between heartbeats ───
   private observationHistory: Array<{
@@ -83,10 +95,95 @@ export class AgentLoop {
     this.config = config;
     this.systemMonitor = new SystemMonitor();
     this.promptService = new PromptService();
+    this.intentDetector = new IntentDetector();
+    this.subAgentManager = new SubAgentManager(ai, tools);
+
+    // Sub-agent completion → notify UI
+    this.subAgentManager.setCompletionCallback((result) => {
+      this.onSubAgentResult?.(result);
+      // Also notify via heartbeat channel
+      const statusEmoji = result.status === 'completed' ? '✅' : result.status === 'failed' ? '❌' : '⛔';
+      this.onHeartbeatResult?.(
+        `${statusEmoji} Sub-agent zakończył zadanie: "${result.task.slice(0, 100)}"\n\n` +
+        `Status: ${result.status} | Iteracji: ${result.iterations} | Czas: ${Math.round(result.durationMs / 1000)}s\n` +
+        `Wynik: ${result.output.slice(0, 500)}`
+      );
+    });
 
     // Wire cron executor to agent
     this.cron.setExecutor(async (job: CronJob) => {
       return this.executeCronJob(job);
+    });
+
+    // Register agent-level tools (sub-agents, background exec, screenshot)
+    this.registerAgentTools();
+  }
+
+  /**
+   * Register tools that only the agent loop can provide (sub-agents, background exec, screenshot analyze).
+   */
+  private registerAgentTools(): void {
+    this.tools.registerAgentTools({
+      spawnSubagent: async (params: any) => {
+        try {
+          const allowedTools = params.allowed_tools
+            ? (Array.isArray(params.allowed_tools) ? params.allowed_tools : params.allowed_tools.split(',').map((t: string) => t.trim()))
+            : undefined;
+          const id = await this.subAgentManager.spawn({
+            task: params.task,
+            allowedTools,
+          });
+          return { success: true, data: { id, message: `Sub-agent ${id} uruchomiony.` } };
+        } catch (err: any) {
+          return { success: false, error: err.message };
+        }
+      },
+
+      killSubagent: async (params: any) => {
+        const killed = this.subAgentManager.kill(params.agent_id);
+        return killed
+          ? { success: true, data: `Sub-agent ${params.agent_id} zatrzymany.` }
+          : { success: false, error: `Sub-agent ${params.agent_id} nie istnieje lub nie jest aktywny.` };
+      },
+
+      steerSubagent: async (params: any) => {
+        const steered = await this.subAgentManager.steer(params.agent_id, params.instruction);
+        return steered
+          ? { success: true, data: `Instrukcja wstrzyknięta do ${params.agent_id}.` }
+          : { success: false, error: `Sub-agent ${params.agent_id} nie istnieje lub nie jest aktywny.` };
+      },
+
+      listSubagents: async () => {
+        const active = this.subAgentManager.listActive();
+        return { success: true, data: active.length > 0 ? active : 'Brak aktywnych sub-agentów.' };
+      },
+
+      backgroundExec: async (params: any) => {
+        const id = await this.executeInBackground(params.task);
+        return { success: true, data: { id, message: `Zadanie ${id} uruchomione w tle.` } };
+      },
+
+      screenshotAnalyze: async (params: any) => {
+        if (!this.screenCapture) {
+          return { success: false, error: 'Screen capture nie jest dostępny.' };
+        }
+        try {
+          const capture = await this.screenCapture.captureForComputerUse();
+          if (!capture) {
+            return { success: false, error: 'Nie udało się przechwycić ekranu.' };
+          }
+          const question = params.question || 'Opisz co widzisz na ekranie.';
+          const analysis = await this.ai.sendMessageWithVision(
+            question,
+            capture.dataUrl,
+            undefined,
+            'high'
+          );
+          return { success: true, data: analysis };
+        } catch (err: any) {
+          return { success: false, error: `Screenshot error: ${err.message}` };
+        }
+      },
     });
   }
 
@@ -114,6 +211,46 @@ export class AgentLoop {
    */
   setHeartbeatCallback(cb: (message: string) => void): void {
     this.onHeartbeatResult = cb;
+  }
+
+  /**
+   * Set callback for sub-agent completion notifications.
+   */
+  setSubAgentCallback(cb: (result: SubAgentResult) => void): void {
+    this.onSubAgentResult = cb;
+  }
+
+  /**
+   * Get the sub-agent manager for direct access.
+   */
+  getSubAgentManager(): SubAgentManager {
+    return this.subAgentManager;
+  }
+
+  /**
+   * Configure active hours — heartbeat only fires during these hours.
+   * Set null to disable (heartbeat runs 24/7).
+   */
+  setActiveHours(start: number | null, end: number | null): void {
+    if (start !== null && end !== null) {
+      this.activeHours = { start, end };
+    } else {
+      this.activeHours = null;
+    }
+  }
+
+  /**
+   * Check if current time is within active hours.
+   */
+  private isWithinActiveHours(): boolean {
+    if (!this.activeHours) return true;
+    const hour = new Date().getHours();
+    const { start, end } = this.activeHours;
+    if (start <= end) {
+      return hour >= start && hour < end;
+    }
+    // Wraps midnight (e.g., 22:00-06:00)
+    return hour >= start || hour < end;
   }
 
   /**
@@ -152,7 +289,7 @@ export class AgentLoop {
 
   /**
    * Process a message with tool-calling support.
-   * Supports multi-step tool chains (up to 15 iterations).
+   * Uses ToolLoopDetector instead of hardcoded maxIterations.
    * Uses RAG to enrich context with relevant memory fragments.
    */
   async processWithTools(userMessage: string, extraContext?: string): Promise<string> {
@@ -171,15 +308,13 @@ export class AgentLoop {
     const fullContext = [extraContext, ragContext].filter(Boolean).join('\n\n');
 
     let response = await this.ai.sendMessage(userMessage, fullContext || undefined, enhancedCtx);
-    let iterations = 0;
-    const maxIterations = 15;
+    const detector = new ToolLoopDetector();
 
-    // Multi-step tool loop
-    while (iterations < maxIterations) {
+    // Multi-step tool loop with intelligent loop detection
+    while (true) {
       const toolCall = this.parseToolCall(response);
       if (!toolCall) break;
 
-      iterations++;
       let result: ToolResult;
       try {
         result = await this.tools.execute(toolCall.tool, toolCall.params);
@@ -187,9 +322,22 @@ export class AgentLoop {
         result = { success: false, error: `Tool execution error: ${err.message}` };
       }
 
+      // Check for loops
+      const loopCheck = detector.recordAndCheck(toolCall.tool, toolCall.params, result.data || result.error);
+
+      let feedbackSuffix = loopCheck.shouldContinue
+        ? 'Możesz użyć kolejnego narzędzia lub odpowiedzieć użytkownikowi.'
+        : 'Odpowiedz użytkownikowi (zakończ pętlę narzędzi).';
+
+      if (loopCheck.nudgeMessage) {
+        feedbackSuffix = loopCheck.nudgeMessage + '\n' + feedbackSuffix;
+      }
+
       response = await this.ai.sendMessage(
-        `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${iterations < maxIterations ? 'Możesz użyć kolejnego narzędzia lub odpowiedzieć użytkownikowi.' : 'Odpowiedz użytkownikowi (limit narzędzi osiągnięty).'}`,
+        `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${feedbackSuffix}`,
       );
+
+      if (!loopCheck.shouldContinue) break;
     }
 
     return response;
@@ -219,8 +367,9 @@ export class AgentLoop {
     onChunk?: (chunk: string) => void,
     skipIntentDetection?: boolean
   ): Promise<string> {
-    // Early take-control intent detection — skip AI loop entirely
+    // ─── Intent Detection — smart auto-actions ───
     if (!skipIntentDetection) {
+      // Take-control intent (existing)
       const takeControlIntent = this.detectTakeControlIntent(userMessage);
       if (takeControlIntent) {
         this.pendingTakeControlTask = takeControlIntent;
@@ -228,10 +377,47 @@ export class AgentLoop {
         onChunk?.(msg);
         return msg;
       }
+
+      // Auto-screenshot intent — when user says "see what I'm doing", "help with this", etc.
+      const intent = this.intentDetector.detect(userMessage);
+      if (intent.autoAction === 'screenshot' && intent.confidence >= 0.70 && this.screenCapture) {
+        try {
+          console.log(`[IntentDetector] Auto-screenshot triggered (confidence: ${intent.confidence}, patterns: ${intent.matchedPatterns.join(', ')})`);
+          onChunk?.('📸 Robię screenshot...\n\n');
+          const capture = await this.screenCapture.captureForComputerUse();
+          if (capture) {
+            // Use vision API to understand the screen + answer the user
+            const visionResponse = await this.ai.sendMessageWithVision(
+              userMessage,
+              capture.dataUrl,
+              await this.buildEnhancedContext(),
+              'high'
+            );
+            onChunk?.(visionResponse);
+
+            // Process any tool calls, memory updates, etc. from the vision response
+            await this.processMemoryUpdates(visionResponse);
+            const cronSuggestion = this.parseCronSuggestion(visionResponse);
+            if (cronSuggestion) {
+              this.pendingCronSuggestions.push(cronSuggestion);
+            }
+
+            // Track token usage
+            this.totalSessionTokens += Math.ceil((userMessage.length + visionResponse.length) / 3.5);
+            return visionResponse;
+          }
+        } catch (err) {
+          console.warn('[IntentDetector] Auto-screenshot failed, falling back to normal flow:', err);
+          // Fall through to normal processing
+        }
+      }
     }
 
     // Memory flush — if we're approaching context limit, save memories first
     await this.maybeRunMemoryFlush();
+
+    // Context compaction — summarize old messages when context is filling up
+    await this.maybeCompactContext();
 
     // Build enhanced system context with tools, cron, take_control, bootstrap, etc.
     const enhancedCtx = await this.buildEnhancedContext();
@@ -254,15 +440,13 @@ export class AgentLoop {
       onChunk?.(chunk);
     }, enhancedCtx);
 
-    // Multi-step tool loop (up to 15 for complex self-programming tasks)
-    let iterations = 0;
-    const maxIterations = 15;
+    // Multi-step tool loop with intelligent loop detection (replaces maxIterations = 15)
+    const detector = new ToolLoopDetector();
 
-    while (iterations < maxIterations) {
+    while (true) {
       const toolCall = this.parseToolCall(fullResponse);
       if (!toolCall) break;
 
-      iterations++;
       onChunk?.(`\n\n⚙️ Wykonuję: ${toolCall.tool}...\n`);
       let result: ToolResult;
       try {
@@ -271,11 +455,27 @@ export class AgentLoop {
         result = { success: false, error: `Tool execution error: ${err.message}` };
       }
 
+      // Check for loops
+      const loopCheck: LoopCheckResult = detector.recordAndCheck(
+        toolCall.tool,
+        toolCall.params,
+        result.data || result.error
+      );
+
+      let feedbackSuffix = loopCheck.shouldContinue
+        ? 'Możesz użyć kolejnego narzędzia lub odpowiedzieć użytkownikowi.'
+        : 'Odpowiedz użytkownikowi (zakończ pętlę narzędzi).';
+
+      if (loopCheck.nudgeMessage) {
+        feedbackSuffix = loopCheck.nudgeMessage + '\n' + feedbackSuffix;
+        onChunk?.(`\n${loopCheck.nudgeMessage}\n`);
+      }
+
       let toolResponse = '';
       fullResponse = ''; // Reset for next iteration parsing
 
       await this.ai.streamMessage(
-        `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${iterations < maxIterations ? 'Możesz użyć kolejnego narzędzia lub odpowiedzieć użytkownikowi.' : 'Odpowiedz użytkownikowi (limit narzędzi osiągnięty).'}`,
+        `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${feedbackSuffix}`,
         undefined,
         (chunk) => {
           toolResponse += chunk;
@@ -283,6 +483,8 @@ export class AgentLoop {
           onChunk?.(chunk);
         }
       );
+
+      if (!loopCheck.shouldContinue) break;
     }
 
     // Check for cron suggestions — queue for user review
@@ -384,11 +586,18 @@ export class AgentLoop {
    * Heartbeat: agent checks HEARTBEAT.md for tasks, reviews patterns, may suggest cron jobs.
    * Includes observation history for continuity — agent remembers what it already saw.
    * Suppresses response if agent replies with HEARTBEAT_OK.
+   * Respects active hours configuration.
    */
   private async heartbeat(): Promise<string | null> {
     // Skip if agent is currently processing a user message (prevents context corruption)
     if (this.isProcessing) {
       console.log('[Heartbeat] Skipped — agent is processing user message');
+      return null;
+    }
+
+    // Skip if outside active hours
+    if (!this.isWithinActiveHours()) {
+      console.log('[Heartbeat] Skipped — outside active hours');
       return null;
     }
 
@@ -706,8 +915,9 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
     const history = this.memory.getConversationHistory();
     const historyTokens = history.reduce((sum, m) => sum + Math.ceil(m.content.length / 3.5), 0);
 
-    // Flush threshold: when conversation history exceeds ~8000 tokens
-    const FLUSH_THRESHOLD = 8000;
+    // Flush threshold: when conversation history exceeds ~60000 tokens
+    // (nowoczesne modele mają 200k+ tokenów, flush dopiero gdy jest co zapisywać)
+    const FLUSH_THRESHOLD = 60000;
     if (historyTokens < FLUSH_THRESHOLD) return;
 
     try {
@@ -730,6 +940,107 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       // Reset flag on failure so next cycle retries
       this.memoryFlushDone = false;
     }
+  }
+
+  /**
+   * Context Compaction — AI-powered summarization of old messages.
+   * When context exceeds threshold, ask AI to summarize older messages,
+   * then replace them with the summary. Keeps recent messages intact.
+   *
+   * Inspired by OpenClaw's context compaction system.
+   */
+  private async maybeCompactContext(): Promise<void> {
+    const history = this.memory.getConversationHistory();
+    const historyTokens = history.reduce((sum, m) => sum + Math.ceil(m.content.length / 3.5), 0);
+
+    // Only compact when we have enough messages and tokens
+    // Nowoczesne modele (200k+) mogą pomieścić długie rozmowy — kompaktuj dopiero gdy naprawdę trzeba
+    const COMPACT_THRESHOLD = 80000; // tokens — ~40% typowego okna 200k modelu
+    const MIN_MESSAGES = 40;
+    const KEEP_RECENT = 20; // always keep last N messages
+
+    if (historyTokens < COMPACT_THRESHOLD || history.length < MIN_MESSAGES) return;
+
+    const messagesToSummarize = history.slice(0, -KEEP_RECENT);
+    if (messagesToSummarize.length < 5) return;
+
+    console.log(`[ContextCompaction] Summarizing ${messagesToSummarize.length} messages (${historyTokens} tokens total)`);
+
+    try {
+      // Ask AI to create a concise summary of the older conversation
+      const conversationText = messagesToSummarize
+        .map(m => `${m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : 'System'}: ${m.content.slice(0, 2000)}`)
+        .join('\n---\n');
+
+      const summary = await this.ai.sendMessage(
+        `[CONTEXT COMPACTION]\n\n` +
+        `Podsumuj tę rozmowę w 500-1500 słów. Zachowaj WSZYSTKIE istotne detale:\n` +
+        `- Kluczowe decyzje i ustalenia\n` +
+        `- Wyniki narzędzi i ich kontekst\n` +
+        `- Preferencje wyrażone przez użytkownika\n` +
+        `- Aktualne zadania w toku\n` +
+        `- Komendy i wyniki narzędzi\n` +
+        `- Pliki nad którymi pracowano\n\n` +
+        `Rozmowa do podsumowania:\n${conversationText.slice(0, 50000)}`,
+        undefined,
+        undefined,
+        { skipHistory: true }
+      );
+
+      // Replace old messages with a single summary message
+      if (summary && summary.length > 50) {
+        this.memory.compactHistory(KEEP_RECENT, `[Podsumowanie wcześniejszej rozmowy]\n${summary}`);
+        console.log(`[ContextCompaction] Compacted ${messagesToSummarize.length} messages → summary (${summary.length} chars)`);
+      }
+    } catch (err) {
+      console.error('[ContextCompaction] Error:', err);
+    }
+  }
+
+  // ─── Background Exec ───
+
+  /**
+   * Execute a task in background — runs tool loop without blocking user chat.
+   * Returns task ID immediately, notifies via heartbeat when done.
+   */
+  async executeInBackground(task: string): Promise<string> {
+    const taskId = `bg-${uuidv4().slice(0, 8)}`;
+
+    const promise = (async () => {
+      try {
+        console.log(`[BackgroundExec ${taskId}] Starting: ${task.slice(0, 100)}`);
+        const result = await this.processWithTools(
+          `[BACKGROUND TASK]\n\n${task}\n\nWykonaj to zadanie w tle. Bądź zwięzły w wyniku.`
+        );
+
+        // Notify user via heartbeat channel
+        this.onHeartbeatResult?.(
+          `✅ Zadanie w tle zakończone [${taskId}]:\n${task.slice(0, 100)}\n\nWynik:\n${result.slice(0, 500)}`
+        );
+
+        return result;
+      } catch (err: any) {
+        const errMsg = `Błąd zadania w tle [${taskId}]: ${err.message}`;
+        this.onHeartbeatResult?.(errMsg);
+        return errMsg;
+      } finally {
+        this.backgroundTasks.delete(taskId);
+      }
+    })();
+
+    this.backgroundTasks.set(taskId, { task, startedAt: Date.now(), promise });
+    return taskId;
+  }
+
+  /**
+   * Get info about running background tasks.
+   */
+  getBackgroundTasks(): Array<{ id: string; task: string; elapsed: number }> {
+    return [...this.backgroundTasks.entries()].map(([id, info]) => ({
+      id,
+      task: info.task,
+      elapsed: Date.now() - info.startedAt,
+    }));
   }
 
   /**
@@ -918,6 +1229,25 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       ? this.screenMonitor.buildMonitorContext()
       : '';
 
+    // Sub-agent context — show active sub-agents
+    const subAgentCtx = this.subAgentManager.buildSubAgentContext();
+
+    // Background tasks context
+    const bgTasks = this.getBackgroundTasks();
+    let bgCtx = '';
+    if (bgTasks.length > 0) {
+      const lines = bgTasks.map(t =>
+        `- [${t.id}] "${t.task.slice(0, 80)}" — od ${Math.round(t.elapsed / 1000)}s`
+      );
+      bgCtx = `\n## ⏳ Zadania w tle\n${lines.join('\n')}\n`;
+    }
+
+    // Active hours info
+    let activeHoursCtx = '';
+    if (this.activeHours) {
+      activeHoursCtx = `\n## ⏰ Godziny aktywności\nHeartbeat aktywny: ${this.activeHours.start}:00-${this.activeHours.end}:00\n`;
+    }
+
     return [
       baseCtx,
       '\n',
@@ -931,6 +1261,9 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       ragCtx,
       automationCtx,
       monitorCtx,
+      subAgentCtx,
+      bgCtx,
+      activeHoursCtx,
       systemCtx,
       '\n',
       toolsPrompt,

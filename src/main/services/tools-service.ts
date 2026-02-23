@@ -12,7 +12,7 @@ import { SystemMonitor } from './system-monitor';
 export interface ToolDefinition {
   name: string;
   description: string;
-  category: 'system' | 'web' | 'files' | 'automation' | 'memory' | 'cron' | 'browser' | 'rag' | 'coding';
+  category: 'system' | 'web' | 'files' | 'automation' | 'memory' | 'cron' | 'browser' | 'rag' | 'coding' | 'agent' | 'observation';
   parameters: Record<string, { type: string; description: string; required?: boolean }>;
 }
 
@@ -1387,6 +1387,79 @@ export class ToolsService {
   /**
    * Returns tool descriptions formatted for AI system prompt injection.
    */
+  /**
+   * Register sub-agent and background execution tools.
+   * These are wired from AgentLoop which has access to SubAgentManager.
+   */
+  registerAgentTools(handlers: {
+    spawnSubagent: (params: any) => Promise<ToolResult>;
+    killSubagent: (params: any) => Promise<ToolResult>;
+    steerSubagent: (params: any) => Promise<ToolResult>;
+    listSubagents: (params: any) => Promise<ToolResult>;
+    backgroundExec: (params: any) => Promise<ToolResult>;
+    screenshotAnalyze: (params: any) => Promise<ToolResult>;
+  }): void {
+    this.definitions.push({
+      name: 'spawn_subagent',
+      description: 'Stwórz sub-agenta do wykonania zadania w tle. Sub-agent ma izolowaną sesję i własny tool loop.',
+      category: 'agent',
+      parameters: {
+        task: { type: 'string', description: 'Opis zadania dla sub-agenta', required: true },
+        allowed_tools: { type: 'string[]', description: 'Lista dozwolonych narzędzi (puste = wszystkie)', required: false },
+      },
+    });
+    this.toolRegistry.set('spawn_subagent', handlers.spawnSubagent);
+
+    this.definitions.push({
+      name: 'kill_subagent',
+      description: 'Zatrzymaj działającego sub-agenta.',
+      category: 'agent',
+      parameters: {
+        agent_id: { type: 'string', description: 'ID sub-agenta do zatrzymania', required: true },
+      },
+    });
+    this.toolRegistry.set('kill_subagent', handlers.killSubagent);
+
+    this.definitions.push({
+      name: 'steer_subagent',
+      description: 'Wstrzyknij nową instrukcję do działającego sub-agenta.',
+      category: 'agent',
+      parameters: {
+        agent_id: { type: 'string', description: 'ID sub-agenta', required: true },
+        instruction: { type: 'string', description: 'Nowa instrukcja', required: true },
+      },
+    });
+    this.toolRegistry.set('steer_subagent', handlers.steerSubagent);
+
+    this.definitions.push({
+      name: 'list_subagents',
+      description: 'Wyświetl listę aktywnych sub-agentów.',
+      category: 'agent',
+      parameters: {},
+    });
+    this.toolRegistry.set('list_subagents', handlers.listSubagents);
+
+    this.definitions.push({
+      name: 'background_exec',
+      description: 'Wykonaj zadanie w tle bez blokowania czatu. Wynik zostanie dostarczony jako powiadomienie.',
+      category: 'agent',
+      parameters: {
+        task: { type: 'string', description: 'Zadanie do wykonania w tle', required: true },
+      },
+    });
+    this.toolRegistry.set('background_exec', handlers.backgroundExec);
+
+    this.definitions.push({
+      name: 'screenshot_analyze',
+      description: 'Zrób screenshot ekranu i przeanalizuj go. Używaj gdy potrzebujesz zobaczyć co jest na ekranie.',
+      category: 'observation',
+      parameters: {
+        question: { type: 'string', description: 'Pytanie o ekran (opcjonalne)', required: false },
+      },
+    });
+    this.toolRegistry.set('screenshot_analyze', handlers.screenshotAnalyze);
+  }
+
   getToolsPrompt(excludeCategories?: string[]): string {
     const filtered = excludeCategories
       ? this.definitions.filter((t) => !excludeCategories.includes(t.category))

@@ -136,6 +136,23 @@ export class MemoryService {
     this.saveTodaySession();
   }
 
+  /**
+   * Compact conversation history — replace old messages with a summary.
+   * Keeps the last `keepRecent` messages and prepends the summary as a system message.
+   */
+  compactHistory(keepRecent: number, summary: string): void {
+    const recent = this.conversationHistory.slice(-keepRecent);
+    const summaryMessage: ConversationMessage = {
+      id: `compact-${Date.now()}`,
+      role: 'system',
+      content: summary,
+      timestamp: Date.now(),
+      type: 'analysis',
+    };
+    this.conversationHistory = [summaryMessage, ...recent];
+    this.saveTodaySession();
+  }
+
   getRecentContext(maxMessages: number = 20): ConversationMessage[] {
     return this.conversationHistory.slice(-maxMessages);
   }

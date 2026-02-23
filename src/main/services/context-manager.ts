@@ -26,11 +26,11 @@ interface ContextWindow {
 }
 
 interface ContextManagerConfig {
-  maxContextTokens: number;       // Max tokenów na kontekst (default: 12000)
-  reserveForResponse: number;     // Tokeny zarezerwowane na odpowiedź AI (default: 4096)
-  summaryThreshold: number;       // Powyżej ilu wiadomości summaryzować (default: 30)
+  maxContextTokens: number;       // Max tokenów na kontekst (default: 80000 — ~60% okna 128k modelu)
+  reserveForResponse: number;     // Tokeny zarezerwowane na odpowiedź AI (default: 8192)
+  summaryThreshold: number;       // Powyżej ilu wiadomości summaryzować (default: 60)
   importanceDecayRate: number;    // Jak szybko maleje ważność starych wiadomości (0-1)
-  minMessagesToKeep: number;      // Minimum wiadomości do zachowania (default: 4)
+  minMessagesToKeep: number;      // Minimum wiadomości do zachowania (default: 10)
 }
 
 // Keyword patterns that indicate high-importance messages
@@ -54,11 +54,11 @@ export class ContextManager {
 
   constructor(config?: Partial<ContextManagerConfig>) {
     this.config = {
-      maxContextTokens: config?.maxContextTokens ?? 12000,
-      reserveForResponse: config?.reserveForResponse ?? 4096,
-      summaryThreshold: config?.summaryThreshold ?? 30,
-      importanceDecayRate: config?.importanceDecayRate ?? 0.02,
-      minMessagesToKeep: config?.minMessagesToKeep ?? 4,
+      maxContextTokens: config?.maxContextTokens ?? 80000,
+      reserveForResponse: config?.reserveForResponse ?? 8192,
+      summaryThreshold: config?.summaryThreshold ?? 60,
+      importanceDecayRate: config?.importanceDecayRate ?? 0.01,
+      minMessagesToKeep: config?.minMessagesToKeep ?? 10,
     };
   }
 
@@ -293,22 +293,33 @@ export class ContextManager {
    * Determine the optimal token limit for a given model.
    */
   static getModelContextLimit(model: string): number {
-    // GPT-5 family
-    if (/^gpt-5/.test(model)) return 128000;
+    // Sources: developers.openai.com/api/docs/models, platform.claude.com/docs
+
+    // GPT-5 family — 400k context (verified 2025-07)
+    if (/^gpt-5/.test(model)) return 400000;
+
+    // GPT-4.1 family — 1,047,576 context (verified 2025-07)
+    if (/^gpt-4\.?1/.test(model)) return 1047576;
+
+    // GPT-4o family — 128k context (verified 2025-07)
     if (/^gpt-4o/.test(model)) return 128000;
     if (/^gpt-4-turbo/.test(model)) return 128000;
-    if (/^gpt-4/.test(model)) return 8192;
+    if (/^gpt-4/.test(model)) return 128000;
 
-    // O-series reasoning
+    // O-series reasoning — 200k context (o1, o3, o4-mini verified 2025-07)
     if (/^o[0-9]/.test(model)) return 200000;
 
-    // Claude family
-    if (/claude-opus-4/.test(model)) return 200000;
-    if (/claude-sonnet-4/.test(model)) return 200000;
+    // Claude family — 200k context (1M beta with header, verified 2025-07)
+    if (/claude-opus/.test(model)) return 200000;
+    if (/claude-sonnet/.test(model)) return 200000;
+    if (/claude-haiku/.test(model)) return 200000;
     if (/claude-3/.test(model)) return 200000;
 
-    // Default conservative
-    return 16000;
+    // Gemini family — 1M+ tokens
+    if (/gemini/i.test(model)) return 1000000;
+
+    // Default — modern models have at least 128k
+    return 128000;
   }
 
   /**
@@ -316,9 +327,12 @@ export class ContextManager {
    */
   configureForModel(model: string): void {
     const limit = ContextManager.getModelContextLimit(model);
-    // Use 30% of model's context window for conversation history
-    // (rest is for system prompt, RAG, tool results, response)
-    this.config.maxContextTokens = Math.floor(limit * 0.3);
-    this.config.reserveForResponse = Math.min(4096, Math.floor(limit * 0.05));
+    // Use 60% of model's context window for conversation history
+    // (rest is for system prompt ~10%, RAG ~10%, tool results ~10%, response ~10%)
+    this.config.maxContextTokens = Math.floor(limit * 0.6);
+    this.config.reserveForResponse = Math.min(16384, Math.floor(limit * 0.08));
+    // Larger models can keep more messages before summarizing
+    this.config.summaryThreshold = limit > 100000 ? 100 : 60;
+    this.config.minMessagesToKeep = limit > 100000 ? 20 : 10;
   }
 }

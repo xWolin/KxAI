@@ -212,4 +212,31 @@ contextBridge.exposeInMainWorld('kxai', {
     ipcRenderer.on('meeting:detected', handler);
     return () => { ipcRenderer.removeListener('meeting:detected', handler); };
   },
+
+  // Sub-agents
+  subagentSpawn: (task: string, allowedTools?: string[]) =>
+    ipcRenderer.invoke('subagent:spawn', task, allowedTools),
+  subagentKill: (agentId: string) =>
+    ipcRenderer.invoke('subagent:kill', agentId),
+  subagentSteer: (agentId: string, instruction: string) =>
+    ipcRenderer.invoke('subagent:steer', agentId, instruction),
+  subagentList: () =>
+    ipcRenderer.invoke('subagent:list'),
+  subagentResults: () =>
+    ipcRenderer.invoke('subagent:results'),
+  onSubagentProgress: (callback: (data: { msg: string }) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('subagent:progress', handler);
+    return () => { ipcRenderer.removeListener('subagent:progress', handler); };
+  },
+
+  // Background exec
+  backgroundExec: (task: string) =>
+    ipcRenderer.invoke('background:exec', task),
+  backgroundList: () =>
+    ipcRenderer.invoke('background:list'),
+
+  // Active hours
+  setActiveHours: (start: number | null, end: number | null) =>
+    ipcRenderer.invoke('agent:set-active-hours', start, end),
 });

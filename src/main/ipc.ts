@@ -770,4 +770,59 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
       meetingCoach.sendAudioChunk(source as 'mic' | 'system', chunk);
     });
   }
+
+  // ─── Sub-agents ───
+
+  ipcMain.handle('subagent:spawn', async (_event, task: string, allowedTools?: string[]) => {
+    try {
+      const id = await agentLoop.getSubAgentManager().spawn({
+        task,
+        allowedTools: allowedTools || undefined,
+        onProgress: (msg) => safeSend('subagent:progress', { msg }),
+      });
+      return { success: true, data: { id } };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('subagent:kill', async (_event, agentId: string) => {
+    const killed = agentLoop.getSubAgentManager().kill(agentId);
+    return { success: killed };
+  });
+
+  ipcMain.handle('subagent:steer', async (_event, agentId: string, instruction: string) => {
+    const steered = await agentLoop.getSubAgentManager().steer(agentId, instruction);
+    return { success: steered };
+  });
+
+  ipcMain.handle('subagent:list', async () => {
+    return agentLoop.getSubAgentManager().listActive();
+  });
+
+  ipcMain.handle('subagent:results', async () => {
+    return agentLoop.getSubAgentManager().consumeCompletedResults();
+  });
+
+  // ─── Background Exec ───
+
+  ipcMain.handle('background:exec', async (_event, task: string) => {
+    try {
+      const id = await agentLoop.executeInBackground(task);
+      return { success: true, data: { id } };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  ipcMain.handle('background:list', async () => {
+    return agentLoop.getBackgroundTasks();
+  });
+
+  // ─── Active Hours ───
+
+  ipcMain.handle('agent:set-active-hours', async (_event, start: number | null, end: number | null) => {
+    agentLoop.setActiveHours(start, end);
+    return { success: true };
+  });
 }
