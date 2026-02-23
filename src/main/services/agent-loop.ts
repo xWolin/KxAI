@@ -152,7 +152,7 @@ export class AgentLoop {
 
   /**
    * Process a message with tool-calling support.
-   * Supports multi-step tool chains (up to 5 iterations).
+   * Supports multi-step tool chains (up to 15 iterations).
    * Uses RAG to enrich context with relevant memory fragments.
    */
   async processWithTools(userMessage: string, extraContext?: string): Promise<string> {

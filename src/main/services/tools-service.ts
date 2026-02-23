@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import { app, clipboard, shell } from 'electron';
@@ -524,11 +524,14 @@ export class ToolsService {
         if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
           return { success: false, error: `🛡️ Dozwolone tylko http/https` };
         }
-        const hostname = parsed.hostname.toLowerCase();
+        // Strip brackets from IPv6 for consistent matching
+        const rawHostname = parsed.hostname.toLowerCase();
+        const hostname = rawHostname.replace(/^\[|\]$/g, '');
         const blockedPatterns = [
           /^localhost$/i, /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./,
-          /^192\.168\./, /^0\./, /^\[::1\]$/, /\.local$/i, /\.internal$/i,
-          /^169\.254\./,
+          /^192\.168\./, /^0\./, /^::1$/, /^::$/, /^0+:0+:0+:0+:0+:0+:0+:[01]$/,
+          /^f[cd][0-9a-f]{2}:/i, /^fe[89ab][0-9a-f]:/i,
+          /\.local$/i, /\.internal$/i, /^169\.254\./,
         ];
         for (const pattern of blockedPatterns) {
           if (pattern.test(hostname)) {
@@ -760,12 +763,14 @@ export class ToolsService {
         return { success: false, error: `Nie udało się zapisać skryptu: ${err.message}` };
       }
 
-      // Execute
+      // Execute — use execFile to prevent shell injection via args
       const cmdArgs = lang.cmdArgs ? [...lang.cmdArgs, scriptPath] : [scriptPath];
-      const fullCmd = `${lang.cmd} ${cmdArgs.map(a => `"${a}"`).join(' ')} ${args}`;
+      // Safely split user args (shell-style quoting not supported — simple whitespace split)
+      const userArgs = args ? args.trim().split(/\s+/).filter(Boolean) : [];
+      const allArgs = [...cmdArgs, ...userArgs];
 
       return new Promise((resolve) => {
-        exec(fullCmd, { timeout: 120000, maxBuffer: 5 * 1024 * 1024, cwd: path.dirname(scriptPath) }, (err, stdout, stderr) => {
+        execFile(lang.cmd, allArgs, { timeout: 120000, maxBuffer: 5 * 1024 * 1024, cwd: path.dirname(scriptPath) }, (err, stdout, stderr) => {
           if (err) {
             resolve({
               success: false,

@@ -121,9 +121,9 @@ export class RAGService {
   private pendingChanges = new Set<string>();
   private folderStats = new Map<string, IndexedFolderInfo>();
 
-  constructor(embeddingService: EmbeddingService, config?: ConfigService) {
+  constructor(embeddingService: EmbeddingService, config: ConfigService) {
     this.embeddingService = embeddingService;
-    this.config = config!;
+    this.config = config;
     const userDataPath = app.getPath('userData');
     this.workspacePath = path.join(userDataPath, 'workspace');
     this.indexPath = path.join(userDataPath, 'workspace', 'rag', 'index.json');
@@ -543,7 +543,7 @@ export class RAGService {
     embeddingType: 'openai' | 'tfidf';
     folders: IndexedFolderInfo[];
   } {
-    const files = new Set(this.chunks.map((c) => c.filePath));
+    const files = new Set(this.chunks.map((c) => `${c.sourceFolder || 'workspace'}|${c.filePath}`));
     return {
       totalChunks: this.chunks.length,
       totalFiles: files.size,
@@ -1153,14 +1153,15 @@ export class RAGService {
   private startWatchers(): void {
     this.stopWatchers();
 
-    // Watch workspace memory dir
-    const memoryDir = path.join(this.workspacePath, 'memory');
-    if (fs.existsSync(memoryDir)) {
-      this.startWatcherForFolder(memoryDir);
+    // Watch entire workspace (includes memory/ and top-level files)
+    if (fs.existsSync(this.workspacePath)) {
+      this.startWatcherForFolder(this.workspacePath);
     }
 
-    // Watch user folders
+    // Watch user folders (external, outside workspace)
     for (const folder of this.getIndexedFolders()) {
+      // Skip if already covered by workspace watcher
+      if (folder.startsWith(this.workspacePath)) continue;
       if (fs.existsSync(folder)) {
         this.startWatcherForFolder(folder);
       }
