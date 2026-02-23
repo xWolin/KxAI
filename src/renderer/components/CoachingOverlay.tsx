@@ -1,12 +1,11 @@
 /**
- * CoachingOverlay — Real-time event-driven meeting coaching overlay.
+ * CoachingOverlay — Compact real-time meeting coaching popup.
  *
  * Features:
- * - Live transcript with speaker labels
- * - Streaming AI coaching suggestions (appears instantly when question detected)
- * - Speaker mapping UI (rename participants)
- * - Split view: transcript left, coaching right
- * - Prominent coaching display for easy reading during meetings
+ * - Compact coaching bar at top-center of screen during active meeting
+ * - Shows recording status, duration, and current coaching tip
+ * - Full transcript & details available on dashboard
+ * - Pre-meeting briefing form before start
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -55,23 +54,24 @@ interface Props {
   onBack: () => void;
 }
 
+// Compact coaching bar dimensions
+const COACHING_BAR_WIDTH = 520;
+const COACHING_BAR_HEIGHT = 180;
+const COACHING_BAR_EXPANDED_HEIGHT = 380;
+
 export function CoachingOverlay({ config, onBack }: Props) {
   const [meetingState, setMeetingState] = useState<MeetingState>({
     active: false, meetingId: null, startTime: null,
     duration: 0, transcriptLineCount: 0, lastCoachingTip: null,
     detectedApp: null, speakers: [], isCoaching: false, hasBriefing: false,
   });
-  const [transcriptLines, setTranscriptLines] = useState<TranscriptLine[]>([]);
-  const [partialMic, setPartialMic] = useState('');
-  const [partialSystem, setPartialSystem] = useState('');
   const [coachingTips, setCoachingTips] = useState<CoachingTip[]>([]);
   const [activeCoaching, setActiveCoaching] = useState<CoachingTip | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
   const [hasElevenLabsKey, setHasElevenLabsKey] = useState(false);
-  const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
-  const [speakerNameInput, setSpeakerNameInput] = useState('');
+  const [expanded, setExpanded] = useState(false);
 
   // Briefing state
   const [showBriefing, setShowBriefing] = useState(false);
@@ -88,13 +88,15 @@ export function CoachingOverlay({ config, onBack }: Props) {
   const [newParticipantCompany, setNewParticipantCompany] = useState('');
   const [newParticipantNotes, setNewParticipantNotes] = useState('');
 
-  const transcriptRef = useRef<HTMLDivElement>(null);
-  const coachingRef = useRef<HTMLDivElement>(null);
+  // Last few transcript lines for compact display
+  const [recentLines, setRecentLines] = useState<TranscriptLine[]>([]);
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const systemStreamRef = useRef<MediaStream | null>(null);
   const micWorkletRef = useRef<AudioWorkletNode | null>(null);
   const systemWorkletRef = useRef<AudioWorkletNode | null>(null);
+  const prevActiveRef = useRef(false);
 
   // Check API key on mount + load existing briefing
   useEffect(() => {
@@ -125,22 +127,15 @@ export function CoachingOverlay({ config, onBack }: Props) {
     }));
 
     cleanups.push(window.kxai.onMeetingTranscript((data: any) => {
-      if (data.partial) {
-        if (data.source === 'mic') setPartialMic(data.text);
-        else setPartialSystem(data.text);
-      } else if (data.line) {
-        setTranscriptLines(prev => [...prev.slice(-99), data.line]);
-        if (data.line.source === 'mic') setPartialMic('');
-        else setPartialSystem('');
+      if (!data.partial && data.line) {
+        setRecentLines(prev => [...prev.slice(-2), data.line]);
       }
     }));
 
-    // Coaching started — new tip being streamed
     cleanups.push(window.kxai.onMeetingCoaching((tip: CoachingTip) => {
       setActiveCoaching({ ...tip, tip: '' });
     }));
 
-    // Coaching chunk — streaming text
     if (window.kxai.onMeetingCoachingChunk) {
       cleanups.push(window.kxai.onMeetingCoachingChunk((data: { id: string; chunk: string; fullText: string }) => {
         setActiveCoaching(prev => {
@@ -150,7 +145,6 @@ export function CoachingOverlay({ config, onBack }: Props) {
       }));
     }
 
-    // Coaching done — finalize
     if (window.kxai.onMeetingCoachingDone) {
       cleanups.push(window.kxai.onMeetingCoachingDone((data: { id: string; tip: string; category: string; questionText?: string }) => {
         setCoachingTips(prev => [...prev, {
@@ -174,19 +168,28 @@ export function CoachingOverlay({ config, onBack }: Props) {
     return () => cleanups.forEach(fn => fn());
   }, []);
 
-  // Auto-scroll transcript
+  // Window size management: compact bar when meeting active, normal for setup
   useEffect(() => {
-    if (transcriptRef.current) {
-      transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
+    if (meetingState.active && !prevActiveRef.current) {
+      // Meeting just started — switch to compact coaching bar at top-center
+      const screenWidth = window.screen.availWidth;
+      const x = Math.round((screenWidth - COACHING_BAR_WIDTH) / 2);
+      window.kxai.setWindowSize(COACHING_BAR_WIDTH, COACHING_BAR_HEIGHT);
+      window.kxai.setWindowPosition(x, 8);
+    } else if (!meetingState.active && prevActiveRef.current) {
+      // Meeting just ended — return to normal chat window size
+      window.kxai.setWindowSize(420, 600);
     }
-  }, [transcriptLines, partialMic, partialSystem]);
+    prevActiveRef.current = meetingState.active;
+  }, [meetingState.active]);
 
-  // Auto-scroll coaching
+  // Expand/collapse the compact bar
   useEffect(() => {
-    if (coachingRef.current) {
-      coachingRef.current.scrollTop = coachingRef.current.scrollHeight;
+    if (meetingState.active) {
+      const height = expanded ? COACHING_BAR_EXPANDED_HEIGHT : COACHING_BAR_HEIGHT;
+      window.kxai.setWindowSize(COACHING_BAR_WIDTH, height);
     }
-  }, [activeCoaching, coachingTips]);
+  }, [expanded, meetingState.active]);
 
   // ──────────── Audio Capture ────────────
 
@@ -195,7 +198,6 @@ export function CoachingOverlay({ config, onBack }: Props) {
       const ctx = new AudioContext({ sampleRate: 16000 });
       audioContextRef.current = ctx;
 
-      // Register AudioWorklet processor (inline via Blob URL)
       const workletCode = `
         class PCMForwarder extends AudioWorkletProcessor {
           process(inputs) {
@@ -213,7 +215,6 @@ export function CoachingOverlay({ config, onBack }: Props) {
       await ctx.audioWorklet.addModule(workletUrl);
       URL.revokeObjectURL(workletUrl);
 
-      // Helper: create worklet node that sends PCM to meeting coach
       const createPCMWorklet = (source: MediaStreamAudioSourceNode, label: 'mic' | 'system'): AudioWorkletNode => {
         const node = new AudioWorkletNode(ctx, 'pcm-forwarder');
         node.port.onmessage = (e) => {
@@ -222,7 +223,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
           window.kxai.meetingSendAudio(label, int16.buffer as ArrayBuffer);
         };
         source.connect(node);
-        node.connect(ctx.destination); // Required to keep the worklet alive
+        node.connect(ctx.destination);
         return node;
       };
 
@@ -238,17 +239,13 @@ export function CoachingOverlay({ config, onBack }: Props) {
         console.warn('[CoachingOverlay] Mic capture failed:', err);
       }
 
-      // System audio (via getDisplayMedia — the standard API in Electron 33+)
-      // Note: setDisplayMediaRequestHandler in main.ts auto-approves and selects the screen source
+      // System audio via getDisplayMedia (Electron 33+)
       try {
         const systemStream = await navigator.mediaDevices.getDisplayMedia({
           audio: true,
-          video: true, // Required by Chromium — we'll discard the video track
+          video: true,
         });
-
-        // Stop video track immediately — we only need audio
         systemStream.getVideoTracks().forEach(t => t.stop());
-
         const audioTracks = systemStream.getAudioTracks();
         if (audioTracks.length > 0) {
           systemStreamRef.current = systemStream;
@@ -293,17 +290,14 @@ export function CoachingOverlay({ config, onBack }: Props) {
     }
     setIsStarting(true);
     setError(null);
-    setTranscriptLines([]);
+    setRecentLines([]);
     setCoachingTips([]);
     setActiveCoaching(null);
 
     try {
-      // Start audio capture FIRST — getDisplayMedia requires user gesture
-      // (must be called synchronously from click handler, not after async awaits)
       await startAudioCapture();
       await window.kxai.meetingStart();
     } catch (err: any) {
-      // If meeting start fails after audio was started, clean up
       stopAudioCapture();
       setError(err.message || 'Nie udało się rozpocząć spotkania');
     } finally {
@@ -325,15 +319,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
   const handleOpenDashboard = async () => {
     const url = await window.kxai.meetingGetDashboardUrl();
-    if (url) window.open(url, '_blank');
-  };
-
-  const handleRenameSpeaker = (speakerId: string) => {
-    if (speakerNameInput.trim() && window.kxai.meetingMapSpeaker) {
-      window.kxai.meetingMapSpeaker(speakerId, speakerNameInput.trim());
-      setEditingSpeaker(null);
-      setSpeakerNameInput('');
-    }
+    if (url) window.open(url + '/#/meetings', '_blank');
   };
 
   // ──────────── Briefing Handlers ────────────
@@ -395,12 +381,9 @@ export function CoachingOverlay({ config, onBack }: Props) {
       setBriefingSaved(false);
       setShowBriefing(false);
     } catch (err: any) {
-      console.error('[CoachingOverlay] Failed to clear briefing:', err);
       setError(err.message || 'Nie udało się wyczyścić briefingu');
     }
   };
-
-  // ──────────── Format helpers ────────────
 
   const formatDuration = (seconds: number): string => {
     const m = Math.floor(seconds / 60);
@@ -412,11 +395,99 @@ export function CoachingOverlay({ config, onBack }: Props) {
     return new Date(ts).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
   };
 
-  // ──────────── Render ────────────
+  // ──────────── Render: Active Meeting (Compact Bar) ────────────
+
+  if (meetingState.active) {
+    return (
+      <div className="coaching-bar">
+        <div className="coaching-bar__header">
+          <div className="coaching-bar__status">
+            <span className="coaching-bar__rec-dot" />
+            <span className="coaching-bar__timer">{formatDuration(meetingState.duration)}</span>
+            {meetingState.detectedApp && (
+              <span className="coaching-bar__app">{meetingState.detectedApp}</span>
+            )}
+            <span className="coaching-bar__lines">💬 {meetingState.transcriptLineCount}</span>
+          </div>
+          <div className="coaching-bar__actions">
+            <button className="coaching-bar__btn coaching-bar__btn--expand" onClick={() => setExpanded(!expanded)} title={expanded ? 'Zwiń' : 'Rozwiń'}>
+              {expanded ? '▲' : '▼'}
+            </button>
+            <button className="coaching-bar__btn coaching-bar__btn--dashboard" onClick={handleOpenDashboard} title="Dashboard">📊</button>
+            <button className="coaching-bar__btn coaching-bar__btn--stop" onClick={handleStop} disabled={isStopping}>
+              {isStopping ? '⏳' : '⏹'} Zakończ
+            </button>
+          </div>
+        </div>
+
+        {error && <div className="coaching-bar__error">⚠️ {error}</div>}
+
+        <div className="coaching-bar__tip-area">
+          {activeCoaching ? (
+            <div className="coaching-bar__active-tip">
+              <div className="coaching-bar__tip-label">
+                💡 Sugestia
+                {activeCoaching.questionText && (
+                  <span className="coaching-bar__tip-question"> — „{activeCoaching.questionText.substring(0, 50)}..."</span>
+                )}
+              </div>
+              <div className="coaching-bar__tip-text coaching-bar__tip-text--streaming">
+                {activeCoaching.tip || '▍'}
+                {activeCoaching.tip && <span className="coaching-bar__cursor">▍</span>}
+              </div>
+            </div>
+          ) : coachingTips.length > 0 ? (
+            <div className="coaching-bar__last-tip">
+              <div className="coaching-bar__tip-label">
+                ✅ Ostatnia sugestia
+                <span className="coaching-bar__tip-time">{formatTime(coachingTips[coachingTips.length - 1].timestamp)}</span>
+              </div>
+              <div className="coaching-bar__tip-text">{coachingTips[coachingTips.length - 1].tip}</div>
+            </div>
+          ) : meetingState.isCoaching ? (
+            <div className="coaching-bar__generating">🧠 Generuję sugestię...</div>
+          ) : (
+            <div className="coaching-bar__waiting">
+              🎤 Nasłuchuję pytań...
+              <span className="coaching-bar__hint">Pełna transkrypcja na dashboardzie →</span>
+            </div>
+          )}
+        </div>
+
+        {expanded && (
+          <div className="coaching-bar__expanded">
+            {recentLines.length > 0 && (
+              <div className="coaching-bar__recent">
+                <div className="coaching-bar__section-label">Ostatnie wypowiedzi:</div>
+                {recentLines.map((line, i) => (
+                  <div key={i} className="coaching-bar__recent-line">
+                    <span className={`coaching-bar__speaker ${line.speaker === 'Ja' ? 'coaching-bar__speaker--me' : ''}`}>{line.speaker}:</span>
+                    <span className="coaching-bar__text">{line.text}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {coachingTips.length > 1 && (
+              <div className="coaching-bar__history">
+                <div className="coaching-bar__section-label">Historia sugestii ({coachingTips.length}):</div>
+                {coachingTips.slice(-3).reverse().map(tip => (
+                  <div key={tip.id} className="coaching-bar__history-item">
+                    <span className="coaching-bar__history-time">{formatTime(tip.timestamp)}</span>
+                    <span className="coaching-bar__history-text">{tip.tip.substring(0, 120)}...</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // ──────────── Render: Idle State (Setup) ────────────
 
   return (
     <div className="coaching-overlay">
-      {/* Header */}
       <div className="coaching-overlay__header">
         <button className="coaching-overlay__back" onClick={onBack} title="Powrót">←</button>
         <span className="coaching-overlay__title">🎙️ Meeting Coach</span>
@@ -425,336 +496,81 @@ export function CoachingOverlay({ config, onBack }: Props) {
         </div>
       </div>
 
-      {/* Error */}
       {error && <div className="coaching-overlay__error">⚠️ {error}</div>}
 
-      {/* Controls */}
       <div className="coaching-overlay__controls">
-        {!meetingState.active ? (
-          <button className="coaching-overlay__btn coaching-overlay__btn--start" onClick={handleStart} disabled={isStarting}>
-            {isStarting ? '⏳ Uruchamiam...' : '🔴 Rozpocznij nagrywanie'}
-          </button>
-        ) : (
-          <div className="coaching-overlay__active-controls">
-            <div className="coaching-overlay__status">
-              <span className="coaching-overlay__recording-dot" />
-              <span>{formatDuration(meetingState.duration)}</span>
-              {meetingState.detectedApp && (
-                <span className="coaching-overlay__app-badge">{meetingState.detectedApp}</span>
-              )}
-              <span className="coaching-overlay__line-count">💬 {meetingState.transcriptLineCount}</span>
-              {meetingState.isCoaching && (
-                <span className="coaching-overlay__coaching-indicator">🧠 Generuję...</span>
-              )}
-              {meetingState.hasBriefing && (
-                <span className="coaching-overlay__briefing-indicator" title="Briefing załadowany">📋</span>
-              )}
-            </div>
-            <button className="coaching-overlay__btn coaching-overlay__btn--stop" onClick={handleStop} disabled={isStopping}>
-              {isStopping ? '⏳ Kończę...' : '⏹ Zakończ'}
-            </button>
-          </div>
-        )}
+        <button className="coaching-overlay__btn coaching-overlay__btn--start" onClick={handleStart} disabled={isStarting}>
+          {isStarting ? '⏳ Uruchamiam...' : '🔴 Rozpocznij nagrywanie'}
+        </button>
       </div>
 
-      {/* Active meeting content */}
-      {meetingState.active && (
-        <div className="coaching-overlay__content">
-          {/* ═══════ COACHING SUGGESTION (prominent, top) ═══════ */}
-          {(activeCoaching || coachingTips.length > 0) && (
-            <div className="coaching-overlay__coaching-panel">
-              {activeCoaching ? (
-                <div className="coaching-overlay__active-coaching">
-                  <div className="coaching-overlay__coaching-label">
-                    💡 Sugestia odpowiedzi
-                    {activeCoaching.questionText && (
-                      <span className="coaching-overlay__question-preview">
-                        na: "{activeCoaching.questionText.substring(0, 60)}..."
-                      </span>
-                    )}
-                  </div>
-                  <div className="coaching-overlay__coaching-text coaching-overlay__coaching-text--streaming">
-                    {activeCoaching.tip || '▍'}
-                    {activeCoaching.tip && <span className="coaching-overlay__cursor">▍</span>}
-                  </div>
-                </div>
-              ) : coachingTips.length > 0 && (
-                <div className="coaching-overlay__last-coaching">
-                  <div className="coaching-overlay__coaching-label">
-                    ✅ Ostatnia sugestia
-                    <span className="coaching-overlay__coaching-time">
-                      {formatTime(coachingTips[coachingTips.length - 1].timestamp)}
-                    </span>
-                  </div>
-                  <div className="coaching-overlay__coaching-text">
-                    {coachingTips[coachingTips.length - 1].tip}
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
+      <div className="coaching-overlay__briefing-toggle">
+        <button
+          className={`coaching-overlay__btn coaching-overlay__btn--briefing ${showBriefing ? 'coaching-overlay__btn--active' : ''}`}
+          onClick={() => setShowBriefing(!showBriefing)}
+        >
+          📋 {showBriefing ? 'Ukryj briefing' : 'Pre-meeting briefing'}
+          {briefingSaved && !showBriefing && <span className="coaching-overlay__briefing-badge">✓</span>}
+        </button>
+      </div>
 
-          {/* ═══════ TRANSCRIPT ═══════ */}
-          <div className="coaching-overlay__transcript" ref={transcriptRef}>
-            {transcriptLines.map((line, i) => (
-              <div key={i} className="coaching-overlay__line">
-                <span className="coaching-overlay__line-time">{formatTime(line.timestamp)}</span>
-                <span className={`coaching-overlay__line-speaker ${line.speaker === 'Ja' ? 'coaching-overlay__line-speaker--me' : ''}`}>
-                  {line.speaker}:
-                </span>
-                <span className="coaching-overlay__line-text">{line.text}</span>
-              </div>
-            ))}
-
-            {/* Partials */}
-            {partialMic && (
-              <div className="coaching-overlay__line coaching-overlay__line--partial">
-                <span className="coaching-overlay__line-speaker coaching-overlay__line-speaker--me">Ja:</span>
-                <span className="coaching-overlay__line-text">{partialMic}...</span>
-              </div>
-            )}
-            {partialSystem && (
-              <div className="coaching-overlay__line coaching-overlay__line--partial">
-                <span className="coaching-overlay__line-speaker">Uczestnik:</span>
-                <span className="coaching-overlay__line-text">{partialSystem}...</span>
-              </div>
-            )}
-
-            {transcriptLines.length === 0 && !partialMic && !partialSystem && (
-              <div className="coaching-overlay__empty">🎤 Oczekuję na mowę...</div>
-            )}
+      {showBriefing && (
+        <div className="coaching-overlay__briefing-form">
+          <div className="coaching-overlay__briefing-field">
+            <label className="coaching-overlay__briefing-label">📌 Temat spotkania</label>
+            <input className="coaching-overlay__briefing-input" value={briefingTopic} onChange={e => { setBriefingTopic(e.target.value); setBriefingSaved(false); }} placeholder="np. Sprint review, design review, 1:1..." />
           </div>
-
-          {/* ═══════ SPEAKERS ═══════ */}
-          {meetingState.speakers.length > 0 && (
-            <div className="coaching-overlay__speakers">
-              <div className="coaching-overlay__speakers-label">👥 Uczestnicy:</div>
-              <div className="coaching-overlay__speakers-list">
-                {meetingState.speakers.map(speaker => (
-                  <div key={speaker.id} className="coaching-overlay__speaker">
-                    {editingSpeaker === speaker.id ? (
-                      <div className="coaching-overlay__speaker-edit">
-                        <input
-                          className="coaching-overlay__speaker-input"
-                          value={speakerNameInput}
-                          onChange={e => setSpeakerNameInput(e.target.value)}
-                          onKeyDown={e => e.key === 'Enter' && handleRenameSpeaker(speaker.id)}
-                          placeholder="Nazwa..."
-                          autoFocus
-                        />
-                        <button className="coaching-overlay__speaker-save" onClick={() => handleRenameSpeaker(speaker.id)}>✓</button>
-                        <button className="coaching-overlay__speaker-cancel" onClick={() => setEditingSpeaker(null)}>✗</button>
-                      </div>
-                    ) : (
-                      <span
-                        className="coaching-overlay__speaker-name"
-                        onClick={() => {
-                          setEditingSpeaker(speaker.id);
-                          setSpeakerNameInput(speaker.name);
-                        }}
-                        title="Kliknij aby zmienić nazwę"
-                      >
-                        {speaker.name}
-                        {speaker.isAutoDetected && ' ✏️'}
-                        <span className="coaching-overlay__speaker-count">({speaker.utteranceCount})</span>
-                      </span>
-                    )}
+          <div className="coaching-overlay__briefing-field">
+            <label className="coaching-overlay__briefing-label">📝 Agenda</label>
+            <textarea className="coaching-overlay__briefing-textarea" value={briefingAgenda} onChange={e => { setBriefingAgenda(e.target.value); setBriefingSaved(false); }} placeholder="Punkty do omówienia..." rows={2} />
+          </div>
+          <div className="coaching-overlay__briefing-field">
+            <label className="coaching-overlay__briefing-label">👥 Uczestnicy</label>
+            {briefingParticipants.length > 0 && (
+              <div className="coaching-overlay__briefing-participants">
+                {briefingParticipants.map((p, i) => (
+                  <div key={i} className="coaching-overlay__briefing-participant">
+                    <span className="coaching-overlay__briefing-participant-info">
+                      <strong>{p.name}</strong>{p.role && ` — ${p.role}`}{p.company && ` (${p.company})`}
+                    </span>
+                    <button className="coaching-overlay__briefing-remove" onClick={() => handleRemoveParticipant(i)}>✗</button>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* ═══════ COACHING HISTORY ═══════ */}
-          {coachingTips.length > 1 && (
-            <div className="coaching-overlay__tips-history" ref={coachingRef}>
-              <div className="coaching-overlay__tips-label">📋 Historia sugestii ({coachingTips.length})</div>
-              {coachingTips.slice().reverse().slice(1).map(tip => (
-                <div key={tip.id} className="coaching-overlay__tip-history-item">
-                  <span className="coaching-overlay__tip-time">{formatTime(tip.timestamp)}</span>
-                  {tip.questionText && (
-                    <div className="coaching-overlay__tip-question">❓ {tip.questionText}</div>
-                  )}
-                  <div className="coaching-overlay__tip-answer">{tip.tip}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Idle state — briefing + start */}
-      {!meetingState.active && (
-        <div className="coaching-overlay__idle">
-          {/* Briefing toggle */}
-          <div className="coaching-overlay__briefing-toggle">
-            <button
-              className={`coaching-overlay__btn coaching-overlay__btn--briefing ${showBriefing ? 'coaching-overlay__btn--active' : ''}`}
-              onClick={() => setShowBriefing(!showBriefing)}
-            >
-              📋 {showBriefing ? 'Ukryj briefing' : 'Pre-meeting briefing'}
-              {briefingSaved && !showBriefing && <span className="coaching-overlay__briefing-badge">✓</span>}
-            </button>
-          </div>
-
-          {/* Briefing Form */}
-          {showBriefing && (
-            <div className="coaching-overlay__briefing-form">
-              {/* Topic */}
-              <div className="coaching-overlay__briefing-field">
-                <label className="coaching-overlay__briefing-label">📌 Temat spotkania</label>
-                <input
-                  className="coaching-overlay__briefing-input"
-                  value={briefingTopic}
-                  onChange={e => { setBriefingTopic(e.target.value); setBriefingSaved(false); }}
-                  placeholder="np. Sprint review, design review, 1:1 z managerem..."
-                />
-              </div>
-
-              {/* Agenda */}
-              <div className="coaching-overlay__briefing-field">
-                <label className="coaching-overlay__briefing-label">📝 Agenda</label>
-                <textarea
-                  className="coaching-overlay__briefing-textarea"
-                  value={briefingAgenda}
-                  onChange={e => { setBriefingAgenda(e.target.value); setBriefingSaved(false); }}
-                  placeholder="Punkty do omówienia..."
-                  rows={2}
-                />
-              </div>
-
-              {/* Participants */}
-              <div className="coaching-overlay__briefing-field">
-                <label className="coaching-overlay__briefing-label">👥 Uczestnicy</label>
-                {briefingParticipants.length > 0 && (
-                  <div className="coaching-overlay__briefing-participants">
-                    {briefingParticipants.map((p, i) => (
-                      <div key={i} className="coaching-overlay__briefing-participant">
-                        <span className="coaching-overlay__briefing-participant-info">
-                          <strong>{p.name}</strong>
-                          {p.role && <span> — {p.role}</span>}
-                          {p.company && <span> ({p.company})</span>}
-                          {p.notes && <span className="coaching-overlay__briefing-participant-notes">: {p.notes}</span>}
-                        </span>
-                        <button
-                          className="coaching-overlay__briefing-remove"
-                          onClick={() => handleRemoveParticipant(i)}
-                          title="Usuń"
-                        >✗</button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="coaching-overlay__briefing-add-participant">
-                  <input
-                    className="coaching-overlay__briefing-input coaching-overlay__briefing-input--small"
-                    value={newParticipantName}
-                    onChange={e => setNewParticipantName(e.target.value)}
-                    placeholder="Imię i nazwisko"
-                    onKeyDown={e => e.key === 'Enter' && handleAddParticipant()}
-                  />
-                  <input
-                    className="coaching-overlay__briefing-input coaching-overlay__briefing-input--small"
-                    value={newParticipantRole}
-                    onChange={e => setNewParticipantRole(e.target.value)}
-                    placeholder="Rola (opcjonalnie)"
-                    onKeyDown={e => e.key === 'Enter' && handleAddParticipant()}
-                  />
-                  <input
-                    className="coaching-overlay__briefing-input coaching-overlay__briefing-input--small"
-                    value={newParticipantCompany}
-                    onChange={e => setNewParticipantCompany(e.target.value)}
-                    placeholder="Firma (opcjonalnie)"
-                    onKeyDown={e => e.key === 'Enter' && handleAddParticipant()}
-                  />
-                  <input
-                    className="coaching-overlay__briefing-input coaching-overlay__briefing-input--small"
-                    value={newParticipantNotes}
-                    onChange={e => setNewParticipantNotes(e.target.value)}
-                    placeholder="Notatki (opcjonalnie)"
-                    onKeyDown={e => e.key === 'Enter' && handleAddParticipant()}
-                  />
-                  <button className="coaching-overlay__btn coaching-overlay__btn--add" onClick={handleAddParticipant}>+ Dodaj</button>
-                </div>
-              </div>
-
-              {/* Notes */}
-              <div className="coaching-overlay__briefing-field">
-                <label className="coaching-overlay__briefing-label">📄 Notatki / kontekst</label>
-                <textarea
-                  className="coaching-overlay__briefing-textarea"
-                  value={briefingNotes}
-                  onChange={e => { setBriefingNotes(e.target.value); setBriefingSaved(false); }}
-                  placeholder="Wolne notatki: co pamiętać, tło rozmowy, kluczowe fakty..."
-                  rows={3}
-                />
-              </div>
-
-              {/* URLs */}
-              <div className="coaching-overlay__briefing-field">
-                <label className="coaching-overlay__briefing-label">🌐 Strony internetowe (po jednym URL w linii)</label>
-                <textarea
-                  className="coaching-overlay__briefing-textarea"
-                  value={briefingUrls}
-                  onChange={e => { setBriefingUrls(e.target.value); setBriefingSaved(false); }}
-                  placeholder="https://github.com/org/repo&#10;https://docs.example.com/api"
-                  rows={2}
-                />
-              </div>
-
-              {/* Project paths */}
-              <div className="coaching-overlay__briefing-field">
-                <label className="coaching-overlay__briefing-label">📁 Ścieżki projektów (lokalne foldery, po jednym w linii)</label>
-                <textarea
-                  className="coaching-overlay__briefing-textarea"
-                  value={briefingProjectPaths}
-                  onChange={e => { setBriefingProjectPaths(e.target.value); setBriefingSaved(false); }}
-                  placeholder="C:\Projects\my-app&#10;/home/user/repos/backend"
-                  rows={2}
-                />
-              </div>
-
-              {/* Actions */}
-              <div className="coaching-overlay__briefing-actions">
-                <button
-                  className="coaching-overlay__btn coaching-overlay__btn--save"
-                  onClick={handleSaveBriefing}
-                  disabled={briefingLoading}
-                >
-                  {briefingLoading ? '⏳ Przetwarzam...' : briefingSaved ? '✅ Zapisany' : '💾 Zapisz briefing'}
-                </button>
-                {briefingSaved && (
-                  <button className="coaching-overlay__btn coaching-overlay__btn--clear" onClick={handleClearBriefing}>
-                    🗑️ Wyczyść
-                  </button>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="coaching-overlay__idle-info">
-            <p>Rozpocznij nagrywanie aby aktywować real-time coaching.</p>
-            {briefingSaved && (
-              <p style={{ fontSize: '0.75rem', color: '#4ade80', marginTop: '0.2rem' }}>
-                ✅ Briefing załadowany — coach zna kontekst spotkania
-              </p>
             )}
-            <p style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.3rem' }}>
-              Agent automatycznie wykrywa pytania skierowane do Ciebie i natychmiast podpowiada co odpowiedzieć.
-            </p>
-            <p style={{ marginTop: '0.5rem' }}>
-              <button className="coaching-overlay__btn coaching-overlay__btn--link" onClick={handleOpenDashboard}>
-                📊 Otwórz dashboard
-              </button>
-            </p>
+            <div className="coaching-overlay__briefing-add-participant">
+              <input className="coaching-overlay__briefing-input coaching-overlay__briefing-input--small" value={newParticipantName} onChange={e => setNewParticipantName(e.target.value)} placeholder="Imię" onKeyDown={e => e.key === 'Enter' && handleAddParticipant()} />
+              <input className="coaching-overlay__briefing-input coaching-overlay__briefing-input--small" value={newParticipantRole} onChange={e => setNewParticipantRole(e.target.value)} placeholder="Rola" onKeyDown={e => e.key === 'Enter' && handleAddParticipant()} />
+              <button className="coaching-overlay__btn coaching-overlay__btn--add" onClick={handleAddParticipant}>+ Dodaj</button>
+            </div>
+          </div>
+          <div className="coaching-overlay__briefing-field">
+            <label className="coaching-overlay__briefing-label">📄 Notatki</label>
+            <textarea className="coaching-overlay__briefing-textarea" value={briefingNotes} onChange={e => { setBriefingNotes(e.target.value); setBriefingSaved(false); }} placeholder="Wolne notatki..." rows={2} />
+          </div>
+          <div className="coaching-overlay__briefing-actions">
+            <button className="coaching-overlay__btn coaching-overlay__btn--save" onClick={handleSaveBriefing} disabled={briefingLoading}>
+              {briefingLoading ? '⏳ Przetwarzam...' : briefingSaved ? '✅ Zapisany' : '💾 Zapisz briefing'}
+            </button>
+            {briefingSaved && <button className="coaching-overlay__btn coaching-overlay__btn--clear" onClick={handleClearBriefing}>🗑️ Wyczyść</button>}
           </div>
         </div>
       )}
+
+      <div className="coaching-overlay__idle-info">
+        <p>Rozpocznij nagrywanie aby aktywować real-time coaching.</p>
+        {briefingSaved && <p style={{ fontSize: '0.75rem', color: '#4ade80', marginTop: '0.2rem' }}>✅ Briefing załadowany</p>}
+        <p style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.3rem' }}>
+          Po starcie okno zmieni się w kompaktowy pasek z podpowiedziami.<br />
+          Transkrypcja live dostępna na dashboardzie.
+        </p>
+        <p style={{ marginTop: '0.5rem' }}>
+          <button className="coaching-overlay__btn coaching-overlay__btn--link" onClick={handleOpenDashboard}>📊 Otwórz dashboard</button>
+        </p>
+      </div>
     </div>
   );
 }
-
-// ──────────── Helpers ────────────
 
 function float32ToInt16(float32: Float32Array): Int16Array {
   const int16 = new Int16Array(float32.length);

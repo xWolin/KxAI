@@ -216,6 +216,12 @@ export class TranscriptionService extends EventEmitter {
         }
         break;
 
+      case 'input_error':
+        // ElevenLabs returns input_error when audio is sent after commit or in invalid state
+        // This is expected during shutdown — log but don't propagate as user-visible error
+        console.warn(`[Transcription] Input error in '${label}': ${msg.message || msg.error || 'unknown'}`);
+        break;
+
       default:
         // Handle error message types
         if (msgType?.includes('error') || msgType?.includes('Error')) {

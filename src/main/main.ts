@@ -377,6 +377,18 @@ async function initializeServices(): Promise<void> {
     console.error('[KxAI] Dashboard server failed to start:', err);
   });
 
+  // Forward meeting events to dashboard WebSocket for live updates
+  const meetingDashEvents = [
+    'meeting:state', 'meeting:transcript', 'meeting:coaching',
+    'meeting:coaching-chunk', 'meeting:coaching-done',
+    'meeting:started', 'meeting:stopped',
+  ];
+  for (const event of meetingDashEvents) {
+    meetingCoachService.on(event, (data: any) => {
+      dashboardServer.pushEvent(event, data);
+    });
+  }
+
   // Diagnostic service — self-test tool
   diagnosticService = new DiagnosticService({
     ai: aiService,

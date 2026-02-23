@@ -167,6 +167,9 @@
   var currentPage = 'overview';
   var wsConn = null;
   var agentStatus = { state: 'idle' };
+  var liveMeetingState = null;
+  var liveTranscript = [];
+  var liveCoachingTips = [];
 
   // WebSocket
   function connectWS() {
@@ -179,6 +182,32 @@
           agentStatus = msg.data;
           updateStatusIndicator();
           if (currentPage === 'overview' || currentPage === 'graph') loadPage(currentPage);
+        }
+        // Meeting live events
+        if (msg.type === 'meeting:state') {
+          liveMeetingState = msg.data;
+          if (currentPage === 'meetings' || currentPage === 'meeting-live') {
+            loadPage(currentPage);
+          }
+        }
+        if (msg.type === 'meeting:transcript' && msg.data) {
+          if (msg.data.line) {
+            liveTranscript.push(msg.data.line);
+            if (currentPage === 'meeting-live') updateLiveTranscript();
+          }
+        }
+        if (msg.type === 'meeting:coaching-done' && msg.data) {
+          liveCoachingTips.push(msg.data);
+          if (currentPage === 'meeting-live') updateLiveCoaching();
+        }
+        if (msg.type === 'meeting:started') {
+          liveTranscript = [];
+          liveCoachingTips = [];
+          liveMeetingState = { active: true };
+        }
+        if (msg.type === 'meeting:stopped') {
+          liveMeetingState = null;
+          if (currentPage === 'meeting-live') loadPage('meetings');
         }
       } catch(ex) {}
     };
@@ -228,10 +257,32 @@
       case 'rag': return renderRag(main);
       case 'system': return renderSystem(main);
       case 'meetings': return renderMeetings(main);
+      case 'meeting-live': return renderMeetingLive(main);
       case 'activity': return renderActivity(main);
       case 'shortcuts': return renderShortcuts(main);
+      default:
+        if (page && page.indexOf('meeting/') === 0) {
+          return renderMeetingDetail(main, page.replace('meeting/', ''));
+        }
     }
   }
+
+  // Handle hash-based routing for meeting details
+  function handleHash() {
+    var hash = location.hash.replace('#/', '').replace('#', '');
+    if (hash.indexOf('meeting/') === 0) {
+      currentPage = hash;
+      $$('.sidebar__item').forEach(function(i) { i.classList.remove('sidebar__item--active'); });
+      $$('.sidebar__item[data-page="meetings"]').forEach(function(i) { i.classList.add('sidebar__item--active'); });
+      loadPage(hash);
+    } else if (hash === 'meetings') {
+      currentPage = 'meetings';
+      $$('.sidebar__item').forEach(function(i) { i.classList.remove('sidebar__item--active'); });
+      $$('.sidebar__item[data-page="meetings"]').forEach(function(i) { i.classList.add('sidebar__item--active'); });
+      loadPage('meetings');
+    }
+  }
+  window.addEventListener('hashchange', handleHash);
 
   function renderOverview(el) {
     Promise.all([
@@ -427,18 +478,277 @@
   function renderMeetings(el) {
     api('/api/meetings').then(function(meetings) {
       meetings = meetings || [];
-      if (!meetings.length) { el.innerHTML = '<div class="empty"><div class="empty__icon">🎙️</div>Brak spotkań</div>'; return; }
+
+      // Live meeting banner
+      var liveBanner = '';
+      if (liveMeetingState && liveMeetingState.active) {
+        liveBanner =
+          '<div class="card" style="border-color:#f85149;background:rgba(248,81,73,0.05)">' +
+            '<div class="card__title"><span class="icon" style="animation:blink 1s infinite">🔴</span> Spotkanie w toku</div>' +
+            '<div style="display:flex;justify-content:space-between;align-items:center">' +
+              '<div style="font-size:13px;color:var(--text-dim)">' +
+                '💬 ' + (liveMeetingState.transcriptLineCount || liveTranscript.length) + ' linii transkrypcji · ' +
+                '💡 ' + liveCoachingTips.length + ' sugestii' +
+              '</div>' +
+              '<button onclick="currentPage=\'meeting-live\';loadPage(\'meeting-live\')" style="background:rgba(88,166,255,0.12);color:var(--accent);border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">📡 Podgląd live →</button>' +
+            '</div>' +
+          '</div>';
+      }
+
+      if (!meetings.length && !liveBanner) {
+        el.innerHTML = '<div class="empty"><div class="empty__icon">🎙️</div>Brak spotkań</div>';
+        return;
+      }
+
       var rows = meetings.map(function(m) {
-        return '<tr><td><a href="/api/meeting/' + m.id + '" target="_blank">' + m.title + '</a></td>' +
-          '<td>' + new Date(m.startTime).toLocaleDateString('pl') + '</td>' +
-          '<td>' + m.duration + ' min</td>' +
-          '<td>' + (m.participants ? m.participants.length : 0) + '</td></tr>';
+        var durationStr = m.duration + ' min';
+        var participantCount = m.participants ? m.participants.length : 0;
+        var dateStr = new Date(m.startTime).toLocaleDateString('pl', { day: '2-digit', month: '2-digit', year: 'numeric' });
+        var timeStr = new Date(m.startTime).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' });
+        var hasSummary = m.summary && m.summary.length > 10;
+        return '<tr style="cursor:pointer" onclick="currentPage=\'meeting/' + m.id + '\';loadPage(\'meeting/' + m.id + '\')">' +
+          '<td><strong style="color:var(--accent)">' + escapeHtml(m.title) + '</strong></td>' +
+          '<td>' + dateStr + ' ' + timeStr + '</td>' +
+          '<td>' + durationStr + '</td>' +
+          '<td>' + participantCount + '</td>' +
+          '<td>' + (hasSummary ? '<span class="badge badge--green">✓</span>' : '<span class="badge badge--yellow">—</span>') + '</td>' +
+        '</tr>';
       }).join('');
-      el.innerHTML =
+
+      el.innerHTML = liveBanner +
         '<div class="card"><div class="card__title"><span class="icon">🎙️</span> Spotkania (' + meetings.length + ')</div>' +
-        '<table class="table"><thead><tr><th>Tytuł</th><th>Data</th><th>Czas trwania</th><th>Uczestnicy</th></tr></thead><tbody>' +
+        '<table class="table"><thead><tr><th>Tytuł</th><th>Data</th><th>Czas trwania</th><th>Uczestnicy</th><th>Podsumowanie</th></tr></thead><tbody>' +
         rows + '</tbody></table></div>';
     });
+  }
+
+  function renderMeetingDetail(el, meetingId) {
+    api('/api/meeting/' + meetingId).then(function(m) {
+      if (!m) {
+        el.innerHTML = '<div class="empty"><div class="empty__icon">❌</div>Nie znaleziono spotkania</div>';
+        return;
+      }
+
+      var dateStr = new Date(m.startTime).toLocaleDateString('pl', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+      var timeStart = new Date(m.startTime).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' });
+      var timeEnd = new Date(m.endTime).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' });
+
+      // Header
+      var html = '<div style="margin-bottom:8px"><button onclick="currentPage=\'meetings\';loadPage(\'meetings\')" style="background:transparent;color:var(--accent);border:none;cursor:pointer;font-size:13px;padding:4px 0">← Powrót do listy</button></div>';
+
+      html += '<div class="card" style="border-color:var(--accent)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start">' +
+          '<div>' +
+            '<h2 style="margin:0 0 4px;font-size:18px;color:var(--text)">' + escapeHtml(m.title) + '</h2>' +
+            '<div style="font-size:13px;color:var(--text-dim)">' +
+              '📅 ' + dateStr + ' · ' + timeStart + ' – ' + timeEnd + ' · ⏱ ' + m.duration + ' min' +
+            '</div>' +
+          '</div>' +
+          (m.detectedApp ? '<span class="badge badge--blue">' + escapeHtml(m.detectedApp) + '</span>' : '') +
+        '</div>' +
+      '</div>';
+
+      // Summary
+      if (m.summary) {
+        html += '<div class="card">' +
+          '<div class="card__title"><span class="icon">📝</span> Podsumowanie</div>' +
+          '<p style="font-size:14px;line-height:1.7;color:var(--text);margin:0">' + escapeHtml(m.summary) + '</p>' +
+        '</div>';
+      }
+
+      // Stats row
+      html += '<div class="grid-3">' +
+        '<div class="card"><div class="stat"><div class="stat__value">' + (m.participants ? m.participants.length : 0) + '</div><div class="stat__label">Uczestników</div></div></div>' +
+        '<div class="card"><div class="stat"><div class="stat__value">' + (m.transcript ? m.transcript.length : 0) + '</div><div class="stat__label">Linii transkrypcji</div></div></div>' +
+        '<div class="card"><div class="stat"><div class="stat__value">' + (m.coachingTips ? m.coachingTips.length : 0) + '</div><div class="stat__label">Sugestii coachinga</div></div></div>' +
+      '</div>';
+
+      // Key Points & Action Items
+      var hasKeyPoints = m.keyPoints && m.keyPoints.length > 0;
+      var hasActionItems = m.actionItems && m.actionItems.length > 0;
+      if (hasKeyPoints || hasActionItems) {
+        html += '<div class="grid-2">';
+        if (hasKeyPoints) {
+          html += '<div class="card">' +
+            '<div class="card__title"><span class="icon">🎯</span> Kluczowe punkty</div>' +
+            '<ul style="margin:0;padding-left:20px;font-size:13px;line-height:1.8;color:var(--text)">' +
+            m.keyPoints.map(function(p) { return '<li>' + escapeHtml(p) + '</li>'; }).join('') +
+            '</ul></div>';
+        }
+        if (hasActionItems) {
+          html += '<div class="card">' +
+            '<div class="card__title"><span class="icon">✅</span> Działania do podjęcia</div>' +
+            '<ul style="margin:0;padding-left:20px;font-size:13px;line-height:1.8;color:var(--text)">' +
+            m.actionItems.map(function(a) { return '<li>' + escapeHtml(a) + '</li>'; }).join('') +
+            '</ul></div>';
+        }
+        html += '</div>';
+      }
+
+      // Participants
+      if (m.speakers && m.speakers.length > 0) {
+        var participantCards = m.speakers.map(function(s) {
+          var isMe = s.name === 'Ja';
+          var color = isMe ? 'var(--accent2)' : 'var(--purple)';
+          return '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface2);border-radius:8px">' +
+            '<div style="width:36px;height:36px;border-radius:50%;background:' + (isMe ? 'rgba(63,185,80,0.15)' : 'rgba(188,140,255,0.15)') + ';display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">' +
+              (isMe ? '👤' : '🎙️') +
+            '</div>' +
+            '<div style="flex:1;min-width:0">' +
+              '<div style="font-size:13px;font-weight:600;color:' + color + '">' + escapeHtml(s.name) + '</div>' +
+              '<div style="font-size:11px;color:var(--text-muted)">' + s.utteranceCount + ' wypowiedzi' + (s.isAutoDetected ? ' · auto-detected' : '') + '</div>' +
+            '</div>' +
+          '</div>';
+        }).join('');
+        html += '<div class="card">' +
+          '<div class="card__title"><span class="icon">👥</span> Uczestnicy</div>' +
+          '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:8px">' + participantCards + '</div>' +
+        '</div>';
+      }
+
+      // Coaching Tips
+      if (m.coachingTips && m.coachingTips.length > 0) {
+        var tipItems = m.coachingTips.map(function(tip) {
+          var catEmoji = { answer: '💬', communication: '🗣️', technical: '⚙️', strategy: '♟️' };
+          var catColor = { answer: 'var(--accent)', communication: 'var(--accent2)', technical: 'var(--warning)', strategy: 'var(--purple)' };
+          var emoji = catEmoji[tip.category] || '💡';
+          var color = catColor[tip.category] || 'var(--text-dim)';
+          var time = new Date(tip.timestamp).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          return '<div style="padding:10px 12px;background:var(--surface2);border-radius:8px;margin-bottom:6px;border-left:3px solid ' + color + '">' +
+            '<div style="display:flex;justify-content:space-between;margin-bottom:4px">' +
+              '<span style="font-size:12px;color:' + color + ';font-weight:600">' + emoji + ' ' + (tip.category || 'tip') + '</span>' +
+              '<span style="font-size:11px;color:var(--text-muted)">' + time + '</span>' +
+            '</div>' +
+            (tip.questionText ? '<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-bottom:4px">❓ ' + escapeHtml(tip.questionText) + '</div>' : '') +
+            '<div style="font-size:13px;color:var(--text);line-height:1.5">' + escapeHtml(tip.tip) + '</div>' +
+          '</div>';
+        }).join('');
+        html += '<div class="card">' +
+          '<div class="card__title"><span class="icon">💡</span> Sugestie coachinga (' + m.coachingTips.length + ')</div>' +
+          tipItems +
+        '</div>';
+      }
+
+      // Transcript
+      if (m.transcript && m.transcript.length > 0) {
+        var transcriptLines = m.transcript.map(function(line) {
+          var time = new Date(line.timestamp).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          var isMe = line.speaker === 'Ja';
+          var color = isMe ? '#3fb950' : '#bc8cff';
+          return '<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--surface2);font-size:12px">' +
+            '<span style="color:var(--text-muted);flex-shrink:0;min-width:60px">' + time + '</span>' +
+            '<span style="color:' + color + ';font-weight:600;flex-shrink:0;min-width:80px">' + escapeHtml(line.speaker) + '</span>' +
+            '<span style="color:var(--text)">' + escapeHtml(line.text) + '</span>' +
+          '</div>';
+        }).join('');
+        html += '<div class="card">' +
+          '<div class="card__title"><span class="icon">📜</span> Pełna transkrypcja (' + m.transcript.length + ' linii)</div>' +
+          '<div style="max-height:500px;overflow-y:auto">' + transcriptLines + '</div>' +
+        '</div>';
+      }
+
+      // Briefing
+      if (m.briefing && m.briefing.topic) {
+        html += '<div class="card">' +
+          '<div class="card__title"><span class="icon">📋</span> Briefing pre-meeting</div>' +
+          '<table class="table">' +
+            '<tr><td style="width:120px">Temat</td><td>' + escapeHtml(m.briefing.topic) + '</td></tr>' +
+            (m.briefing.agenda ? '<tr><td>Agenda</td><td>' + escapeHtml(m.briefing.agenda) + '</td></tr>' : '') +
+            (m.briefing.notes ? '<tr><td>Notatki</td><td>' + escapeHtml(m.briefing.notes) + '</td></tr>' : '') +
+            (m.briefing.participants && m.briefing.participants.length > 0 ?
+              '<tr><td>Uczestnicy</td><td>' + m.briefing.participants.map(function(p) { return escapeHtml(p.name) + (p.role ? ' (' + escapeHtml(p.role) + ')' : ''); }).join(', ') + '</td></tr>' : '') +
+          '</table>' +
+        '</div>';
+      }
+
+      el.innerHTML = html;
+    });
+  }
+
+  function renderMeetingLive(el) {
+    if (!liveMeetingState || !liveMeetingState.active) {
+      el.innerHTML = '<div class="empty"><div class="empty__icon">🎙️</div>Brak aktywnego spotkania<br><button onclick="currentPage=\'meetings\';loadPage(\'meetings\')" style="margin-top:12px;background:rgba(88,166,255,0.12);color:var(--accent);border:none;border-radius:6px;padding:8px 16px;cursor:pointer">← Powrót do spotkań</button></div>';
+      return;
+    }
+
+    var html = '<div style="margin-bottom:8px"><button onclick="currentPage=\'meetings\';loadPage(\'meetings\')" style="background:transparent;color:var(--accent);border:none;cursor:pointer;font-size:13px;padding:4px 0">← Powrót do listy</button></div>';
+
+    // Live status
+    html += '<div class="card" style="border-color:#f85149">' +
+      '<div style="display:flex;align-items:center;gap:10px">' +
+        '<span style="width:10px;height:10px;border-radius:50%;background:#f85149;box-shadow:0 0 8px rgba(248,81,73,0.6);animation:blink 1s infinite"></span>' +
+        '<span style="font-size:16px;font-weight:700;color:var(--text)">Spotkanie w toku</span>' +
+        '<span style="font-size:13px;color:var(--text-dim)">💬 ' + liveTranscript.length + ' linii · 💡 ' + liveCoachingTips.length + ' sugestii</span>' +
+      '</div>' +
+    '</div>';
+
+    // Live coaching tips
+    if (liveCoachingTips.length > 0) {
+      var tipItems = liveCoachingTips.slice(-5).reverse().map(function(tip) {
+        return '<div style="padding:8px 10px;background:var(--surface2);border-radius:6px;margin-bottom:4px;border-left:3px solid var(--accent)">' +
+          '<div style="font-size:13px;color:var(--text);line-height:1.5">' + escapeHtml(tip.tip) + '</div>' +
+          (tip.questionText ? '<div style="font-size:11px;color:var(--text-dim);font-style:italic;margin-top:2px">❓ ' + escapeHtml(tip.questionText) + '</div>' : '') +
+        '</div>';
+      }).join('');
+      html += '<div class="card">' +
+        '<div class="card__title"><span class="icon">💡</span> Sugestie live (' + liveCoachingTips.length + ')</div>' +
+        tipItems +
+      '</div>';
+    }
+
+    // Live transcript
+    html += '<div class="card">' +
+      '<div class="card__title"><span class="icon">📜</span> Transkrypcja live</div>' +
+      '<div id="liveTranscriptContainer" style="max-height:500px;overflow-y:auto">';
+
+    var lines = liveTranscript.slice(-100);
+    lines.forEach(function(line) {
+      var time = new Date(line.timestamp).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      var isMe = line.speaker === 'Ja';
+      var color = isMe ? '#3fb950' : '#bc8cff';
+      html += '<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--surface2);font-size:12px">' +
+        '<span style="color:var(--text-muted);flex-shrink:0;min-width:60px">' + time + '</span>' +
+        '<span style="color:' + color + ';font-weight:600;flex-shrink:0;min-width:80px">' + escapeHtml(line.speaker) + '</span>' +
+        '<span style="color:var(--text)">' + escapeHtml(line.text) + '</span>' +
+      '</div>';
+    });
+
+    html += '</div></div>';
+    el.innerHTML = html;
+
+    // Auto-scroll
+    var container = document.getElementById('liveTranscriptContainer');
+    if (container) container.scrollTop = container.scrollHeight;
+  }
+
+  function updateLiveTranscript() {
+    var container = document.getElementById('liveTranscriptContainer');
+    if (!container) { renderMeetingLive($('#mainContent')); return; }
+
+    var line = liveTranscript[liveTranscript.length - 1];
+    if (!line) return;
+    var time = new Date(line.timestamp).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    var isMe = line.speaker === 'Ja';
+    var color = isMe ? '#3fb950' : '#bc8cff';
+    var div = document.createElement('div');
+    div.style.cssText = 'display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--surface2);font-size:12px';
+    div.innerHTML = '<span style="color:var(--text-muted);flex-shrink:0;min-width:60px">' + time + '</span>' +
+      '<span style="color:' + color + ';font-weight:600;flex-shrink:0;min-width:80px">' + escapeHtml(line.speaker) + '</span>' +
+      '<span style="color:var(--text)">' + escapeHtml(line.text) + '</span>';
+    container.appendChild(div);
+
+    // Keep max 100 lines visible
+    while (container.children.length > 100) container.removeChild(container.firstChild);
+    container.scrollTop = container.scrollHeight;
+
+    // Update line count in header
+    var titleEl = container.parentElement.querySelector('.card__title');
+    if (titleEl) titleEl.innerHTML = '<span class="icon">📜</span> Transkrypcja live (' + liveTranscript.length + ' linii)';
+  }
+
+  function updateLiveCoaching() {
+    // Re-render the whole live page to include new tip
+    if (currentPage === 'meeting-live') renderMeetingLive($('#mainContent'));
   }
 
   function renderActivity(el) {
@@ -492,7 +802,7 @@
   }
 
   // Initial load
-  loadPage('overview');
+  handleHash() || loadPage('overview');
 })();
 </script>
 </body>

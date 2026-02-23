@@ -199,6 +199,7 @@ export class MeetingCoachService extends EventEmitter {
 
   // Coaching state
   private isCoaching = false;
+  private isStopping = false;
   private coachingQueue: string[] = [];
   private lastCoachingTime = 0;
   private readonly COACHING_COOLDOWN = 5000; // Min 5s between coaching triggers
@@ -246,6 +247,11 @@ export class MeetingCoachService extends EventEmitter {
     // Wire transcription events
     this.transcriptionService.on('transcript', this.onTranscript.bind(this));
     this.transcriptionService.on('session:error', (data) => {
+      // Suppress errors during shutdown (e.g. input_error from ElevenLabs after commit)
+      if (this.isStopping) {
+        console.log(`[MeetingCoach] Suppressed transcription error during shutdown (${data.label}):`, data.error);
+        return;
+      }
       console.error(`[MeetingCoach] Transcription error (${data.label}):`, data.error);
       this.emit('meeting:error', { error: data.error, source: data.label });
     });
@@ -311,11 +317,18 @@ export class MeetingCoachService extends EventEmitter {
 
     const meetingId = this.meetingId;
     console.log(`[MeetingCoach] Stopping meeting ${meetingId}`);
+    this.isStopping = true;
 
     if (this.durationTimer) { clearInterval(this.durationTimer); this.durationTimer = null; }
 
-    await this.transcriptionService.stopAll();
+    // Signal renderer to stop audio capture BEFORE closing transcription sessions
+    // This prevents audio chunks arriving after ElevenLabs "commit" message → input_error
     this.emit('meeting:stop-capture');
+
+    // Give renderer ~200ms to actually stop sending chunks
+    await new Promise(r => setTimeout(r, 200));
+
+    await this.transcriptionService.stopAll();
 
     const summary = await this.generateSummary(meetingId);
 
@@ -325,6 +338,7 @@ export class MeetingCoachService extends EventEmitter {
     this.partialMic = '';
     this.partialSystem = '';
     this.isCoaching = false;
+    this.isStopping = false;
     this.coachingQueue = [];
     this.speakers = new Map();
 
