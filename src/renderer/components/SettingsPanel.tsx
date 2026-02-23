@@ -42,6 +42,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [hasKey, setHasKey] = useState(false);
   const [elevenLabsKey, setElevenLabsKey] = useState('');
   const [hasElevenLabsKey, setHasElevenLabsKey] = useState(false);
+  const [embeddingKey, setEmbeddingKey] = useState('');
+  const [hasEmbeddingKey, setHasEmbeddingKey] = useState(false);
+  const [embeddingModel, setEmbeddingModel] = useState(config.embeddingModel || 'text-embedding-3-small');
   const [proactiveInterval, setProactiveInterval] = useState(
     (config.proactiveIntervalMs || 30000) / 1000
   );
@@ -67,6 +70,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     setHasKey(has);
     const hasEl = await window.kxai.hasApiKey('elevenlabs');
     setHasElevenLabsKey(hasEl);
+    const hasEmb = await window.kxai.hasApiKey('openai-embeddings');
+    setHasEmbeddingKey(hasEmb);
   }
 
   async function loadFiles() {
@@ -85,6 +90,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
       await window.kxai.setConfig('agentName', agentName);
       await window.kxai.setConfig('agentEmoji', agentEmoji);
       await window.kxai.setConfig('proactiveIntervalMs', proactiveInterval * 1000);
+      await window.kxai.setConfig('embeddingModel', embeddingModel);
 
       // Save API key if provided
       if (apiKey.trim()) {
@@ -98,6 +104,13 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         await window.kxai.setApiKey('elevenlabs', elevenLabsKey.trim());
         setElevenLabsKey('');
         setHasElevenLabsKey(true);
+      }
+
+      // Save embedding API key if provided
+      if (embeddingKey.trim()) {
+        await window.kxai.setApiKey('openai-embeddings', embeddingKey.trim());
+        setEmbeddingKey('');
+        setHasEmbeddingKey(true);
       }
 
       onConfigUpdate();
@@ -299,6 +312,38 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               <p className="settings-hint">
                 Wymagany do transkrypcji w czasie rzeczywistym (Scribe v2). Plan Pro ($99/mies) daje 48h transkrypcji.
               </p>
+            </div>
+
+            {/* Embeddings (RAG) */}
+            <div className="settings-section">
+              <h3 className="settings-section__title">🧬 Embeddingi (RAG)</h3>
+
+              <label className={labelClass}>
+                Klucz API OpenAI (embeddingi) {hasEmbeddingKey ? '✅' : hasKey && provider === 'openai' ? '🔗 (główny)' : '❌'}
+              </label>
+              <input
+                type="password"
+                className={inputClass}
+                value={embeddingKey}
+                onChange={(e) => setEmbeddingKey(e.target.value)}
+                placeholder={hasEmbeddingKey ? '••••••••••• (zmień)' : 'Osobny klucz OpenAI do embeddingów (opcjonalnie)'}
+              />
+              <p className="settings-hint">
+                Osobny klucz OpenAI do generowania embeddingów. Jeśli nie podany, używany jest główny klucz OpenAI.
+                Jeśli żaden nie jest dostępny — RAG działa na lokalnym TF-IDF (bez kosztów, niższa jakość).
+              </p>
+
+              <label className={labelClass}>Model embeddingów</label>
+              <select
+                className={`${inputClass} settings-select`}
+                value={embeddingModel}
+                title="Model embeddingów"
+                onChange={(e) => setEmbeddingModel(e.target.value)}
+              >
+                <option value="text-embedding-3-small">text-embedding-3-small (tani, szybki)</option>
+                <option value="text-embedding-3-large">text-embedding-3-large (dokładniejszy)</option>
+                <option value="text-embedding-ada-002">text-embedding-ada-002 (legacy)</option>
+              </select>
             </div>
 
             {/* Danger zone */}

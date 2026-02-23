@@ -12,6 +12,7 @@ export interface KxAIConfig {
   // AI settings
   aiProvider?: 'openai' | 'anthropic';
   aiModel?: string;
+  embeddingModel?: string;
   
   // Proactive mode
   proactiveMode?: boolean;

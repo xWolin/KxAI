@@ -3,15 +3,19 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { SecurityService } from './security';
+import { ConfigService } from './config';
 
 /**
- * EmbeddingService — generuje embeddingi tekstu za pomocą OpenAI text-embedding-3-small.
- * Cachuje wyniki na dysku, aby unikać powtórnych wywołań API.
- * Fallback: prosty TF-IDF jeśli brak klucza OpenAI.
+ * EmbeddingService — generuje embeddingi tekstu.
+ * Używa OpenAI text-embedding-3-small (lub innego modelu z configu).
+ * Klucz API czytany z 'openai-embeddings' (dedykowany) lub fallback na 'openai' (główny).
+ * Fallback: prosty TF-IDF jeśli brak klucza.
  */
 export class EmbeddingService {
   private security: SecurityService;
+  private config: ConfigService;
   private openaiClient: any = null;
+  private embeddingModel: string = 'text-embedding-3-small';
   private cache: Map<string, number[]> = new Map();
   private cachePath: string;
   private initialized = false;
@@ -20,8 +24,9 @@ export class EmbeddingService {
   private idfMap: Map<string, number> = new Map();
   private vocabSize = 0;
 
-  constructor(security: SecurityService) {
+  constructor(security: SecurityService, config: ConfigService) {
     this.security = security;
+    this.config = config;
     const userDataPath = app.getPath('userData');
     this.cachePath = path.join(userDataPath, 'workspace', 'rag', 'embedding-cache.json');
   }
@@ -39,14 +44,22 @@ export class EmbeddingService {
     this.loadCache();
 
     // Try to initialize OpenAI client for embeddings
-    const openaiKey = await this.security.getApiKey('openai');
-    if (openaiKey) {
+    // Priority: dedicated 'openai-embeddings' key > main 'openai' key
+    const embeddingKey = await this.security.getApiKey('openai-embeddings')
+      ?? await this.security.getApiKey('openai');
+    if (embeddingKey) {
       try {
         const OpenAI = require('openai').default;
-        this.openaiClient = new OpenAI({ apiKey: openaiKey });
+        this.openaiClient = new OpenAI({ apiKey: embeddingKey });
       } catch (err) {
         console.warn('EmbeddingService: Failed to init OpenAI client:', err);
       }
+    }
+
+    // Read embedding model from config
+    const cfgModel = this.config.get('embeddingModel') as string | undefined;
+    if (cfgModel) {
+      this.embeddingModel = cfgModel;
     }
 
     this.initialized = true;
@@ -122,7 +135,7 @@ export class EmbeddingService {
         const batch = uncachedTexts.slice(start, start + 2048);
         try {
           const response = await this.openaiClient.embeddings.create({
-            model: 'text-embedding-3-small',
+            model: this.embeddingModel,
             input: batch,
           });
           for (let j = 0; j < response.data.length; j++) {
@@ -188,7 +201,7 @@ export class EmbeddingService {
 
   private async embedViaOpenAI(text: string): Promise<number[]> {
     const response = await this.openaiClient.embeddings.create({
-      model: 'text-embedding-3-small',
+      model: this.embeddingModel,
       input: text.slice(0, 8000), // token limit safety
     });
     return response.data[0].embedding;

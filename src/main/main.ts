@@ -264,7 +264,7 @@ async function initializeServices(): Promise<void> {
   workflowService = new WorkflowService();
 
   // New services
-  embeddingService = new EmbeddingService(securityService);
+  embeddingService = new EmbeddingService(securityService, configService);
   automationService = new AutomationService();
   browserService = new BrowserService();
   pluginService = new PluginService();
