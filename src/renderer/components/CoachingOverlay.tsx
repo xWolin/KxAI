@@ -98,17 +98,21 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
   // Check API key on mount + load existing briefing
   useEffect(() => {
-    window.kxai.hasApiKey('elevenlabs').then(setHasElevenLabsKey);
+    window.kxai.hasApiKey('elevenlabs').then(setHasElevenLabsKey).catch(err => {
+      console.error('[CoachingOverlay] Failed to check ElevenLabs API key:', err);
+    });
     window.kxai.meetingGetBriefing().then((b: MeetingBriefingInfo | null) => {
       if (b) {
         setBriefingTopic(b.topic || '');
         setBriefingAgenda(b.agenda || '');
         setBriefingNotes(b.notes || '');
-        setBriefingUrls(b.urls.join('\n'));
-        setBriefingProjectPaths(b.projectPaths.join('\n'));
-        setBriefingParticipants(b.participants || []);
+        setBriefingUrls(Array.isArray(b.urls) ? b.urls.join('\n') : '');
+        setBriefingProjectPaths(Array.isArray(b.projectPaths) ? b.projectPaths.join('\n') : '');
+        setBriefingParticipants(Array.isArray(b.participants) ? b.participants : []);
         setBriefingSaved(true);
       }
+    }).catch(err => {
+      console.error('[CoachingOverlay] Failed to load briefing:', err);
     });
   }, []);
 
@@ -367,15 +371,20 @@ export function CoachingOverlay({ config, onBack }: Props) {
   };
 
   const handleClearBriefing = async () => {
-    await window.kxai.meetingClearBriefing();
-    setBriefingTopic('');
-    setBriefingAgenda('');
-    setBriefingNotes('');
-    setBriefingUrls('');
-    setBriefingProjectPaths('');
-    setBriefingParticipants([]);
-    setBriefingSaved(false);
-    setShowBriefing(false);
+    try {
+      await window.kxai.meetingClearBriefing();
+      setBriefingTopic('');
+      setBriefingAgenda('');
+      setBriefingNotes('');
+      setBriefingUrls('');
+      setBriefingProjectPaths('');
+      setBriefingParticipants([]);
+      setBriefingSaved(false);
+      setShowBriefing(false);
+    } catch (err: any) {
+      console.error('[CoachingOverlay] Failed to clear briefing:', err);
+      setError(err.message || 'Nie udało się wyczyścić briefingu');
+    }
   };
 
   // ──────────── Format helpers ────────────

@@ -421,16 +421,47 @@ export class MeetingCoachService extends EventEmitter {
 
   /**
    * Fetch text content from a URL for briefing context.
+   * Only http/https schemes are allowed. Follows up to maxRedirects redirects
+   * and enforces a cumulative deadline across all redirects.
    */
-  private async fetchUrlContent(url: string): Promise<string> {
+  private async fetchUrlContent(
+    url: string,
+    options?: { maxRedirects?: number; deadline?: number },
+  ): Promise<string> {
+    const MAX_REDIRECTS = options?.maxRedirects ?? 5;
+    const deadline = options?.deadline ?? Date.now() + 10000; // 10s total
+
+    // Validate scheme
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      throw new Error(`fetchUrlContent: invalid URL "${url}"`);
+    }
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      throw new Error(`fetchUrlContent: unsupported scheme "${parsed.protocol}" — only http/https allowed`);
+    }
+
+    if (MAX_REDIRECTS < 0) {
+      throw new Error('fetchUrlContent: too many redirects');
+    }
+
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      throw new Error('fetchUrlContent: overall timeout exceeded');
+    }
+
     const https = await import('https');
     const http = await import('http');
-    const mod = url.startsWith('https') ? https : http;
+    const mod = parsed.protocol === 'https:' ? https : http;
 
     return new Promise((resolve, reject) => {
-      const req = mod.get(url, { timeout: 10000, headers: { 'User-Agent': 'KxAI-MeetingCoach/1.0' } }, (res) => {
+      const req = mod.get(url, { timeout: Math.min(remaining, 10000), headers: { 'User-Agent': 'KxAI-MeetingCoach/1.0' } }, (res) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          this.fetchUrlContent(res.headers.location).then(resolve).catch(reject);
+          this.fetchUrlContent(res.headers.location, {
+            maxRedirects: MAX_REDIRECTS - 1,
+            deadline,
+          }).then(resolve).catch(reject);
           return;
         }
         if (res.statusCode && res.statusCode >= 400) {
@@ -452,7 +483,7 @@ export class MeetingCoachService extends EventEmitter {
         });
       });
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+      req.on('timeout', () => { req.destroy(); reject(new Error('fetchUrlContent: request timeout')); });
     });
   }
 
@@ -920,12 +951,12 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
                 speaker.name = result.speaker;
                 speaker.isAutoDetected = false;
 
-                // Also update transcript lines — use fresh timestamp after AI call
-                const freshNow = Date.now();
+                // Also update recent transcript lines from this speaker
+                // Only update lines created since the screen identify was triggered
+                const identifyStart = this.lastScreenIdentifyTime || Date.now();
                 for (const line of this.transcript) {
                   if (line.source === 'system' && line.speaker === originalAutoName) {
-                    // Only update the last few lines from this speaker
-                    if (Math.abs(line.timestamp - freshNow) < 10000) {
+                    if (line.timestamp >= identifyStart - 10000) {
                       line.speaker = result.speaker;
                     }
                   }

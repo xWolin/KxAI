@@ -88,6 +88,8 @@ export default function App() {
     });
     window.kxai.meetingGetState().then((state: MeetingStateInfo) => {
       setMeetingActive(state?.active ?? false);
+    }).catch(err => {
+      console.error('[App] Failed to get meeting state:', err);
     });
 
     // Listen for take-control state changes (from Ctrl+Shift+K)

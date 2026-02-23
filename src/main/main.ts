@@ -205,7 +205,15 @@ function createMainWindow(): BrowserWindow {
     desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
       if (sources.length > 0) {
         callback({ video: sources[0], audio: 'loopback' });
+      } else {
+        console.warn('[Main] No display sources found for getDisplayMedia');
+        // @ts-ignore — Electron types don't reflect null but it correctly rejects the request
+        callback(null);
       }
+    }).catch((err) => {
+      console.error('[Main] desktopCapturer.getSources failed:', err);
+      // @ts-ignore
+      callback(null);
     });
   });
 
