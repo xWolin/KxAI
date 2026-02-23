@@ -916,14 +916,16 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
               // Map the speaker
               const speaker = this.speakers.get(speakerId);
               if (speaker && speaker.isAutoDetected) {
+                const originalAutoName = speaker.name;
                 speaker.name = result.speaker;
                 speaker.isAutoDetected = false;
 
-                // Also update transcript lines
+                // Also update transcript lines — use fresh timestamp after AI call
+                const freshNow = Date.now();
                 for (const line of this.transcript) {
-                  if (line.source === 'system' && line.speaker.startsWith('Uczestnik')) {
+                  if (line.source === 'system' && line.speaker === originalAutoName) {
                     // Only update the last few lines from this speaker
-                    if (Math.abs(line.timestamp - now) < 10000) {
+                    if (Math.abs(line.timestamp - freshNow) < 10000) {
                       line.speaker = result.speaker;
                     }
                   }

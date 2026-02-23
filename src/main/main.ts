@@ -199,10 +199,12 @@ function createMainWindow(): BrowserWindow {
   });
 
   // ─── Display media request handler for system audio ───
+  // When renderer calls getDisplayMedia(), this handler auto-selects the primary screen
+  // and enables system audio capture without showing a picker dialog
   session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
     desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
       if (sources.length > 0) {
-        callback({ video: sources[0] });
+        callback({ video: sources[0], audio: 'loopback' });
       }
     });
   });

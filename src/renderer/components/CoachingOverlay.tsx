@@ -214,18 +214,19 @@ export function CoachingOverlay({ config, onBack }: Props) {
         console.warn('[CoachingOverlay] Mic capture failed:', err);
       }
 
-      // System audio (via desktopCapturer)
+      // System audio (via getDisplayMedia — the standard API in Electron 33+)
+      // Note: setDisplayMediaRequestHandler in main.ts auto-approves and selects the screen source
       try {
-        const sourcesResult = await window.kxai.getDesktopSources();
-        if (sourcesResult?.success && sourcesResult.data && sourcesResult.data.length > 0) {
-          const sourceId = sourcesResult.data[0].id;
-          const systemStream = await navigator.mediaDevices.getUserMedia({
-            audio: {
-              // @ts-ignore — Electron-specific constraint: chromeMediaSourceId is REQUIRED in Electron 33+
-              mandatory: { chromeMediaSource: 'desktop', chromeMediaSourceId: sourceId },
-            } as any,
-            video: false,
-          });
+        const systemStream = await navigator.mediaDevices.getDisplayMedia({
+          audio: true,
+          video: true, // Required by Chromium — we'll discard the video track
+        });
+
+        // Stop video track immediately — we only need audio
+        systemStream.getVideoTracks().forEach(t => t.stop());
+
+        const audioTracks = systemStream.getAudioTracks();
+        if (audioTracks.length > 0) {
           systemStreamRef.current = systemStream;
 
           const sysSource = ctx.createMediaStreamSource(systemStream);
@@ -240,6 +241,8 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
           sysSource.connect(sysProcessor);
           sysProcessor.connect(ctx.destination);
+        } else {
+          console.warn('[CoachingOverlay] getDisplayMedia returned no audio tracks');
         }
       } catch (err) {
         console.warn('[CoachingOverlay] System audio capture failed:', err);

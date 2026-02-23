@@ -374,14 +374,22 @@ export class AIService {
     } else if (provider === 'anthropic' && this.anthropicClient) {
       const content: any[] = [
         { type: 'text', text: userMessage },
-        ...images.map(img => ({
-          type: 'image',
-          source: {
-            type: 'base64',
-            media_type: (img.mediaType || 'image/png') as 'image/png',
-            data: img.base64Data.replace(/^data:image\/\w+;base64,/, ''),
-          },
-        })),
+        ...images.map(img => {
+          const validMediaTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
+          type AnthropicMediaType = typeof validMediaTypes[number];
+          const rawType = img.mediaType || 'image/png';
+          const mediaType: AnthropicMediaType = validMediaTypes.includes(rawType as AnthropicMediaType)
+            ? (rawType as AnthropicMediaType)
+            : 'image/png';
+          return {
+            type: 'image' as const,
+            source: {
+              type: 'base64' as const,
+              media_type: mediaType,
+              data: img.base64Data.replace(/^data:image\/\w+;base64,/, ''),
+            },
+          };
+        }),
       ];
 
       const response = await this.anthropicClient.messages.create({
