@@ -455,6 +455,10 @@ export class AgentLoop {
     const fullContext = [extraContext, ragContext].filter(Boolean).join('\n\n');
 
     let fullResponse = '';
+    // Track whether we're in tool-calling mode — during tool loops,
+    // we buffer AI responses instead of streaming them to the UI.
+    // Only the final response (after all tools finish) gets streamed.
+    let isInToolLoop = false;
 
     await this.ai.streamMessage(userMessage, fullContext || undefined, (chunk) => {
       fullResponse += chunk;
@@ -467,6 +471,10 @@ export class AgentLoop {
     while (true) {
       const toolCall = this.parseToolCall(fullResponse);
       if (!toolCall) break;
+
+      if (!isInToolLoop) {
+        isInToolLoop = true;
+      }
 
       onChunk?.(`\n\n⚙️ Wykonuję: ${toolCall.tool}...\n`);
       this.emitStatus({ state: 'tool-calling', detail: toolCall.tool, toolName: toolCall.tool });
@@ -491,7 +499,6 @@ export class AgentLoop {
 
       if (loopCheck.nudgeMessage) {
         feedbackSuffix = loopCheck.nudgeMessage + '\n' + feedbackSuffix;
-        onChunk?.(`\n${loopCheck.nudgeMessage}\n`);
       }
 
       let toolResponse = '';
@@ -503,11 +510,24 @@ export class AgentLoop {
         (chunk) => {
           toolResponse += chunk;
           fullResponse += chunk;
-          onChunk?.(chunk);
+          // Don't stream intermediate tool responses to UI —
+          // they contain [TOOL OUTPUT] data and internal AI reasoning.
+          // Only the final response after the tool loop will be streamed.
         }
       );
 
       if (!loopCheck.shouldContinue) break;
+    }
+
+    // If we were in a tool loop, stream the final response to UI now
+    if (isInToolLoop && fullResponse) {
+      // Strip any remaining tool output wrappers from the final response
+      const cleanedResponse = fullResponse
+        .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
+        .trim();
+      if (cleanedResponse) {
+        onChunk?.('\n\n' + cleanedResponse);
+      }
     }
 
     // Check for cron suggestions — queue for user review

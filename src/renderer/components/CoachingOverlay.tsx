@@ -93,8 +93,8 @@ export function CoachingOverlay({ config, onBack }: Props) {
   const audioContextRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const systemStreamRef = useRef<MediaStream | null>(null);
-  const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
-  const systemProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const micWorkletRef = useRef<AudioWorkletNode | null>(null);
+  const systemWorkletRef = useRef<AudioWorkletNode | null>(null);
 
   // Check API key on mount + load existing briefing
   useEffect(() => {
@@ -195,25 +195,45 @@ export function CoachingOverlay({ config, onBack }: Props) {
       const ctx = new AudioContext({ sampleRate: 16000 });
       audioContextRef.current = ctx;
 
+      // Register AudioWorklet processor (inline via Blob URL)
+      const workletCode = `
+        class PCMForwarder extends AudioWorkletProcessor {
+          process(inputs) {
+            const input = inputs[0];
+            if (input && input[0] && input[0].length > 0) {
+              this.port.postMessage(input[0]);
+            }
+            return true;
+          }
+        }
+        registerProcessor('pcm-forwarder', PCMForwarder);
+      `;
+      const blob = new Blob([workletCode], { type: 'application/javascript' });
+      const workletUrl = URL.createObjectURL(blob);
+      await ctx.audioWorklet.addModule(workletUrl);
+      URL.revokeObjectURL(workletUrl);
+
+      // Helper: create worklet node that sends PCM to meeting coach
+      const createPCMWorklet = (source: MediaStreamAudioSourceNode, label: 'mic' | 'system'): AudioWorkletNode => {
+        const node = new AudioWorkletNode(ctx, 'pcm-forwarder');
+        node.port.onmessage = (e) => {
+          const float32: Float32Array = e.data;
+          const int16 = float32ToInt16(float32);
+          window.kxai.meetingSendAudio(label, int16.buffer as ArrayBuffer);
+        };
+        source.connect(node);
+        node.connect(ctx.destination); // Required to keep the worklet alive
+        return node;
+      };
+
       // Microphone
       try {
         const micStream = await navigator.mediaDevices.getUserMedia({
           audio: { channelCount: 1, sampleRate: 16000, echoCancellation: true, noiseSuppression: true },
         });
         micStreamRef.current = micStream;
-
         const micSource = ctx.createMediaStreamSource(micStream);
-        const micProcessor = ctx.createScriptProcessor(4096, 1, 1);
-        micProcessorRef.current = micProcessor;
-
-        micProcessor.onaudioprocess = (e) => {
-          const float32 = e.inputBuffer.getChannelData(0);
-          const int16 = float32ToInt16(float32);
-          window.kxai.meetingSendAudio('mic', int16.buffer as ArrayBuffer);
-        };
-
-        micSource.connect(micProcessor);
-        micProcessor.connect(ctx.destination);
+        micWorkletRef.current = createPCMWorklet(micSource, 'mic');
       } catch (err) {
         console.warn('[CoachingOverlay] Mic capture failed:', err);
       }
@@ -232,19 +252,8 @@ export function CoachingOverlay({ config, onBack }: Props) {
         const audioTracks = systemStream.getAudioTracks();
         if (audioTracks.length > 0) {
           systemStreamRef.current = systemStream;
-
           const sysSource = ctx.createMediaStreamSource(systemStream);
-          const sysProcessor = ctx.createScriptProcessor(4096, 1, 1);
-          systemProcessorRef.current = sysProcessor;
-
-          sysProcessor.onaudioprocess = (e) => {
-            const float32 = e.inputBuffer.getChannelData(0);
-            const int16 = float32ToInt16(float32);
-            window.kxai.meetingSendAudio('system', int16.buffer as ArrayBuffer);
-          };
-
-          sysSource.connect(sysProcessor);
-          sysProcessor.connect(ctx.destination);
+          systemWorkletRef.current = createPCMWorklet(sysSource, 'system');
         } else {
           console.warn('[CoachingOverlay] getDisplayMedia returned no audio tracks');
         }
@@ -258,13 +267,13 @@ export function CoachingOverlay({ config, onBack }: Props) {
   }, []);
 
   const stopAudioCapture = useCallback(() => {
-    micProcessorRef.current?.disconnect();
-    systemProcessorRef.current?.disconnect();
+    micWorkletRef.current?.disconnect();
+    systemWorkletRef.current?.disconnect();
     micStreamRef.current?.getTracks().forEach(t => t.stop());
     systemStreamRef.current?.getTracks().forEach(t => t.stop());
     audioContextRef.current?.close();
-    micProcessorRef.current = null;
-    systemProcessorRef.current = null;
+    micWorkletRef.current = null;
+    systemWorkletRef.current = null;
     micStreamRef.current = null;
     systemStreamRef.current = null;
     audioContextRef.current = null;
@@ -289,9 +298,13 @@ export function CoachingOverlay({ config, onBack }: Props) {
     setActiveCoaching(null);
 
     try {
-      await window.kxai.meetingStart();
+      // Start audio capture FIRST — getDisplayMedia requires user gesture
+      // (must be called synchronously from click handler, not after async awaits)
       await startAudioCapture();
+      await window.kxai.meetingStart();
     } catch (err: any) {
+      // If meeting start fails after audio was started, clean up
+      stopAudioCapture();
       setError(err.message || 'Nie udało się rozpocząć spotkania');
     } finally {
       setIsStarting(false);
