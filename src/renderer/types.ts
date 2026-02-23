@@ -69,6 +69,11 @@ export interface KxAIBridge {
   ragSearch: (query: string, topK?: number) => Promise<{ success: boolean; data?: RAGSearchResult[]; error?: string }>;
   ragReindex: () => Promise<{ success: boolean; data?: RAGStats; error?: string }>;
   ragStats: () => Promise<RAGStats>;
+  ragAddFolder: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
+  ragPickFolder: () => Promise<{ success: boolean; error?: string }>;
+  ragRemoveFolder: (folderPath: string) => Promise<{ success: boolean; error?: string }>;
+  ragGetFolders: () => Promise<string[]>;
+  ragFolderStats: () => Promise<RAGFolderInfo[]>;
 
   // Automation
   automationEnable: () => Promise<{ success: boolean }>;
@@ -231,11 +236,19 @@ export interface RAGSearchResult {
   score: number;
 }
 
+export interface RAGFolderInfo {
+  path: string;
+  fileCount: number;
+  chunkCount: number;
+  lastIndexed: number;
+}
+
 export interface RAGStats {
   totalChunks: number;
   totalFiles: number;
-  lastIndexed: number | null;
+  indexed: boolean;
   embeddingType: 'openai' | 'tfidf';
+  folders: RAGFolderInfo[];
 }
 
 // ──────────────── Automation ────────────────

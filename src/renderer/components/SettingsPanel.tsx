@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import type { KxAIConfig } from '../types';
+import type { KxAIConfig, RAGFolderInfo } from '../types';
 
 interface SettingsPanelProps {
   config: KxAIConfig;
@@ -50,11 +50,16 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [saving, setSaving] = useState(false);
   const [soulContent, setSoulContent] = useState('');
   const [memoryContent, setMemoryContent] = useState('');
-  const [activeTab, setActiveTab] = useState<'general' | 'persona' | 'memory'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'persona' | 'memory' | 'knowledge'>('general');
+  const [indexedFolders, setIndexedFolders] = useState<string[]>([]);
+  const [folderStats, setFolderStats] = useState<RAGFolderInfo[]>([]);
+  const [ragStats, setRagStats] = useState<{ totalChunks: number; totalFiles: number; embeddingType: string } | null>(null);
+  const [reindexing, setReindexing] = useState(false);
 
   useEffect(() => {
     checkApiKey();
     loadFiles();
+    loadKnowledgeData();
   }, [provider]);
 
   async function checkApiKey() {
@@ -110,6 +115,46 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     await window.kxai.setMemory('MEMORY.md', memoryContent);
   }
 
+  async function loadKnowledgeData() {
+    try {
+      const stats = await window.kxai.ragStats();
+      setRagStats(stats);
+      const folders = await window.kxai.ragFolderStats();
+      setFolderStats(folders);
+      const folderList = await window.kxai.ragGetFolders();
+      setIndexedFolders(folderList);
+    } catch (err) {
+      console.error('Failed to load knowledge data:', err);
+    }
+  }
+
+  async function handleAddFolder() {
+    const result = await window.kxai.ragPickFolder();
+    if (result.success) {
+      await loadKnowledgeData();
+    } else if (result.error && result.error !== 'cancelled') {
+      alert(result.error);
+    }
+  }
+
+  async function handleRemoveFolder(folderPath: string) {
+    if (!confirm(`Usunąć folder z indeksu?\n${folderPath}`)) return;
+    await window.kxai.ragRemoveFolder(folderPath);
+    await loadKnowledgeData();
+  }
+
+  async function handleReindex() {
+    setReindexing(true);
+    try {
+      await window.kxai.ragReindex();
+      await loadKnowledgeData();
+    } catch (err) {
+      console.error('Reindex failed:', err);
+    } finally {
+      setReindexing(false);
+    }
+  }
+
   async function clearHistory() {
     if (confirm('Czy na pewno chcesz wyczyścić historię konwersacji?')) {
       await window.kxai.clearConversationHistory();
@@ -139,6 +184,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         </button>
         <button className={`settings-tab${activeTab === 'memory' ? ' settings-tab--active' : ''}`} onClick={() => setActiveTab('memory')}>
           🧠 Pamięć
+        </button>
+        <button className={`settings-tab${activeTab === 'knowledge' ? ' settings-tab--active' : ''}`} onClick={() => setActiveTab('knowledge')}>
+          📚 Wiedza
         </button>
       </div>
 
@@ -308,6 +356,85 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             <button onClick={saveMemory} className="settings-btn-save">
               Zapisz MEMORY.md
             </button>
+          </div>
+        )}
+
+        {activeTab === 'knowledge' && (
+          <div className="fade-in">
+            <p className="settings-desc">
+              Zarządzaj folderami, które agent indeksuje. Dodaj foldery z kodem, dokumentami lub notatkami — agent będzie je przeszukiwał semantycznie.
+            </p>
+
+            {/* Stats */}
+            {ragStats && (
+              <div className="settings-section">
+                <h3 className="settings-section__title">Statystyki indeksu</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                  <div className="settings-stat-card">
+                    <div className="settings-stat-card__value">{ragStats.totalFiles}</div>
+                    <div className="settings-stat-card__label">Plików</div>
+                  </div>
+                  <div className="settings-stat-card">
+                    <div className="settings-stat-card__value">{ragStats.totalChunks}</div>
+                    <div className="settings-stat-card__label">Chunków</div>
+                  </div>
+                  <div className="settings-stat-card">
+                    <div className="settings-stat-card__value">{ragStats.embeddingType}</div>
+                    <div className="settings-stat-card__label">Embeddings</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Indexed folders */}
+            <div className="settings-section">
+              <h3 className="settings-section__title">Zaindeksowane foldery</h3>
+              
+              {folderStats.map((folder, idx) => (
+                <div key={idx} className="settings-folder-item">
+                  <div className="settings-folder-item__info">
+                    <div className="settings-folder-item__path" title={folder.path}>
+                      {folder.path}
+                    </div>
+                    <div className="settings-folder-item__stats">
+                      {folder.fileCount} plików · {folder.chunkCount} chunków
+                      {folder.lastIndexed > 0 && (
+                        <> · {new Date(folder.lastIndexed).toLocaleString('pl-PL')}</>
+                      )}
+                    </div>
+                  </div>
+                  {idx > 0 && (
+                    <button
+                      className="settings-folder-item__remove"
+                      onClick={() => handleRemoveFolder(folder.path)}
+                      title="Usuń folder"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
+
+              <button
+                className="settings-btn-save"
+                onClick={handleAddFolder}
+                style={{ marginTop: '8px' }}
+              >
+                ➕ Dodaj folder
+              </button>
+            </div>
+
+            {/* Reindex */}
+            <div className="settings-section">
+              <button
+                className="settings-btn-save"
+                onClick={handleReindex}
+                disabled={reindexing}
+                style={{ width: '100%' }}
+              >
+                {reindexing ? '⏳ Reindeksowanie...' : '🔄 Przeindeksuj wszystko'}
+              </button>
+            </div>
           </div>
         )}
       </div>

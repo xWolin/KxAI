@@ -165,7 +165,7 @@ export class AgentLoop {
 
     let response = await this.ai.sendMessage(userMessage, fullContext || undefined, enhancedCtx);
     let iterations = 0;
-    const maxIterations = 5;
+    const maxIterations = 15;
 
     // Multi-step tool loop
     while (iterations < maxIterations) {
@@ -247,9 +247,9 @@ export class AgentLoop {
       onChunk?.(chunk);
     }, enhancedCtx);
 
-    // Multi-step tool loop (up to 5)
+    // Multi-step tool loop (up to 15 for complex self-programming tasks)
     let iterations = 0;
-    const maxIterations = 5;
+    const maxIterations = 15;
 
     while (iterations < maxIterations) {
       const toolCall = this.parseToolCall(fullResponse);
@@ -893,6 +893,7 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
     // Load instructions from markdown files instead of inline strings
     const toolsInstructions = this.promptService.load('TOOLS.md');
     const agentsCapabilities = this.promptService.load('AGENTS.md');
+    const resourcefulPrompt = this.promptService.load('RESOURCEFUL.md');
 
     // System health warnings
     let systemCtx = '';
@@ -914,6 +915,8 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       baseCtx,
       '\n',
       agentsCapabilities,
+      '\n',
+      resourcefulPrompt,
       '\n',
       timeCtx,
       bootstrapCtx,

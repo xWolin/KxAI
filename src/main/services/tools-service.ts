@@ -12,7 +12,7 @@ import { SystemMonitor } from './system-monitor';
 export interface ToolDefinition {
   name: string;
   description: string;
-  category: 'system' | 'web' | 'files' | 'automation' | 'memory' | 'cron' | 'browser' | 'rag';
+  category: 'system' | 'web' | 'files' | 'automation' | 'memory' | 'cron' | 'browser' | 'rag' | 'coding';
   parameters: Record<string, { type: string; description: string; required?: boolean }>;
 }
 
@@ -434,6 +434,357 @@ export class ToolsService {
       const stats = this.securityGuard.getSecurityStats();
       const blocked = this.securityGuard.getAuditLog(params.limit || 20, { result: 'blocked' });
       return { success: true, data: { stats, recentBlocked: blocked } };
+    });
+
+    // ─── Coding / Self-Programming Tools ───
+
+    this.register({
+      name: 'execute_code',
+      description: 'Wykonuje kod w wybranym języku (node/python/powershell/bash). Kod jest zapisywany do pliku tymczasowego i uruchamiany. Używaj gdy potrzebujesz przetworzyć dane, skonwertować pliki, wykonać obliczenia, lub zbudować jednorazowe narzędzie.',
+      category: 'coding',
+      parameters: {
+        language: { type: 'string', description: 'Język: "node", "python", "powershell", "bash"', required: true },
+        code: { type: 'string', description: 'Kod do wykonania', required: true },
+        timeout: { type: 'number', description: 'Timeout w ms (domyślnie 60000)' },
+      },
+    }, async (params) => {
+      const { language, code } = params;
+      const timeout = Math.min(params.timeout || 60000, 120000);
+
+      // Map language to interpreter + file extension
+      const langMap: Record<string, { cmd: string; ext: string; args?: string[] }> = {
+        node: { cmd: 'node', ext: '.js' },
+        javascript: { cmd: 'node', ext: '.js' },
+        python: { cmd: 'python', ext: '.py' },
+        powershell: { cmd: 'powershell', ext: '.ps1', args: ['-ExecutionPolicy', 'Bypass', '-File'] },
+        bash: { cmd: 'bash', ext: '.sh' },
+        typescript: { cmd: 'npx', ext: '.ts', args: ['tsx'] },
+      };
+
+      const lang = langMap[language.toLowerCase()];
+      if (!lang) {
+        return { success: false, error: `Nieobsługiwany język: ${language}. Dostępne: ${Object.keys(langMap).join(', ')}` };
+      }
+
+      // Write code to temp file
+      const tempDir = path.join(app.getPath('temp'), 'kxai-scripts');
+      if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+
+      const tempFile = path.join(tempDir, `script_${Date.now()}${lang.ext}`);
+      fs.writeFileSync(tempFile, code, 'utf8');
+
+      const cmdArgs = lang.args ? [...lang.args, tempFile] : [tempFile];
+      const fullCmd = `${lang.cmd} ${cmdArgs.map(a => `"${a}"`).join(' ')}`;
+
+      return new Promise((resolve) => {
+        exec(fullCmd, { timeout, maxBuffer: 5 * 1024 * 1024, cwd: app.getPath('home') }, (err, stdout, stderr) => {
+          // Cleanup temp file
+          try { fs.unlinkSync(tempFile); } catch { /* ok */ }
+
+          if (err) {
+            resolve({
+              success: false,
+              error: err.message,
+              data: {
+                stdout: stdout?.slice(0, 10000),
+                stderr: stderr?.slice(0, 5000),
+                exitCode: err.code,
+              },
+            });
+          } else {
+            resolve({
+              success: true,
+              data: {
+                stdout: stdout.trim().slice(0, 15000),
+                stderr: stderr.trim().slice(0, 3000),
+              },
+            });
+          }
+        });
+      });
+    });
+
+    this.register({
+      name: 'http_request',
+      description: 'Wykonuje pełne żądanie HTTP (GET/POST/PUT/DELETE) z headerami i body. Odpowiednik curl. Używaj do komunikacji z API (OpenAI, GitHub, Whisper, etc.).',
+      category: 'coding',
+      parameters: {
+        url: { type: 'string', description: 'URL żądania', required: true },
+        method: { type: 'string', description: 'Metoda: GET, POST, PUT, DELETE, PATCH (domyślnie: GET)' },
+        headers: { type: 'object', description: 'Nagłówki HTTP jako obiekt klucz-wartość' },
+        body: { type: 'string', description: 'Body żądania (dla POST/PUT/PATCH)' },
+        timeout: { type: 'number', description: 'Timeout w ms (domyślnie 30000)' },
+      },
+    }, async (params) => {
+      const { url, method = 'GET', headers = {}, body, timeout: reqTimeout = 30000 } = params;
+
+      // SSRF protection
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+          return { success: false, error: `🛡️ Dozwolone tylko http/https` };
+        }
+        const hostname = parsed.hostname.toLowerCase();
+        const blockedPatterns = [
+          /^localhost$/i, /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./,
+          /^192\.168\./, /^0\./, /^\[::1\]$/, /\.local$/i, /\.internal$/i,
+          /^169\.254\./,
+        ];
+        for (const pattern of blockedPatterns) {
+          if (pattern.test(hostname)) {
+            return { success: false, error: `🛡️ Dostęp do adresów wewnętrznych zablokowany (SSRF)` };
+          }
+        }
+      } catch {
+        return { success: false, error: '🛡️ Nieprawidłowy URL' };
+      }
+
+      return new Promise((resolve) => {
+        try {
+          const parsedUrl = new URL(url);
+          const isHttps = parsedUrl.protocol === 'https:';
+          const client = isHttps ? require('https') : require('http');
+
+          const options = {
+            hostname: parsedUrl.hostname,
+            port: parsedUrl.port || (isHttps ? 443 : 80),
+            path: parsedUrl.pathname + parsedUrl.search,
+            method: method.toUpperCase(),
+            headers: {
+              'User-Agent': 'KxAI/1.0',
+              ...headers,
+            },
+            timeout: Math.min(reqTimeout, 60000),
+          };
+
+          if (body && !options.headers['Content-Type']) {
+            // Auto-detect content type
+            try {
+              JSON.parse(body);
+              options.headers['Content-Type'] = 'application/json';
+            } catch {
+              options.headers['Content-Type'] = 'text/plain';
+            }
+          }
+
+          const req = client.request(options, (res: any) => {
+            let responseData = '';
+            const chunks: Buffer[] = [];
+            const contentType = (res.headers['content-type'] || '').toLowerCase();
+            const isBinary = !contentType.includes('text') && !contentType.includes('json') && !contentType.includes('xml') && !contentType.includes('html');
+
+            if (isBinary) {
+              res.on('data', (chunk: Buffer) => chunks.push(chunk));
+              res.on('end', () => {
+                const buffer = Buffer.concat(chunks);
+                resolve({
+                  success: true,
+                  data: {
+                    statusCode: res.statusCode,
+                    headers: res.headers,
+                    bodyBase64: buffer.toString('base64').slice(0, 50000),
+                    bodySize: buffer.length,
+                    contentType,
+                  },
+                });
+              });
+            } else {
+              res.setEncoding('utf8');
+              res.on('data', (chunk: string) => responseData += chunk);
+              res.on('end', () => {
+                resolve({
+                  success: true,
+                  data: {
+                    statusCode: res.statusCode,
+                    headers: res.headers,
+                    body: responseData.slice(0, 30000),
+                    contentType,
+                  },
+                });
+              });
+            }
+          });
+
+          req.on('error', (err: any) => {
+            resolve({ success: false, error: `HTTP request failed: ${err.message}` });
+          });
+
+          req.on('timeout', () => {
+            req.destroy();
+            resolve({ success: false, error: 'HTTP request timeout' });
+          });
+
+          if (body) {
+            req.write(body);
+          }
+          req.end();
+        } catch (err: any) {
+          resolve({ success: false, error: `HTTP request setup failed: ${err.message}` });
+        }
+      });
+    });
+
+    this.register({
+      name: 'find_program',
+      description: 'Odkrywa zainstalowane programy i narzędzia na komputerze (node, python, ffmpeg, git, gh, curl, etc.). Użyj gdy musisz wiedzieć jakie narzędzia są dostępne, zanim zaczniesz z nich korzystać.',
+      category: 'coding',
+      parameters: {
+        programs: { type: 'string[]', description: 'Lista nazw programów do sprawdzenia, np. ["python", "ffmpeg", "git", "curl"]', required: true },
+      },
+    }, async (params) => {
+      const programs: string[] = Array.isArray(params.programs) ? params.programs : [params.programs];
+      const results: Record<string, { found: boolean; path?: string; version?: string }> = {};
+
+      for (const prog of programs) {
+        // Security: only allow simple program names (no paths, no args)
+        if (!/^[\w.-]+$/.test(prog)) {
+          results[prog] = { found: false };
+          continue;
+        }
+
+        try {
+          const whereCmd = process.platform === 'win32' ? `where ${prog}` : `which ${prog}`;
+          const location = await new Promise<string>((resolve, reject) => {
+            exec(whereCmd, { timeout: 5000 }, (err, stdout) => {
+              if (err) reject(err);
+              else resolve(stdout.trim().split('\n')[0]);
+            });
+          });
+
+          // Try to get version
+          let version = '';
+          try {
+            version = await new Promise<string>((resolve) => {
+              exec(`${prog} --version`, { timeout: 5000 }, (err, stdout, stderr) => {
+                const out = (stdout || stderr || '').trim().split('\n')[0].slice(0, 100);
+                resolve(out);
+              });
+            });
+          } catch { /* no version flag */ }
+
+          results[prog] = { found: true, path: location, version };
+        } catch {
+          results[prog] = { found: false };
+        }
+      }
+
+      return { success: true, data: results };
+    });
+
+    this.register({
+      name: 'install_package',
+      description: 'Instaluje pakiet/bibliotekę (pip install / npm install -g). Używaj gdy potrzebujesz narzędzia lub biblioteki do execute_code. Wymaga potwierdzenia użytkownika (via shell).',
+      category: 'coding',
+      parameters: {
+        manager: { type: 'string', description: 'Menedżer pakietów: "pip", "npm", "cargo", "choco", "winget"', required: true },
+        package: { type: 'string', description: 'Nazwa pakietu do instalacji', required: true },
+      },
+    }, async (params) => {
+      const { manager, package: pkg } = params;
+
+      // Security: only allow simple package names
+      if (!/^[@\w./-]+$/.test(pkg)) {
+        return { success: false, error: '🛡️ Nieprawidłowa nazwa pakietu' };
+      }
+
+      const cmdMap: Record<string, string> = {
+        pip: `pip install ${pkg}`,
+        npm: `npm install -g ${pkg}`,
+        cargo: `cargo install ${pkg}`,
+        choco: `choco install ${pkg} -y`,
+        winget: `winget install ${pkg}`,
+      };
+
+      const cmd = cmdMap[manager.toLowerCase()];
+      if (!cmd) {
+        return { success: false, error: `Nieobsługiwany menedżer: ${manager}. Dostępne: ${Object.keys(cmdMap).join(', ')}` };
+      }
+
+      // Validate through security guard
+      const validation = this.securityGuard.validateCommand(cmd);
+      if (!validation.allowed) {
+        return { success: false, error: `🛡️ ${validation.reason}` };
+      }
+
+      return new Promise((resolve) => {
+        exec(cmd, { timeout: 120000, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
+          if (err) {
+            resolve({ success: false, error: err.message, data: { stdout: stdout?.slice(0, 5000), stderr: stderr?.slice(0, 3000) } });
+          } else {
+            resolve({ success: true, data: { stdout: stdout.trim().slice(0, 5000), package: pkg, manager } });
+          }
+        });
+      });
+    });
+
+    this.register({
+      name: 'create_and_run_script',
+      description: 'Tworzy plik skryptu (na dysku), uruchamia go, i zwraca wynik. Skrypt zostaje na dysku do późniejszego użycia. Używaj do tworzenia trwałych narzędzi/skryptów wielokrotnego użytku.',
+      category: 'coding',
+      parameters: {
+        path: { type: 'string', description: 'Ścieżka do zapisania skryptu', required: true },
+        code: { type: 'string', description: 'Kod skryptu', required: true },
+        language: { type: 'string', description: 'Język: "node", "python", "powershell", "bash"', required: true },
+        args: { type: 'string', description: 'Argumenty do przekazania (opcjonalne)' },
+      },
+    }, async (params) => {
+      const { code, language, args = '' } = params;
+      const scriptPath = params.path;
+
+      // Validate write path
+      const writeValidation = this.securityGuard.validateWritePath(scriptPath);
+      if (!writeValidation.allowed) {
+        return { success: false, error: `🛡️ ${writeValidation.reason}` };
+      }
+
+      const langMap: Record<string, { cmd: string; ext: string; cmdArgs?: string[] }> = {
+        node: { cmd: 'node', ext: '.js' },
+        javascript: { cmd: 'node', ext: '.js' },
+        python: { cmd: 'python', ext: '.py' },
+        powershell: { cmd: 'powershell', ext: '.ps1', cmdArgs: ['-ExecutionPolicy', 'Bypass', '-File'] },
+        bash: { cmd: 'bash', ext: '.sh' },
+        typescript: { cmd: 'npx', ext: '.ts', cmdArgs: ['tsx'] },
+      };
+
+      const lang = langMap[language.toLowerCase()];
+      if (!lang) {
+        return { success: false, error: `Nieobsługiwany język: ${language}` };
+      }
+
+      // Write the script
+      try {
+        const dir = path.dirname(scriptPath);
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(scriptPath, code, 'utf8');
+      } catch (err: any) {
+        return { success: false, error: `Nie udało się zapisać skryptu: ${err.message}` };
+      }
+
+      // Execute
+      const cmdArgs = lang.cmdArgs ? [...lang.cmdArgs, scriptPath] : [scriptPath];
+      const fullCmd = `${lang.cmd} ${cmdArgs.map(a => `"${a}"`).join(' ')} ${args}`;
+
+      return new Promise((resolve) => {
+        exec(fullCmd, { timeout: 120000, maxBuffer: 5 * 1024 * 1024, cwd: path.dirname(scriptPath) }, (err, stdout, stderr) => {
+          if (err) {
+            resolve({
+              success: false,
+              error: err.message,
+              data: { stdout: stdout?.slice(0, 10000), stderr: stderr?.slice(0, 5000), scriptPath },
+            });
+          } else {
+            resolve({
+              success: true,
+              data: {
+                stdout: stdout.trim().slice(0, 15000),
+                stderr: stderr.trim().slice(0, 3000),
+                scriptPath,
+                message: `Skrypt zapisany: ${scriptPath}`,
+              },
+            });
+          }
+        });
+      });
     });
   }
 

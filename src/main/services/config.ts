@@ -32,6 +32,10 @@ export interface KxAIConfig {
   screenWatchEnabled?: boolean;
   monitorIndexes?: number[];
 
+  // Knowledge indexing
+  indexedFolders?: string[];
+  indexedExtensions?: string[];
+
   [key: string]: any;
 }
 

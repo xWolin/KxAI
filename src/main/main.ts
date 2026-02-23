@@ -276,7 +276,7 @@ async function initializeServices(): Promise<void> {
   await embeddingService.initialize();
 
   // RAG — semantic search over memory
-  ragService = new RAGService(embeddingService);
+  ragService = new RAGService(embeddingService, configService);
   await ragService.initialize();
 
   // Plugin system

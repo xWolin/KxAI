@@ -1098,6 +1098,76 @@ html, body, #root {
   cursor: wait;
 }
 
+/* Knowledge tab - stat cards */
+.settings-stat-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  text-align: center;
+}
+
+.settings-stat-card__value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.settings-stat-card__label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* Knowledge tab - folder items */
+.settings-folder-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 6px;
+}
+
+.settings-folder-item__info {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-folder-item__path {
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-folder-item__stats {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.settings-folder-item__remove {
+  background: none;
+  border: none;
+  color: var(--error);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  opacity: 0.6;
+  transition: opacity 0.15s;
+}
+
+.settings-folder-item__remove:hover {
+  opacity: 1;
+  background: rgba(255, 59, 48, 0.1);
+}
+
 .settings-save-wrapper {
   margin-top: 20px;
 }

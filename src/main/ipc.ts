@@ -454,6 +454,49 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     return ragService.getStats();
   });
 
+  ipcMain.handle('rag:add-folder', async (_event, folderPath: string) => {
+    try {
+      const result = await ragService.addFolder(folderPath);
+      return result;
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('rag:pick-folder', async () => {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: 'Wybierz folder do zaindeksowania',
+    });
+    if (result.canceled || result.filePaths.length === 0) {
+      return { success: false, error: 'cancelled' };
+    }
+    const folderPath = result.filePaths[0];
+    try {
+      const addResult = await ragService.addFolder(folderPath);
+      return addResult;
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('rag:remove-folder', async (_event, folderPath: string) => {
+    try {
+      ragService.removeFolder(folderPath);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('rag:get-folders', async () => {
+    return ragService.getIndexedFolders();
+  });
+
+  ipcMain.handle('rag:folder-stats', async () => {
+    return ragService.getFolderStats();
+  });
+
   // ──────────────── Automation ────────────────
   ipcMain.handle('automation:enable', async () => {
     automationService.enable();

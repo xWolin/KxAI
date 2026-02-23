@@ -106,6 +106,13 @@ contextBridge.exposeInMainWorld('kxai', {
     ipcRenderer.invoke('rag:search', query, topK),
   ragReindex: () => ipcRenderer.invoke('rag:reindex'),
   ragStats: () => ipcRenderer.invoke('rag:stats'),
+  ragAddFolder: (folderPath: string) =>
+    ipcRenderer.invoke('rag:add-folder', folderPath),
+  ragPickFolder: () => ipcRenderer.invoke('rag:pick-folder'),
+  ragRemoveFolder: (folderPath: string) =>
+    ipcRenderer.invoke('rag:remove-folder', folderPath),
+  ragGetFolders: () => ipcRenderer.invoke('rag:get-folders'),
+  ragFolderStats: () => ipcRenderer.invoke('rag:folder-stats'),
 
   // Automation
   automationEnable: () => ipcRenderer.invoke('automation:enable'),
