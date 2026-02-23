@@ -7,7 +7,7 @@ import { CronPanel } from './components/CronPanel';
 import { ProactiveNotification } from './components/ProactiveNotification';
 import { CoachingOverlay } from './components/CoachingOverlay';
 import { initTTS, speak } from './utils/tts';
-import type { ProactiveMessage, KxAIConfig } from './types';
+import type { ProactiveMessage, KxAIConfig, MeetingStateInfo } from './types';
 
 type View = 'widget' | 'chat' | 'settings' | 'onboarding' | 'cron' | 'meeting';
 
@@ -16,6 +16,8 @@ export default function App() {
   const [config, setConfig] = useState<KxAIConfig | null>(null);
   const [proactiveMessages, setProactiveMessages] = useState<ProactiveMessage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // Meeting coach active — keep CoachingOverlay mounted even when navigated away
+  const [meetingActive, setMeetingActive] = useState(false);
   // Track view in a ref so the proactive listener always sees current value
   const viewRef = useRef<View>(view);
   viewRef.current = view;
@@ -36,6 +38,9 @@ export default function App() {
 
         if (!isOnboarded) {
           setView('onboarding');
+        } else {
+          // Window starts at 420x600 — shrink to widget size to avoid invisible click-blocking area
+          window.kxai.setWindowSize(100, 100);
         }
       } catch (error) {
         console.error('Init error:', error);
@@ -69,7 +74,20 @@ export default function App() {
 
     // Listen for navigation events (from tray menu)
     const cleanupNavigate = window.kxai.onNavigate((target) => {
+      if (target === 'widget') {
+        window.kxai.setWindowSize(100, 100);
+      } else {
+        window.kxai.setWindowSize(420, 600);
+      }
       setView(target as View);
+    });
+
+    // Track meeting coach state — keep overlay alive while meeting is active
+    const cleanupMeeting = window.kxai.onMeetingState((state: MeetingStateInfo) => {
+      setMeetingActive(state.active);
+    });
+    window.kxai.meetingGetState().then((state: MeetingStateInfo) => {
+      setMeetingActive(state?.active ?? false);
     });
 
     // Listen for take-control state changes (from Ctrl+Shift+K)
@@ -86,6 +104,7 @@ export default function App() {
     return () => {
       cleanupProactive();
       cleanupNavigate();
+      cleanupMeeting();
       cleanupControl();
       cleanupCompanion();
     };
@@ -94,6 +113,7 @@ export default function App() {
   const handleOnboardingComplete = async () => {
     const cfg = await window.kxai.getConfig();
     setConfig(cfg);
+    window.kxai.setWindowSize(100, 100);
     setView('widget');
   };
 
@@ -167,11 +187,14 @@ export default function App() {
         <CronPanel onBack={() => setView('chat')} />
       )}
 
-      {view === 'meeting' && (
-        <CoachingOverlay
-          config={config!}
-          onBack={() => setView('chat')}
-        />
+      {/* CoachingOverlay stays mounted while meeting is active — audio capture & IPC listeners survive navigation */}
+      {(view === 'meeting' || meetingActive) && (
+        <div style={{ display: view === 'meeting' ? 'contents' : 'none' }}>
+          <CoachingOverlay
+            config={config!}
+            onBack={() => setView('chat')}
+          />
+        </div>
       )}
 
       {view === 'settings' && (
