@@ -17,8 +17,13 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
       setIsSpeaking(false);
     } else {
       setIsSpeaking(true);
-      await speak(message.message);
-      setIsSpeaking(false);
+      try {
+        await speak(message.message);
+      } catch (err) {
+        console.error('TTS error:', err);
+      } finally {
+        setIsSpeaking(false);
+      }
     }
   };
 
@@ -57,7 +62,7 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
         <button
           onClick={handleSpeak}
           className={`proactive-notification__btn-speak${isSpeaking ? ' proactive-notification__btn-speak--active' : ''}`}
-          title="Czytaj na głos (Ctrl+Shift+S)"
+          title="Czytaj na głos"
         >
           {isSpeaking ? '⏹️' : '🔊'}
         </button>

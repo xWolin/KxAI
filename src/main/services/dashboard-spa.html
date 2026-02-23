@@ -212,6 +212,12 @@
       .catch(function() { return null; });
   }
 
+  function escapeHtml(str) {
+    var div = document.createElement('div');
+    div.textContent = str;
+    return div.innerHTML;
+  }
+
   function loadPage(page) {
     var main = $('#mainContent');
     switch(page) {
@@ -250,7 +256,7 @@
             '<div class="card__title"><span class="icon">🤖</span> Status agenta</div>' +
             '<table class="table">' +
               '<tr><td>Stan</td><td><span class="badge badge--' + (agentStatus.state==='idle'?'green':'yellow') + '">' + agentStatus.state + '</span></td></tr>' +
-              '<tr><td>Szczegóły</td><td>' + (agentStatus.detail || '-') + '</td></tr>' +
+              '<tr><td>Szczegóły</td><td>' + escapeHtml(agentStatus.detail || '-') + '</td></tr>' +
               '<tr><td>Sub-agenci</td><td>' + activeSubagents + '</td></tr>' +
               '<tr><td>Uptime</td><td>' + uptimeH + 'h</td></tr>' +
               '<tr><td>Pamięć</td><td>' + memMB + ' MB</td></tr>' +

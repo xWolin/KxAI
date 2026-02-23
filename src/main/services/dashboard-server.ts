@@ -104,7 +104,11 @@ export class DashboardServer {
     const json = JSON.stringify(message);
     this.wss.clients.forEach((client) => {
       if (client.readyState === WebSocket.OPEN) {
-        client.send(json);
+        try {
+          client.send(json);
+        } catch (err) {
+          console.error('[Dashboard] WebSocket send error:', err);
+        }
       }
     });
   }
@@ -172,9 +176,14 @@ export class DashboardServer {
         res.json({ success: true, data: [] });
         return;
       }
-      const limit = parseInt(String(_req.query.limit)) || 50;
-      const activity = this.services.workflow.getActivityLog(limit);
-      res.json({ success: true, data: activity });
+      try {
+        const limit = parseInt(String(_req.query.limit)) || 50;
+        const activity = await this.services.workflow.getActivityLog(limit);
+        res.json({ success: true, data: activity });
+      } catch (err: any) {
+        console.error('[Dashboard] Activity fetch error:', err);
+        res.status(500).json({ success: false, error: err.message });
+      }
     });
 
     // ─── API: Sub-agents ───
