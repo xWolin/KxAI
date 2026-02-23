@@ -108,6 +108,28 @@ const MAX_TOTAL_FILES = 10000;
  * 4. Semantic search via cosine similarity
  * 5. File watching dla incremental reindex
  */
+/**
+ * Progress callback for indexing operations.
+ * Emitted periodically so the UI can show a loading bar.
+ */
+export interface IndexProgress {
+  phase: 'scanning' | 'chunking' | 'embedding' | 'saving' | 'done' | 'error';
+  /** Current file being processed (for chunking phase) */
+  currentFile?: string;
+  /** Files processed so far */
+  filesProcessed: number;
+  /** Total files discovered */
+  filesTotal: number;
+  /** Chunks created so far */
+  chunksCreated: number;
+  /** Embedding progress (0-100) */
+  embeddingPercent: number;
+  /** Overall percent 0-100 */
+  overallPercent: number;
+  /** Error message if phase === 'error' */
+  error?: string;
+}
+
 export class RAGService {
   private embeddingService: EmbeddingService;
   private config: ConfigService;
@@ -120,6 +142,9 @@ export class RAGService {
   private watcherDebounce: NodeJS.Timeout | null = null;
   private pendingChanges = new Set<string>();
   private folderStats = new Map<string, IndexedFolderInfo>();
+
+  /** Progress callback — set from outside (e.g. IPC handler) */
+  onProgress?: (progress: IndexProgress) => void;
 
   constructor(embeddingService: EmbeddingService, config: ConfigService) {
     this.embeddingService = embeddingService;
@@ -240,6 +265,27 @@ export class RAGService {
   }
 
   /**
+   * Check if indexing is in progress.
+   */
+  isIndexing(): boolean {
+    return this.indexing;
+  }
+
+  /**
+   * Check if the index is ready (has been built at least once).
+   */
+  isReady(): boolean {
+    return this.indexed;
+  }
+
+  /**
+   * Get total chunk count.
+   */
+  getChunkCount(): number {
+    return this.chunks.length;
+  }
+
+  /**
    * Get allowed file extensions (user-configurable).
    */
   getIndexedExtensions(): string[] {
@@ -257,55 +303,62 @@ export class RAGService {
   // --- Full Reindex ---
 
   /**
-   * Full reindex  scan all folders, chunk, embed.
+   * Yield to the event loop — prevents Electron from freezing during long operations.
+   */
+  private yieldToEventLoop(): Promise<void> {
+    return new Promise((resolve) => setImmediate(resolve));
+  }
+
+  /**
+   * Full reindex — scan all folders, chunk, embed.
+   * Non-blocking: yields to event loop periodically + reports progress.
    */
   async reindex(): Promise<void> {
     if (this.indexing) return;
     this.indexing = true;
     this.indexed = false;
 
+    const emitProgress = (p: Partial<IndexProgress> & { phase: IndexProgress['phase'] }) => {
+      this.onProgress?.({
+        filesProcessed: 0,
+        filesTotal: 0,
+        chunksCreated: 0,
+        embeddingPercent: 0,
+        overallPercent: 0,
+        ...p,
+      });
+    };
+
     try {
       console.log('[RAG] Starting full reindex...');
+      emitProgress({ phase: 'scanning', overallPercent: 0 });
 
-      const allChunks: RAGChunk[] = [];
-      const allTexts: string[] = [];
+      // ─── Phase 1: Collect files (sync but fast) ───
+      const allFiles: Array<{ path: string; relativePath: string; sourceFolder: string }> = [];
 
-      // 1. Always index workspace memory
       const workspaceFiles = this.collectFiles(this.workspacePath, 'workspace', true);
-      console.log(`[RAG] Workspace: ${workspaceFiles.length} files`);
-      for (const file of workspaceFiles) {
-        const ext = path.extname(file.path).toLowerCase();
-        if (BINARY_DOCUMENT_EXTENSIONS.has(ext)) {
-          const binChunks = await this.chunkBinaryDocumentAsync(file.path, file.relativePath, file.sourceFolder);
-          allChunks.push(...binChunks);
-          allTexts.push(...binChunks.map((c) => c.content));
-        } else {
-          const chunks = this.chunkFile(file.path, file.relativePath, file.sourceFolder);
-          allChunks.push(...chunks);
-          allTexts.push(...chunks.map((c) => c.content));
-        }
-      }
-      this.folderStats.set('workspace', {
-        path: this.workspacePath,
-        fileCount: workspaceFiles.length,
-        chunkCount: allChunks.length,
-        lastIndexed: Date.now(),
-      });
+      allFiles.push(...workspaceFiles);
 
-      // 2. Index user-configured folders
       const userFolders = this.getIndexedFolders();
       for (const folder of userFolders) {
-        if (!fs.existsSync(folder)) {
-          console.warn(`[RAG] Folder not found, skipping: ${folder}`);
-          continue;
-        }
-
-        const beforeCount = allChunks.length;
+        if (!fs.existsSync(folder)) continue;
         const files = this.collectFiles(folder, folder, false);
-        console.log(`[RAG] ${folder}: ${files.length} files`);
+        allFiles.push(...files);
+        if (allFiles.length > MAX_TOTAL_FILES) break;
+      }
 
-        for (const file of files) {
-          const ext = path.extname(file.path).toLowerCase();
+      const totalFiles = allFiles.length;
+      console.log(`[RAG] Found ${totalFiles} files to index`);
+      emitProgress({ phase: 'chunking', filesTotal: totalFiles, overallPercent: 5 });
+
+      // ─── Phase 2: Chunk files — yield every 50 files ───
+      const allChunks: RAGChunk[] = [];
+      const allTexts: string[] = [];
+      let filesProcessed = 0;
+
+      for (const file of allFiles) {
+        const ext = path.extname(file.path).toLowerCase();
+        try {
           if (BINARY_DOCUMENT_EXTENSIONS.has(ext)) {
             const binChunks = await this.chunkBinaryDocumentAsync(file.path, file.relativePath, file.sourceFolder);
             allChunks.push(...binChunks);
@@ -315,76 +368,176 @@ export class RAGService {
             allChunks.push(...chunks);
             allTexts.push(...chunks.map((c) => c.content));
           }
+        } catch (err) {
+          // Skip individual file errors silently
         }
 
-        this.folderStats.set(folder, {
-          path: folder,
-          fileCount: files.length,
-          chunkCount: allChunks.length - beforeCount,
-          lastIndexed: Date.now(),
-        });
+        filesProcessed++;
 
-        // Safety: don't exceed total limit
-        if (allChunks.length > MAX_TOTAL_FILES * 5) {
-          console.warn(`[RAG] Chunk limit reached (${allChunks.length}), stopping scan`);
-          break;
+        // Yield to event loop every 50 files to keep Electron responsive
+        if (filesProcessed % 50 === 0) {
+          await this.yieldToEventLoop();
+          const chunkPercent = Math.round((filesProcessed / totalFiles) * 45) + 5; // 5-50%
+          emitProgress({
+            phase: 'chunking',
+            currentFile: file.relativePath,
+            filesProcessed,
+            filesTotal: totalFiles,
+            chunksCreated: allChunks.length,
+            overallPercent: chunkPercent,
+          });
         }
       }
 
-      console.log(`[RAG] Total: ${allChunks.length} chunks from ${allTexts.length} texts`);
+      // Update folder stats
+      this.updateFolderStats(allChunks, allFiles, userFolders);
 
-      // Build IDF for TF-IDF fallback
+      // Safety check
+      if (allChunks.length > MAX_TOTAL_FILES * 5) {
+        console.warn(`[RAG] Chunk limit reached: ${allChunks.length}`);
+      }
+
+      console.log(`[RAG] Chunking done: ${allChunks.length} chunks from ${totalFiles} files`);
+      emitProgress({
+        phase: 'embedding',
+        filesProcessed: totalFiles,
+        filesTotal: totalFiles,
+        chunksCreated: allChunks.length,
+        overallPercent: 50,
+      });
+
+      // ─── Phase 3: Embeddings — batch with progress ───
       if (!this.embeddingService.hasOpenAI()) {
         this.embeddingService.buildIDF(allTexts);
       }
 
-      // Generate embeddings in batch
       if (allChunks.length > 0) {
-        const embeddings = await this.embeddingService.embedBatch(allTexts);
-        for (let i = 0; i < allChunks.length; i++) {
-          allChunks[i].embedding = embeddings[i];
+        const EMBED_BATCH = 200; // Process embeddings in small batches
+        for (let i = 0; i < allTexts.length; i += EMBED_BATCH) {
+          const batchTexts = allTexts.slice(i, i + EMBED_BATCH);
+          const embeddings = await this.embeddingService.embedBatch(batchTexts);
+          for (let j = 0; j < embeddings.length; j++) {
+            allChunks[i + j].embedding = embeddings[j];
+          }
+
+          await this.yieldToEventLoop();
+          const embedPercent = Math.round(((i + batchTexts.length) / allTexts.length) * 100);
+          const overallPercent = 50 + Math.round(embedPercent * 0.45); // 50-95%
+          emitProgress({
+            phase: 'embedding',
+            filesProcessed: totalFiles,
+            filesTotal: totalFiles,
+            chunksCreated: allChunks.length,
+            embeddingPercent: embedPercent,
+            overallPercent,
+          });
         }
       }
+
+      // ─── Phase 4: Save ───
+      emitProgress({
+        phase: 'saving',
+        filesProcessed: totalFiles,
+        filesTotal: totalFiles,
+        chunksCreated: allChunks.length,
+        embeddingPercent: 100,
+        overallPercent: 95,
+      });
 
       this.chunks = allChunks;
       this.indexed = true;
       this.saveIndex();
 
       console.log(`[RAG] Indexing complete. ${this.chunks.length} chunks indexed.`);
-    } catch (err) {
+      emitProgress({
+        phase: 'done',
+        filesProcessed: totalFiles,
+        filesTotal: totalFiles,
+        chunksCreated: allChunks.length,
+        embeddingPercent: 100,
+        overallPercent: 100,
+      });
+    } catch (err: any) {
       console.error('[RAG] Reindex failed:', err);
+      emitProgress({ phase: 'error', error: err?.message || 'Unknown error' });
     } finally {
       this.indexing = false;
     }
   }
 
   /**
-   * Index a single folder (incremental  add to existing index).
+   * Update folder stats after indexing.
+   */
+  private updateFolderStats(
+    allChunks: RAGChunk[],
+    allFiles: Array<{ path: string; sourceFolder: string }>,
+    userFolders: string[]
+  ): void {
+    const wsFiles = allFiles.filter(f => f.sourceFolder === 'workspace');
+    const wsChunks = allChunks.filter(c => !c.sourceFolder || c.sourceFolder === 'workspace');
+    this.folderStats.set('workspace', {
+      path: this.workspacePath,
+      fileCount: wsFiles.length,
+      chunkCount: wsChunks.length,
+      lastIndexed: Date.now(),
+    });
+    for (const folder of userFolders) {
+      const folderFiles = allFiles.filter(f => f.sourceFolder === folder);
+      const folderChunks = allChunks.filter(c => c.sourceFolder === folder);
+      this.folderStats.set(folder, {
+        path: folder,
+        fileCount: folderFiles.length,
+        chunkCount: folderChunks.length,
+        lastIndexed: Date.now(),
+      });
+    }
+  }
+
+  /**
+   * Index a single folder (incremental — add to existing index).
+   * Non-blocking with progress reporting.
    */
   private async indexFolder(folderPath: string): Promise<void> {
     if (this.indexing) return;
     this.indexing = true;
 
     try {
-      // Remove old chunks from this folder
       this.chunks = this.chunks.filter((c) => c.sourceFolder !== folderPath);
-
       const files = this.collectFiles(folderPath, folderPath, false);
       console.log(`[RAG] Indexing folder ${folderPath}: ${files.length} files`);
 
+      this.onProgress?.({
+        phase: 'chunking', filesProcessed: 0, filesTotal: files.length,
+        chunksCreated: 0, embeddingPercent: 0, overallPercent: 5,
+      });
+
       const newChunks: RAGChunk[] = [];
       const texts: string[] = [];
+      let processed = 0;
 
       for (const file of files) {
-        const ext = path.extname(file.path).toLowerCase();
-        if (BINARY_DOCUMENT_EXTENSIONS.has(ext)) {
-          const binChunks = await this.chunkBinaryDocumentAsync(file.path, file.relativePath, file.sourceFolder);
-          newChunks.push(...binChunks);
-          texts.push(...binChunks.map((c) => c.content));
-        } else {
-          const chunks = this.chunkFile(file.path, file.relativePath, file.sourceFolder);
-          newChunks.push(...chunks);
-          texts.push(...chunks.map((c) => c.content));
+        try {
+          const ext = path.extname(file.path).toLowerCase();
+          if (BINARY_DOCUMENT_EXTENSIONS.has(ext)) {
+            const binChunks = await this.chunkBinaryDocumentAsync(file.path, file.relativePath, file.sourceFolder);
+            newChunks.push(...binChunks);
+            texts.push(...binChunks.map((c) => c.content));
+          } else {
+            const chunks = this.chunkFile(file.path, file.relativePath, file.sourceFolder);
+            newChunks.push(...chunks);
+            texts.push(...chunks.map((c) => c.content));
+          }
+        } catch { /* skip */ }
+
+        processed++;
+        if (processed % 50 === 0) {
+          await this.yieldToEventLoop();
+          this.onProgress?.({
+            phase: 'chunking', currentFile: file.relativePath,
+            filesProcessed: processed, filesTotal: files.length,
+            chunksCreated: newChunks.length, embeddingPercent: 0,
+            overallPercent: 5 + Math.round((processed / files.length) * 45),
+          });
         }
       }
 

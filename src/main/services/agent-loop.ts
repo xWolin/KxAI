@@ -15,6 +15,16 @@ import { IntentDetector } from './intent-detector';
 import { SubAgentManager, SubAgentResult, SubAgentInfo } from './sub-agent';
 
 /**
+ * Agent status for UI feedback.
+ */
+export interface AgentStatus {
+  state: 'idle' | 'thinking' | 'tool-calling' | 'streaming' | 'heartbeat' | 'take-control' | 'sub-agent';
+  detail?: string;        // e.g., tool name, sub-agent task
+  toolName?: string;
+  subAgentCount?: number;
+}
+
+/**
  * AgentLoop orchestrates the full agent lifecycle:
  * - Tool calling (parse AI response → execute tool → feed result back)
  * - Multi-step tool execution (up to 5 chained tool calls)
@@ -53,6 +63,7 @@ export class AgentLoop {
   private afkTasksDone: Set<string> = new Set(); // Track which AFK tasks were done this session
   private onHeartbeatResult?: (message: string) => void; // Callback for heartbeat messages
   private onSubAgentResult?: (result: SubAgentResult) => void; // Callback for sub-agent completions
+  onAgentStatus?: (status: AgentStatus) => void; // Callback for UI status updates
 
   // ─── Active Hours — heartbeat only during configured hours ───
   private activeHours: { start: number; end: number } | null = null; // null = always active
@@ -77,6 +88,14 @@ export class AgentLoop {
     this.memoryFlushDone = false;
     this.totalSessionTokens = 0;
     this.observationHistory = [];
+  }
+
+  /**
+   * Emit agent status to UI.
+   */
+  private emitStatus(status: AgentStatus): void {
+    status.subAgentCount = this.subAgentManager.listActive().length;
+    this.onAgentStatus?.(status);
   }
 
   constructor(
@@ -354,10 +373,12 @@ export class AgentLoop {
     skipIntentDetection?: boolean
   ): Promise<string> {
     this.isProcessing = true;
+    this.emitStatus({ state: 'thinking', detail: userMessage.slice(0, 100) });
     try {
       return await this._streamWithToolsInner(userMessage, extraContext, onChunk, skipIntentDetection);
     } finally {
       this.isProcessing = false;
+      this.emitStatus({ state: 'idle' });
     }
   }
 
@@ -448,12 +469,14 @@ export class AgentLoop {
       if (!toolCall) break;
 
       onChunk?.(`\n\n⚙️ Wykonuję: ${toolCall.tool}...\n`);
+      this.emitStatus({ state: 'tool-calling', detail: toolCall.tool, toolName: toolCall.tool });
       let result: ToolResult;
       try {
         result = await this.tools.execute(toolCall.tool, toolCall.params);
       } catch (err: any) {
         result = { success: false, error: `Tool execution error: ${err.message}` };
       }
+      this.emitStatus({ state: 'thinking', detail: 'Przetwarzam wynik narzędzia...' });
 
       // Check for loops
       const loopCheck: LoopCheckResult = detector.recordAndCheck(

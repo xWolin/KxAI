@@ -253,6 +253,68 @@ html, body, #root {
   color: var(--text-muted);
 }
 
+.chat-header__status-badge {
+  margin-left: 6px;
+  font-size: 12px;
+  animation: pulse-status 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse-status {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.chat-header__status-text {
+  color: var(--accent);
+  font-size: 10px;
+}
+
+/* ─── RAG Progress Bar ─── */
+.chat-rag-progress {
+  padding: 8px 14px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+}
+
+.chat-rag-progress__info {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.chat-rag-progress__label {
+  color: var(--text-secondary);
+}
+
+.chat-rag-progress__percent {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.chat-rag-progress__bar {
+  height: 4px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.chat-rag-progress__fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.chat-rag-progress__detail {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .chat-header__actions {
   display: flex;
   gap: 4px;
@@ -914,6 +976,27 @@ html, body, #root {
   color: var(--text-secondary);
   cursor: pointer;
   font-size: 11px;
+}
+
+.proactive-notification__btn-speak {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: background 0.15s, border-color 0.15s;
+  margin-right: auto;
+}
+
+.proactive-notification__btn-speak:hover {
+  background: var(--bg-secondary);
+  border-color: var(--accent);
+}
+
+.proactive-notification__btn-speak--active {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .proactive-notification__btn-reply {

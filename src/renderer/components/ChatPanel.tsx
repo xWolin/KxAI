@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import type { ConversationMessage, KxAIConfig } from '../types';
+import type { ConversationMessage, KxAIConfig, AgentStatus, IndexProgress } from '../types';
 
 // Configure marked for chat messages
 marked.setOptions({
@@ -90,6 +90,8 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
+  const [agentStatus, setAgentStatus] = useState<AgentStatus>({ state: 'idle' });
+  const [ragProgress, setRagProgress] = useState<IndexProgress | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -141,7 +143,25 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
       }
     });
 
-    return cleanup;
+    // Listen for agent status updates
+    const cleanupStatus = window.kxai.onAgentStatus?.((status) => {
+      setAgentStatus(status);
+    });
+
+    // Listen for RAG indexing progress
+    const cleanupRag = window.kxai.onRagProgress?.((progress) => {
+      if (progress.phase === 'done' || progress.phase === 'error') {
+        setRagProgress(null);
+      } else {
+        setRagProgress(progress);
+      }
+    });
+
+    return () => {
+      cleanup();
+      cleanupStatus?.();
+      cleanupRag?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -293,9 +313,22 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
           <div>
             <div className="chat-header__name">
               {config.agentName || 'KxAI'}
+              {agentStatus.state !== 'idle' && (
+                <span className="chat-header__status-badge" title={agentStatus.detail || agentStatus.state}>
+                  {agentStatus.state === 'thinking' ? '🧠' :
+                   agentStatus.state === 'tool-calling' ? '⚙️' :
+                   agentStatus.state === 'streaming' ? '📡' :
+                   agentStatus.state === 'heartbeat' ? '💓' :
+                   agentStatus.state === 'take-control' ? '🎮' :
+                   agentStatus.state === 'sub-agent' ? '🤖' : ''}
+                </span>
+              )}
             </div>
             <div className="chat-header__model">
               {config.aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI'} · {config.aiModel}
+              {agentStatus.state !== 'idle' && agentStatus.detail && (
+                <span className="chat-header__status-text"> · {agentStatus.detail}</span>
+              )}
             </div>
           </div>
         </div>
@@ -356,6 +389,33 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
           </button>
         </div>
       </div>
+
+      {/* RAG Indexing Progress Bar */}
+      {ragProgress && (
+        <div className="chat-rag-progress">
+          <div className="chat-rag-progress__info">
+            <span className="chat-rag-progress__label">
+              📚 Indeksowanie: {ragProgress.phase === 'scanning' ? 'Skanowanie plików' :
+                ragProgress.phase === 'chunking' ? 'Dzielenie na fragmenty' :
+                ragProgress.phase === 'embedding' ? 'Generowanie embeddingów' :
+                ragProgress.phase === 'saving' ? 'Zapisywanie indeksu' : ragProgress.phase}
+            </span>
+            <span className="chat-rag-progress__percent">{Math.round(ragProgress.overallPercent)}%</span>
+          </div>
+          <div className="chat-rag-progress__bar">
+            <div
+              className="chat-rag-progress__fill"
+              style={{ width: `${ragProgress.overallPercent}%` }}
+            />
+          </div>
+          <div className="chat-rag-progress__detail">
+            {ragProgress.filesProcessed}/{ragProgress.filesTotal} plików · {ragProgress.chunksCreated} fragmentów
+            {ragProgress.currentFile && (
+              <span title={ragProgress.currentFile}> · {ragProgress.currentFile.split(/[/\\]/).pop()}</span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Messages */}
       <div className="chat-messages">

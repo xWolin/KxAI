@@ -239,4 +239,21 @@ contextBridge.exposeInMainWorld('kxai', {
   // Active hours
   setActiveHours: (start: number | null, end: number | null) =>
     ipcRenderer.invoke('agent:set-active-hours', start, end),
+
+  // Agent status updates
+  onAgentStatus: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('agent:status', handler);
+    return () => { ipcRenderer.removeListener('agent:status', handler); };
+  },
+
+  // RAG indexing progress
+  onRagProgress: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('rag:indexing-progress', handler);
+    return () => { ipcRenderer.removeListener('rag:indexing-progress', handler); };
+  },
+
+  // Dashboard URL
+  getDashboardUrl: () => ipcRenderer.invoke('dashboard:get-url'),
 });

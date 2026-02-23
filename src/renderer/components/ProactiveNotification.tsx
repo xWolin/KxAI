@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { speak, stopSpeaking } from '../utils/tts';
 import type { ProactiveMessage } from '../types';
 
 interface ProactiveNotificationProps {
@@ -8,6 +9,19 @@ interface ProactiveNotificationProps {
 }
 
 export function ProactiveNotification({ message, onDismiss, onReply }: ProactiveNotificationProps) {
+  const [isSpeaking, setIsSpeaking] = useState(false);
+
+  const handleSpeak = async () => {
+    if (isSpeaking) {
+      stopSpeaking();
+      setIsSpeaking(false);
+    } else {
+      setIsSpeaking(true);
+      await speak(message.message);
+      setIsSpeaking(false);
+    }
+  };
+
   return (
     <div className="slide-in proactive-notification">
       {/* Header */}
@@ -40,6 +54,13 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
 
       {/* Actions */}
       <div className="proactive-notification__actions">
+        <button
+          onClick={handleSpeak}
+          className={`proactive-notification__btn-speak${isSpeaking ? ' proactive-notification__btn-speak--active' : ''}`}
+          title="Czytaj na głos (Ctrl+Shift+S)"
+        >
+          {isSpeaking ? '⏹️' : '🔊'}
+        </button>
         <button
           onClick={onDismiss}
           className="proactive-notification__btn-dismiss"

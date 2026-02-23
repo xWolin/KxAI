@@ -204,6 +204,13 @@ export class SubAgentManager {
   }
 
   /**
+   * Peek at completed results without clearing the buffer (for dashboard).
+   */
+  peekResults(): SubAgentResult[] {
+    return [...this.completedResults];
+  }
+
+  /**
    * Build context about active sub-agents for the main agent's system prompt.
    */
   buildSubAgentContext(): string {

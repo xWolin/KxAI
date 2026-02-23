@@ -70,6 +70,7 @@ export async function speak(text: string): Promise<void> {
 
 /**
  * Fallback TTS via Web Speech API (built-in, lower quality).
+ * Splits long text into chunks to avoid browser truncation limits.
  */
 function speakWebSpeechAPI(text: string): void {
   if (!('speechSynthesis' in window)) return;
@@ -87,16 +88,54 @@ function speakWebSpeechAPI(text: string): void {
 
   if (!clean || clean.length < 3) return;
 
-  // Limit to first ~300 chars for quick reading
-  const truncated = clean.length > 300 ? clean.slice(0, 300) + '...' : clean;
+  // Split into chunks at sentence boundaries to avoid browser TTS limits (~200-300 chars)
+  const chunks = splitIntoChunks(clean, 250);
 
-  const utterance = new SpeechSynthesisUtterance(truncated);
-  if (ttsVoice) utterance.voice = ttsVoice;
-  utterance.rate = ttsRate;
-  utterance.pitch = 1.0;
-  utterance.volume = 0.8;
+  for (const chunk of chunks) {
+    const utterance = new SpeechSynthesisUtterance(chunk);
+    if (ttsVoice) utterance.voice = ttsVoice;
+    utterance.rate = ttsRate;
+    utterance.pitch = 1.0;
+    utterance.volume = 0.8;
+    speechSynthesis.speak(utterance);
+  }
+}
 
-  speechSynthesis.speak(utterance);
+/**
+ * Split text into chunks at sentence boundaries, respecting maxLen.
+ */
+function splitIntoChunks(text: string, maxLen: number): string[] {
+  if (text.length <= maxLen) return [text];
+
+  const chunks: string[] = [];
+  let remaining = text;
+
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLen) {
+      chunks.push(remaining);
+      break;
+    }
+
+    // Find the best split point (sentence end) within maxLen
+    let splitAt = -1;
+    for (const sep of ['. ', '! ', '? ', '.\n', ';\n', ', ', '\n']) {
+      const idx = remaining.lastIndexOf(sep, maxLen);
+      if (idx > 0 && idx > splitAt) {
+        splitAt = idx + sep.length;
+      }
+    }
+
+    // No good split point — force split at maxLen
+    if (splitAt <= 0) {
+      const spaceIdx = remaining.lastIndexOf(' ', maxLen);
+      splitAt = spaceIdx > 0 ? spaceIdx + 1 : maxLen;
+    }
+
+    chunks.push(remaining.slice(0, splitAt).trim());
+    remaining = remaining.slice(splitAt).trim();
+  }
+
+  return chunks;
 }
 
 /**

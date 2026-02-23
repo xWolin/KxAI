@@ -1,49 +1,47 @@
 /**
  * IntentDetector — inteligentne rozpoznawanie intencji użytkownika.
  *
- * Główna funkcja: wykrywanie kiedy użytkownik mówi o ekranie, a agent powinien
- * AUTOMATYCZNIE zrobić screenshot zamiast mówić "nie widzę ekranu".
- *
- * Inspiracja: OpenClaw's intelligent context inference
- *
  * Kategorie intencji:
  * - SCREEN_LOOK — użytkownik chce żeby agent zobaczył ekran
  * - SCREEN_HELP — użytkownik potrzebuje pomocy z tym co robi na ekranie
  * - FILE_CONTEXT — użytkownik odnosi się do pliku który ma otwarty
- * - TAKE_CONTROL — (istniejący) użytkownik chce przejęcia sterowania
+ * - TAKE_CONTROL — użytkownik chce przejęcia sterowania
  * - WEB_SEARCH — użytkownik chce wyszukać coś w internecie
  * - MEMORY_RECALL — użytkownik pyta o coś co agent powinien pamiętać
+ * - CODE_EXEC — użytkownik chce żeby agent wykonał/napisał kod
+ * - AUTOMATION — użytkownik chce automatyzacji (kliknij, wpisz, otwórz)
  */
 
 export type IntentType =
   | 'screen_look'
   | 'screen_help'
   | 'file_context'
+  | 'take_control'
   | 'web_search'
   | 'memory_recall'
+  | 'code_exec'
+  | 'automation'
   | 'none';
 
 export interface DetectedIntent {
   type: IntentType;
   confidence: number; // 0.0 — 1.0
-  /** Które wzorce dopasowano */
   matchedPatterns: string[];
-  /** Sugerowana automatyczna akcja */
-  autoAction?: 'screenshot' | 'web_search' | 'memory_search';
+  autoAction?: 'screenshot' | 'web_search' | 'memory_search' | 'take_control';
+  /** Extracted context (e.g. search query, file name) */
+  extractedContext?: string;
 }
 
 interface IntentPattern {
   regex: RegExp;
   intent: IntentType;
   confidence: number;
-  autoAction?: 'screenshot' | 'web_search' | 'memory_search';
+  autoAction?: 'screenshot' | 'web_search' | 'memory_search' | 'take_control';
   label: string;
+  /** Optional capture group index for extracting context */
+  captureGroup?: number;
 }
 
-/**
- * Wzorce rozpoznawania intencji — po polsku i angielsku.
- * Posortowane od najwyższej pewności do najniższej.
- */
 const INTENT_PATTERNS: IntentPattern[] = [
   // ─── Screen Look — user wants agent to see their screen ───
   {
@@ -121,9 +119,50 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     regex: /(?:^|\s)(?:tutaj|here|tam|there|tu\b)(?:\s|$|[.!?,])/i,
     intent: 'screen_look',
-    confidence: 0.50, // lower — might not be about screen
+    confidence: 0.50,
     autoAction: 'screenshot',
     label: 'deictic-reference',
+  },
+
+  // ─── File Context — user mentions specific files ───
+  {
+    regex: /(?:w\s+pliku|w\s+(?:tym|moim)\s+(?:pliku|kodzie|skrypcie)|in\s+(?:the\s+|my\s+)?(?:file|code|script))\s+(\S+)/i,
+    intent: 'file_context',
+    confidence: 0.85,
+    autoAction: 'screenshot',
+    label: 'in-file-reference',
+    captureGroup: 1,
+  },
+  {
+    regex: /(?:otwórz|otwieram|otworzyłem|edytuj[eę]?|opened?|editing)\s+(\S+\.(?:ts|tsx|js|jsx|py|java|cpp|cs|go|rs|md|json|html|css))/i,
+    intent: 'file_context',
+    confidence: 0.80,
+    autoAction: 'screenshot',
+    label: 'opened-file',
+    captureGroup: 1,
+  },
+
+  // ─── Take Control ───
+  {
+    regex: /(?:przejmij|przejmowanie|weź)\s+(?:sterowanie|kontrolę?|control)/i,
+    intent: 'take_control',
+    confidence: 0.95,
+    autoAction: 'take_control',
+    label: 'take-control-pl',
+  },
+  {
+    regex: /(?:take\s+(?:over|control)|control\s+(?:my\s+)?(?:computer|desktop|screen|mouse|keyboard))/i,
+    intent: 'take_control',
+    confidence: 0.95,
+    autoAction: 'take_control',
+    label: 'take-control-en',
+  },
+  {
+    regex: /(?:zrób\s+to\s+(?:sam|za\s+mnie)|do\s+it\s+(?:for\s+me|yourself))/i,
+    intent: 'take_control',
+    confidence: 0.85,
+    autoAction: 'take_control',
+    label: 'do-it-for-me',
   },
 
   // ─── Web Search ───
@@ -141,6 +180,14 @@ const INTENT_PATTERNS: IntentPattern[] = [
     autoAction: 'web_search',
     label: 'web-lookup',
   },
+  {
+    regex: /(?:wyszukaj|search|google|find)\s+(.{3,60})(?:\s+(?:w\s+necie|online|w\s+internecie))?$/i,
+    intent: 'web_search',
+    confidence: 0.65,
+    autoAction: 'web_search',
+    label: 'implicit-search',
+    captureGroup: 1,
+  },
 
   // ─── Memory Recall ───
   {
@@ -150,12 +197,64 @@ const INTENT_PATTERNS: IntentPattern[] = [
     autoAction: 'memory_search',
     label: 'memory-recall',
   },
+  {
+    regex: /(?:co\s+(?:ci\s+)?(?:pisałem|mówiłem|mówił(?:em|am))\s+(?:o|na\s+temat|wcześniej)|what\s+(?:did\s+)?I\s+(?:say|tell|write)\s+(?:about|earlier))/i,
+    intent: 'memory_recall',
+    confidence: 0.85,
+    autoAction: 'memory_search',
+    label: 'what-did-i-say',
+  },
+
+  // ─── Code Execution ───
+  {
+    regex: /(?:uruchom|odpal|wykonaj|run|execute)\s+(?:ten\s+)?(?:kod|skrypt|script|program|komendę?|command)/i,
+    intent: 'code_exec',
+    confidence: 0.90,
+    label: 'code-exec-explicit',
+  },
+  {
+    regex: /(?:napisz|stwórz|zrób)\s+(?:mi\s+)?(?:skrypt|script|program|narzędzie|tool)/i,
+    intent: 'code_exec',
+    confidence: 0.80,
+    label: 'create-script',
+  },
+
+  // ─── Automation ───
+  {
+    regex: /(?:kliknij|naciśnij|wpisz|otwórz)\s+(?:w|na|przycisk|button|pole|field|link|menu)/i,
+    intent: 'automation',
+    confidence: 0.85,
+    autoAction: 'screenshot',
+    label: 'automation-action-pl',
+  },
+  {
+    regex: /(?:click|press|type|open)\s+(?:on|the|in)\s+/i,
+    intent: 'automation',
+    confidence: 0.80,
+    autoAction: 'screenshot',
+    label: 'automation-action-en',
+  },
 ];
 
 export class IntentDetector {
+  /** Recent messages for contextual intent detection */
+  private recentMessages: string[] = [];
+  private readonly MAX_RECENT = 5;
+
+  /**
+   * Track a message for contextual analysis.
+   */
+  addContext(message: string): void {
+    this.recentMessages.push(message);
+    if (this.recentMessages.length > this.MAX_RECENT) {
+      this.recentMessages.shift();
+    }
+  }
+
   /**
    * Detect the user's intent from their message.
    * Returns the highest-confidence match, or 'none' if nothing matches.
+   * Considers recent conversation context for better accuracy.
    */
   detect(message: string): DetectedIntent {
     const matches: Array<IntentPattern & { match: RegExpMatchArray }> = [];
@@ -183,17 +282,39 @@ export class IntentDetector {
       boostedConfidence = Math.min(1.0, best.confidence + sameIntentMatches.length * 0.05);
     }
 
+    // Contextual boost: if recent messages were about the same topic, increase confidence
+    if (this.recentMessages.length > 0) {
+      const recentIntents: IntentType[] = this.recentMessages
+        .flatMap(msg => {
+          const found: IntentType[] = [];
+          for (const p of INTENT_PATTERNS) {
+            if (msg.match(p.regex)) found.push(p.intent);
+          }
+          return found;
+        });
+
+      if (recentIntents.includes(best.intent)) {
+        boostedConfidence = Math.min(1.0, boostedConfidence + 0.10);
+      }
+    }
+
+    // Extract context from capture groups
+    let extractedContext: string | undefined;
+    if (best.captureGroup !== undefined && best.match[best.captureGroup]) {
+      extractedContext = best.match[best.captureGroup].trim();
+    }
+
     return {
       type: best.intent,
       confidence: boostedConfidence,
       matchedPatterns: sameIntentMatches.map(m => m.label),
       autoAction: best.autoAction,
+      extractedContext,
     };
   }
 
   /**
    * Check if message contains a screen-related intent that should trigger auto-screenshot.
-   * Convenience method for the most common use case.
    */
   shouldAutoScreenshot(message: string): boolean {
     const intent = this.detect(message);
@@ -217,5 +338,37 @@ export class IntentDetector {
   shouldAutoMemorySearch(message: string): boolean {
     const intent = this.detect(message);
     return intent.autoAction === 'memory_search' && intent.confidence >= 0.70;
+  }
+
+  /**
+   * Check if user wants the agent to take control.
+   */
+  shouldTakeControl(message: string): boolean {
+    const intent = this.detect(message);
+    return intent.autoAction === 'take_control' && intent.confidence >= 0.80;
+  }
+
+  /**
+   * Get all detected intents above a threshold (for multi-intent messages).
+   */
+  detectAll(message: string, minConfidence: number = 0.50): DetectedIntent[] {
+    const seen = new Set<IntentType>();
+    const results: DetectedIntent[] = [];
+
+    for (const pattern of INTENT_PATTERNS) {
+      const match = message.match(pattern.regex);
+      if (match && pattern.confidence >= minConfidence && !seen.has(pattern.intent)) {
+        seen.add(pattern.intent);
+        results.push({
+          type: pattern.intent,
+          confidence: pattern.confidence,
+          matchedPatterns: [pattern.label],
+          autoAction: pattern.autoAction,
+          extractedContext: pattern.captureGroup !== undefined ? match[pattern.captureGroup]?.trim() : undefined,
+        });
+      }
+    }
+
+    return results.sort((a, b) => b.confidence - a.confidence);
   }
 }

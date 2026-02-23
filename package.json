@@ -18,7 +18,8 @@
     "dev:main": "wait-on http://localhost:5173 && electron .",
     "build": "npm run build:renderer && npm run build:main",
     "build:renderer": "vite build",
-    "build:main": "tsc -p tsconfig.main.json",
+    "build:main": "tsc -p tsconfig.main.json && npm run copy:main-assets",
+    "copy:main-assets": "node -e \"const fs=require('fs'),p=require('path');const src=p.join('src','main','services','dashboard-spa.html');const dst=p.join('dist','main','services','dashboard-spa.html');fs.mkdirSync(p.dirname(dst),{recursive:true});fs.copyFileSync(src,dst);console.log('Copied dashboard-spa.html')\"",
     "dist": "npm run build && electron-builder",
     "lint": "eslint src/",
     "start": "electron ."

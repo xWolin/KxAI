@@ -151,6 +151,15 @@ export interface KxAIBridge {
 
   // Active hours
   setActiveHours: (start: number | null, end: number | null) => Promise<{ success: boolean }>;
+
+  // Agent status updates
+  onAgentStatus: (callback: (data: AgentStatus) => void) => (() => void);
+
+  // RAG indexing progress
+  onRagProgress: (callback: (data: IndexProgress) => void) => (() => void);
+
+  // Dashboard
+  getDashboardUrl: () => Promise<string>;
 }
 
 export interface ConversationMessage {
@@ -264,6 +273,26 @@ export interface RAGStats {
   indexed: boolean;
   embeddingType: 'openai' | 'tfidf';
   folders: RAGFolderInfo[];
+}
+
+// ──────────────── Agent Status ────────────────
+export interface AgentStatus {
+  state: 'idle' | 'thinking' | 'tool-calling' | 'streaming' | 'heartbeat' | 'take-control' | 'sub-agent';
+  detail?: string;
+  toolName?: string;
+  subAgentCount?: number;
+}
+
+// ──────────────── RAG Indexing Progress ────────────────
+export interface IndexProgress {
+  phase: 'scanning' | 'chunking' | 'embedding' | 'saving' | 'done' | 'error';
+  currentFile?: string;
+  filesProcessed: number;
+  filesTotal: number;
+  chunksCreated: number;
+  embeddingPercent: number;
+  overallPercent: number;
+  error?: string;
 }
 
 // ──────────────── Automation ────────────────

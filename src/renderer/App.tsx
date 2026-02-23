@@ -52,10 +52,7 @@ export default function App() {
     const cleanupProactive = window.kxai.onProactiveMessage((data) => {
       const msgWithId: ProactiveMessage = { ...data, id: data.id || `proactive-${Date.now()}-${Math.random().toString(36).slice(2)}` };
 
-      // Speak the proactive message via TTS
-      if (data.message) {
-        speak(data.message);
-      }
+      // NOTE: TTS is no longer auto-triggered — user can press 🔊 button in notification
 
       if (viewRef.current === 'chat') {
         // Chat is open — don't show popup, just refresh chat to show the saved message

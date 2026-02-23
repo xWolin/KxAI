@@ -317,9 +317,15 @@ async function initializeServices(): Promise<void> {
     transcriptionService, aiService, configService, securityService
   );
 
-  // Dashboard — localhost server for meeting summaries
+  // Dashboard — localhost server for full agent dashboard
   const meetingConfig = meetingCoachService.getConfig();
-  dashboardServer = new DashboardServer(meetingCoachService, meetingConfig.dashboardPort);
+  dashboardServer = new DashboardServer(meetingCoachService, meetingConfig.dashboardPort, {
+    tools: toolsService,
+    cron: cronService,
+    rag: ragService,
+    workflow: workflowService,
+    systemMonitor: systemMonitorService,
+  });
   // Start dashboard server in background (non-blocking)
   dashboardServer.start().catch(err => {
     console.error('[KxAI] Dashboard server failed to start:', err);

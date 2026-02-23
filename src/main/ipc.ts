@@ -54,6 +54,24 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   };
 
+  // ─── Agent status → renderer + dashboard ───
+  const dashboardSrv = services.dashboardServer;
+  agentLoop.onAgentStatus = (status) => {
+    safeSend('agent:status', status);
+    dashboardSrv?.pushAgentStatus(status);
+  };
+
+  // Wire dashboard sub-agent accessors
+  dashboardSrv?.setSubAgentAccessors(
+    () => agentLoop.getSubAgentManager().listActive(),
+    () => agentLoop.getSubAgentManager().peekResults()
+  );
+
+  // Dashboard URL handler
+  ipcMain.handle('dashboard:get-url', () => {
+    return dashboardSrv?.getUrl() || 'http://localhost:5678';
+  });
+
   // ──────────────── AI Messages ────────────────
   ipcMain.handle('ai:send-message', async (_event, message: string, context?: string) => {
     try {
@@ -443,9 +461,15 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   ipcMain.handle('rag:reindex', async () => {
     try {
+      // Wire progress reporting to renderer
+      ragService.onProgress = (progress) => {
+        mainWindow.webContents.send('rag:indexing-progress', progress);
+      };
       await ragService.reindex();
+      ragService.onProgress = undefined;
       return { success: true, data: ragService.getStats() };
     } catch (error: any) {
+      ragService.onProgress = undefined;
       return { success: false, error: error.message };
     }
   });
@@ -709,7 +733,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   // ──────────────── Meeting Coach ────────────────
   if (services.meetingCoachService) {
     const meetingCoach = services.meetingCoachService;
-    const dashboardSrv = services.dashboardServer;
+    const meetingDashboard = services.dashboardServer;
 
     // Forward meeting events to renderer
     const meetingEvents = ['meeting:state', 'meeting:transcript', 'meeting:coaching', 'meeting:error', 'meeting:stop-capture', 'meeting:detected'];
@@ -762,7 +786,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     });
 
     ipcMain.handle('meeting:get-dashboard-url', async () => {
-      return dashboardSrv?.getUrl() || `http://localhost:5678`;
+      return meetingDashboard?.getUrl() || `http://localhost:5678`;
     });
 
     // Audio chunk from renderer (non-invoke, fire-and-forget)

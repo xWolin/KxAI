@@ -33,7 +33,7 @@ const DEFAULT_CONFIG: TTSConfig = {
   elevenLabsModel: 'eleven_multilingual_v2',
   openaiVoice: 'onyx',              // Deep male voice, good for Polish
   openaiModel: 'tts-1-hd',          // High quality
-  maxChars: 500,
+  maxChars: 4000,
 };
 
 // ElevenLabs voice IDs for reference:
