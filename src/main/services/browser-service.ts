@@ -271,38 +271,145 @@ export class BrowserService {
    * Check if the browser is already running with the given user data dir.
    * Chrome creates a lockfile 'SingletonLock' (Linux/Mac) or 'lockfile' (Windows).
    */
-  private isBrowserProfileLocked(profileDir: string): boolean {
-    // Windows: check 'lockfile' or 'Local State' modification + process
-    // Linux/Mac: check 'SingletonLock' symlink
+  private isBrowserProfileLocked(profileDir: string, browserExe?: string): boolean {
     const lockFiles = [
-      path.join(profileDir, 'SingletonLock'),    // Linux/Mac
-      path.join(profileDir, 'lockfile'),          // Windows (sometimes)
+      path.join(profileDir, 'SingletonLock'),
+      path.join(profileDir, 'lockfile'),
     ];
 
     for (const lf of lockFiles) {
       try {
-        // SingletonLock on Linux is a symlink; fs.lstatSync doesn't throw if it exists
         fs.lstatSync(lf);
         return true;
       } catch { /* not found */ }
     }
 
-    // Windows fallback: check if parent process name matches browser
+    // Windows: check if the specific browser process is running
     if (process.platform === 'win32') {
+      const processName = browserExe ? path.basename(browserExe).toLowerCase() : null;
+      const targets = processName ? [processName] : ['chrome.exe', 'msedge.exe', 'brave.exe'];
       try {
-        // Check if any Chrome/Edge process is running
         const result = execSync('tasklist /FI "STATUS eq Running" /FO CSV /NH', {
-          encoding: 'utf-8',
-          timeout: 5000,
-          windowsHide: true,
+          encoding: 'utf-8', timeout: 5000, windowsHide: true,
         });
-        return result.toLowerCase().includes('chrome.exe') ||
-               result.toLowerCase().includes('msedge.exe') ||
-               result.toLowerCase().includes('brave.exe');
+        const lower = result.toLowerCase();
+        return targets.some(t => lower.includes(t));
       } catch { /* ignore */ }
     }
 
     return false;
+  }
+
+  // ════════════════════════════════════════════════════
+  //  CDP Discovery & Profile Sharing
+  // ════════════════════════════════════════════════════
+
+  /**
+   * Quick check if a CDP endpoint responds on a given port.
+   */
+  private checkCDPPort(port: number): Promise<string | null> {
+    return new Promise((resolve) => {
+      const req = http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
+        let data = '';
+        res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+        res.on('end', () => {
+          try {
+            const ws = JSON.parse(data).webSocketDebuggerUrl;
+            resolve(ws || null);
+          } catch { resolve(null); }
+        });
+      });
+      req.on('error', () => resolve(null));
+      req.setTimeout(1500, () => { req.destroy(); resolve(null); });
+    });
+  }
+
+  /**
+   * Find a running browser with CDP debug port.
+   *   1. Parse process command line for --remote-debugging-port (Windows)
+   *   2. Scan common debug ports (9222-9225, 9229)
+   */
+  private async findRunningCDPPort(browserExe: string): Promise<{ port: number; wsUrl: string } | null> {
+    const name = path.basename(browserExe).toLowerCase();
+
+    // Strategy 1: Windows — extract port from process command line
+    if (process.platform === 'win32') {
+      try {
+        const result = execSync(
+          `wmic process where "name='${name}'" get CommandLine /FORMAT:LIST`,
+          { encoding: 'utf-8', timeout: 5000, windowsHide: true }
+        );
+        const match = result.match(/--remote-debugging-port=(\d+)/);
+        if (match) {
+          const port = parseInt(match[1], 10);
+          if (port > 0) {
+            const wsUrl = await this.checkCDPPort(port);
+            if (wsUrl) {
+              console.log(`[BrowserService] Znaleziono CDP port ${port} w procesie ${name}`);
+              return { port, wsUrl };
+            }
+          }
+        }
+      } catch { /* process not found */ }
+    }
+
+    // Strategy 2: Scan common debug ports
+    for (const port of [9222, 9223, 9224, 9225, 9229]) {
+      const wsUrl = await this.checkCDPPort(port);
+      if (wsUrl) {
+        console.log(`[BrowserService] Znaleziono CDP na porcie ${port} (skan portów)`);
+        return { port, wsUrl };
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Copy key profile files (cookies, logins, preferences) from user's profile
+   * to a target dir. Enables session sharing when the original profile is locked
+   * by a running browser instance.
+   */
+  private copyProfileForSharing(userProfileDir: string, targetDir: string): boolean {
+    const rootFiles = ['Local State'];
+    const profileFiles = [
+      'Cookies', 'Cookies-journal',
+      'Login Data', 'Login Data-journal',
+      'Web Data', 'Web Data-journal',
+      'Preferences', 'Secure Preferences',
+      'Extension Cookies', 'Extension Cookies-journal',
+    ];
+
+    try { fs.mkdirSync(path.join(targetDir, 'Default'), { recursive: true }); } catch { /* exists */ }
+
+    let copied = 0;
+
+    for (const file of rootFiles) {
+      try {
+        const src = path.join(userProfileDir, file);
+        if (fs.existsSync(src)) {
+          fs.copyFileSync(src, path.join(targetDir, file));
+          copied++;
+        }
+      } catch (err: any) {
+        console.warn(`[BrowserService] Nie skopiowano ${file}: ${err.message}`);
+      }
+    }
+
+    for (const file of profileFiles) {
+      try {
+        const src = path.join(userProfileDir, 'Default', file);
+        if (fs.existsSync(src)) {
+          fs.copyFileSync(src, path.join(targetDir, 'Default', file));
+          copied++;
+        }
+      } catch (err: any) {
+        console.warn(`[BrowserService] Nie skopiowano Default/${file}: ${err.message}`);
+      }
+    }
+
+    console.log(`[BrowserService] Skopiowano ${copied} plików profilu → ${targetDir}`);
+    return copied > 0;
   }
 
   // ════════════════════════════════════════════════════
@@ -411,63 +518,79 @@ export class BrowserService {
         this.pw = require('playwright-core');
       }
 
-      // Resolve user's real browser profile for cookies/logins/sessions
-      this.userDataDir = this.getUserProfileDir(execPath);
+      // Resolve user's real browser profile
+      const realProfileDir = this.getUserProfileDir(execPath);
+      this.userDataDir = realProfileDir;
 
-      // Try to connect to an already-running browser with CDP first
-      if (await this.tryConnectToExisting(this.userDataDir)) {
-        if (options?.url) {
-          const page = this.getActivePage();
-          if (page) {
-            await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-          }
+      // ── Strategy 1: DevToolsActivePort file in profile dir ──
+      if (await this.tryConnectToExisting(realProfileDir)) {
+        console.log('[BrowserService] Połączono przez DevToolsActivePort — sesja użytkownika');
+        return this.afterConnect(execPath, options, 'istniejąca sesja');
+      }
+
+      // ── Strategy 2: Find running browser with CDP debug port ──
+      const existing = await this.findRunningCDPPort(execPath);
+      if (existing) {
+        try {
+          this.browser = await this.pw.chromium.connectOverCDP(existing.wsUrl);
+          const contexts = this.browser.contexts();
+          this.context = contexts.length > 0 ? contexts[0] : await this.browser.newContext();
+          this.debugPort = existing.port;
+          this.activePageIdx = 0;
+          // Open a new tab for the agent — don't hijack existing user tabs
+          const newPage = await this.context.newPage();
+          this.activePageIdx = this.context.pages().indexOf(newPage);
+          console.log(`[BrowserService] Połączono z istniejącym CDP na porcie ${existing.port} — sesja użytkownika`);
+          return this.afterConnect(execPath, options, 'istniejąca sesja CDP');
+        } catch (err: any) {
+          console.warn(`[BrowserService] CDP połączenie nie powiodło się: ${err.message}`);
         }
-        const page = this.getActivePage();
-        return {
-          success: true,
-          data: {
-            browser: path.basename(execPath) + ' (istniejąca sesja)',
-            url: page?.url() || 'about:blank',
-            title: page ? await page.title() : '',
-          },
-        };
       }
 
-      // If browser is already running with same profile, use KxAI-specific profile dir
-      // (can't share user-data-dir with a running instance)
-      if (this.isBrowserProfileLocked(this.userDataDir)) {
-        const kxaiProfileDir = path.join(os.tmpdir(), 'kxai-browser-profile');
-        console.warn(`[BrowserService] Przeglądarka jest już uruchomiona z tym profilem. Używam profilu KxAI: ${kxaiProfileDir}`);
-        console.warn('[BrowserService] Zamknij przeglądarkę aby agent mógł użyć Twoich zapisanych sesji/loginów.');
-        this.userDataDir = kxaiProfileDir;
+      // ── Strategy 3: Profile not locked → launch with user's real profile ──
+      if (!this.isBrowserProfileLocked(realProfileDir, execPath)) {
+        this.userDataDir = realProfileDir;
+        if (!fs.existsSync(this.userDataDir)) fs.mkdirSync(this.userDataDir, { recursive: true });
+        await this.launchViaCDP(execPath, options);
+        console.log('[BrowserService] Uruchomiono z profilem użytkownika (przeglądarka nie działała)');
+        return this.afterConnect(execPath, options, 'profil użytkownika');
       }
 
-      if (!fs.existsSync(this.userDataDir)) {
-        fs.mkdirSync(this.userDataDir, { recursive: true });
-      }
-
+      // ── Strategy 4: Profile locked → copy cookies/sessions to KxAI profile ──
+      const kxaiProfileDir = path.join(os.tmpdir(), 'kxai-browser-profile');
+      console.log('[BrowserService] Przeglądarka działa — kopiuję sesje/cookies do profilu KxAI...');
+      const hasCookies = this.copyProfileForSharing(realProfileDir, kxaiProfileDir);
+      this.userDataDir = kxaiProfileDir;
+      if (!fs.existsSync(this.userDataDir)) fs.mkdirSync(this.userDataDir, { recursive: true });
       await this.launchViaCDP(execPath, options);
-
-      if (options?.url) {
-        const page = this.getActivePage();
-        if (page) {
-          await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-        }
-      }
-
-      const page = this.getActivePage();
-      return {
-        success: true,
-        data: {
-          browser: path.basename(execPath),
-          url: page?.url() || 'about:blank',
-          title: page ? await page.title() : '',
-        },
-      };
+      const label = hasCookies ? 'kopia profilu (cookies skopiowane)' : 'nowy profil (brak cookies)';
+      console.log(`[BrowserService] Uruchomiono z ${label}`);
+      return this.afterConnect(execPath, options, label);
     } catch (err: any) {
       await this.close();
       return { success: false, error: `Błąd uruchamiania przeglądarki: ${err.message}` };
     }
+  }
+
+  /**
+   * Common post-connection logic: navigate to URL if specified, return result.
+   */
+  private async afterConnect(execPath: string, options?: BrowserLaunchOptions, label?: string): Promise<BrowserResult> {
+    if (options?.url) {
+      const page = this.getActivePage();
+      if (page) {
+        await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      }
+    }
+    const page = this.getActivePage();
+    return {
+      success: true,
+      data: {
+        browser: path.basename(execPath) + (label ? ` (${label})` : ''),
+        url: page?.url() || 'about:blank',
+        title: page ? await page.title() : '',
+      },
+    };
   }
 
   /**
