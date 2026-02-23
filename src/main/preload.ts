@@ -182,6 +182,9 @@ contextBridge.exposeInMainWorld('kxai', {
   meetingSendAudio: (source: string, chunk: ArrayBuffer) => {
     ipcRenderer.send('meeting:audio-chunk', source, Buffer.from(chunk));
   },
+  meetingMapSpeaker: (speakerId: string, name: string) => {
+    ipcRenderer.send('meeting:map-speaker', speakerId, name);
+  },
   onMeetingState: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on('meeting:state', handler);
@@ -196,6 +199,16 @@ contextBridge.exposeInMainWorld('kxai', {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on('meeting:coaching', handler);
     return () => { ipcRenderer.removeListener('meeting:coaching', handler); };
+  },
+  onMeetingCoachingChunk: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('meeting:coaching-chunk', handler);
+    return () => { ipcRenderer.removeListener('meeting:coaching-chunk', handler); };
+  },
+  onMeetingCoachingDone: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('meeting:coaching-done', handler);
+    return () => { ipcRenderer.removeListener('meeting:coaching-done', handler); };
   },
   onMeetingError: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);

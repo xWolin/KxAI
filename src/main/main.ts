@@ -311,10 +311,10 @@ async function initializeServices(): Promise<void> {
   screenMonitorService.setScreenCapture(screenCapture);
   agentLoop.setScreenMonitorService(screenMonitorService);
 
-  // Meeting Coach — transcription + AI coaching
+  // Meeting Coach — transcription + AI coaching (with RAG for context-aware answers)
   transcriptionService = new TranscriptionService(securityService);
   meetingCoachService = new MeetingCoachService(
-    transcriptionService, aiService, configService, securityService
+    transcriptionService, aiService, configService, securityService, ragService
   );
 
   // Dashboard — localhost server for full agent dashboard

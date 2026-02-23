@@ -1744,28 +1744,68 @@ html, body, #root {
   overflow: hidden;
 }
 
-.coaching-overlay__tabs {
-  display: flex;
+/* ═══════ COACHING PANEL (prominent, top area) ═══════ */
+.coaching-overlay__coaching-panel {
   border-bottom: 1px solid #30363d;
+  background: linear-gradient(135deg, rgba(56, 139, 253, 0.08), rgba(63, 185, 80, 0.05));
 }
 
-.coaching-overlay__tab {
-  flex: 1;
-  background: none;
-  border: none;
+.coaching-overlay__active-coaching,
+.coaching-overlay__last-coaching {
+  padding: 0.75rem 1rem;
+}
+
+.coaching-overlay__coaching-label {
+  font-size: 0.75rem;
+  color: #d29922;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.coaching-overlay__question-preview {
+  font-weight: 400;
   color: #8b949e;
-  padding: 0.5rem;
-  font-size: 0.85rem;
-  cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: all 0.2s;
-}
-.coaching-overlay__tab:hover { color: #e6edf3; }
-.coaching-overlay__tab--active {
-  color: #58a6ff;
-  border-bottom-color: #58a6ff;
+  font-size: 0.7rem;
+  font-style: italic;
 }
 
+.coaching-overlay__coaching-text {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #e6edf3;
+  white-space: pre-wrap;
+}
+
+.coaching-overlay__coaching-text--streaming {
+  color: #58a6ff;
+}
+
+.coaching-overlay__cursor {
+  animation: cursor-blink 0.8s infinite;
+  color: #58a6ff;
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.coaching-overlay__coaching-time {
+  font-weight: 400;
+  color: #484f58;
+  margin-left: auto;
+}
+
+.coaching-overlay__coaching-indicator {
+  color: #d29922;
+  font-size: 0.75rem;
+  animation: coaching-pulse 1s infinite;
+}
+
+/* ═══════ TRANSCRIPT ═══════ */
 .coaching-overlay__transcript {
   flex: 1;
   overflow-y: auto;
@@ -1797,38 +1837,113 @@ html, body, #root {
 }
 .coaching-overlay__line-text { color: #c9d1d9; }
 
-.coaching-overlay__tips {
-  flex: 1;
-  overflow-y: auto;
-  padding: 0.5rem;
-}
-
-.coaching-overlay__tip {
+/* ═══════ SPEAKERS ═══════ */
+.coaching-overlay__speakers {
+  padding: 0.4rem 0.75rem;
+  border-top: 1px solid #30363d;
   background: #161b22;
-  border-left: 3px solid #d29922;
-  padding: 0.6rem 0.75rem;
-  margin-bottom: 0.5rem;
-  border-radius: 0 6px 6px 0;
 }
 
-.coaching-overlay__tip-header {
-  display: flex;
-  justify-content: space-between;
+.coaching-overlay__speakers-label {
+  font-size: 0.7rem;
+  color: #8b949e;
+  font-weight: 600;
   margin-bottom: 0.25rem;
 }
-.coaching-overlay__tip-category {
-  font-size: 0.7rem;
-  text-transform: uppercase;
-  color: #d29922;
-  font-weight: 600;
+
+.coaching-overlay__speakers-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
 }
-.coaching-overlay__tip-time {
+
+.coaching-overlay__speaker {
+  font-size: 0.75rem;
+}
+
+.coaching-overlay__speaker-name {
+  background: #21262d;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  color: #c9d1d9;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.coaching-overlay__speaker-name:hover { background: #30363d; }
+
+.coaching-overlay__speaker-count {
+  color: #484f58;
+  font-size: 0.65rem;
+  margin-left: 0.2rem;
+}
+
+.coaching-overlay__speaker-edit {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.coaching-overlay__speaker-input {
+  background: #0d1117;
+  border: 1px solid #30363d;
+  color: #e6edf3;
+  padding: 0.15rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  width: 80px;
+}
+
+.coaching-overlay__speaker-save,
+.coaching-overlay__speaker-cancel {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+.coaching-overlay__speaker-save { color: #3fb950; }
+.coaching-overlay__speaker-cancel { color: #f85149; }
+
+/* ═══════ COACHING HISTORY ═══════ */
+.coaching-overlay__tips-history {
+  max-height: 120px;
+  overflow-y: auto;
+  border-top: 1px solid #30363d;
+  padding: 0.4rem 0.5rem;
+}
+
+.coaching-overlay__tips-label {
   font-size: 0.7rem;
+  color: #8b949e;
+  font-weight: 600;
+  margin-bottom: 0.3rem;
+}
+
+.coaching-overlay__tip-history-item {
+  background: #161b22;
+  border-left: 2px solid #484f58;
+  padding: 0.35rem 0.5rem;
+  margin-bottom: 0.3rem;
+  border-radius: 0 4px 4px 0;
+  font-size: 0.78rem;
+}
+
+.coaching-overlay__tip-time {
+  font-size: 0.65rem;
   color: #484f58;
 }
-.coaching-overlay__tip-text {
-  font-size: 0.85rem;
-  line-height: 1.4;
+
+.coaching-overlay__tip-question {
+  color: #8b949e;
+  font-style: italic;
+  font-size: 0.72rem;
+  margin: 0.15rem 0;
+}
+
+.coaching-overlay__tip-answer {
+  color: #c9d1d9;
+  line-height: 1.35;
 }
 
 .coaching-overlay__empty {

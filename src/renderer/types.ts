@@ -130,9 +130,12 @@ export interface KxAIBridge {
   meetingGetSummary: (id: string) => Promise<MeetingSummaryFull | null>;
   meetingGetDashboardUrl: () => Promise<string>;
   meetingSendAudio: (source: 'mic' | 'system', chunk: ArrayBuffer) => void;
+  meetingMapSpeaker: (speakerId: string, name: string) => void;
   onMeetingState: (callback: (state: MeetingStateInfo) => void) => (() => void);
   onMeetingTranscript: (callback: (data: any) => void) => (() => void);
   onMeetingCoaching: (callback: (tip: MeetingCoachingTip) => void) => (() => void);
+  onMeetingCoachingChunk: (callback: (data: { id: string; chunk: string; fullText: string }) => void) => (() => void);
+  onMeetingCoachingDone: (callback: (data: { id: string; tip: string; category: string; questionText?: string }) => void) => (() => void);
   onMeetingError: (callback: (data: { error: string }) => void) => (() => void);
   onMeetingStopCapture: (callback: () => void) => (() => void);
   onMeetingDetected: (callback: (data: { app: string; title: string }) => void) => (() => void);
@@ -358,6 +361,15 @@ export interface SystemSnapshot {
 }
 
 // ──────────────── Meeting Coach ────────────────
+export interface MeetingSpeakerInfo {
+  id: string;
+  name: string;
+  source: 'system';
+  utteranceCount: number;
+  lastSeen: number;
+  isAutoDetected: boolean;
+}
+
 export interface MeetingStateInfo {
   active: boolean;
   meetingId: string | null;
@@ -366,17 +378,21 @@ export interface MeetingStateInfo {
   transcriptLineCount: number;
   lastCoachingTip: string | null;
   detectedApp: string | null;
+  speakers: MeetingSpeakerInfo[];
+  isCoaching: boolean;
 }
 
 export interface MeetingCoachConfig {
   enabled: boolean;
   autoDetect: boolean;
   coachingEnabled: boolean;
-  coachingIntervalSec: number;
   language: string;
   dashboardPort: number;
   captureSystemAudio: boolean;
   captureMicrophone: boolean;
+  questionDetectionSensitivity: 'low' | 'medium' | 'high';
+  useRAG: boolean;
+  streamingCoaching: boolean;
 }
 
 export interface MeetingSummaryMeta {

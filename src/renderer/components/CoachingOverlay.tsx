@@ -1,11 +1,12 @@
 /**
- * CoachingOverlay — Real-time meeting coaching overlay.
+ * CoachingOverlay — Real-time event-driven meeting coaching overlay.
  *
- * Shows:
- * - Meeting status (recording, duration)
- * - Live transcript (last few lines)
- * - AI coaching suggestions
- * - Start/stop controls
+ * Features:
+ * - Live transcript with speaker labels
+ * - Streaming AI coaching suggestions (appears instantly when question detected)
+ * - Speaker mapping UI (rename participants)
+ * - Split view: transcript left, coaching right
+ * - Prominent coaching display for easy reading during meetings
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -23,6 +24,17 @@ interface CoachingTip {
   timestamp: number;
   tip: string;
   category: string;
+  isStreaming?: boolean;
+  questionText?: string;
+}
+
+interface SpeakerInfo {
+  id: string;
+  name: string;
+  source: 'system';
+  utteranceCount: number;
+  lastSeen: number;
+  isAutoDetected: boolean;
 }
 
 interface MeetingState {
@@ -33,6 +45,8 @@ interface MeetingState {
   transcriptLineCount: number;
   lastCoachingTip: string | null;
   detectedApp: string | null;
+  speakers: SpeakerInfo[];
+  isCoaching: boolean;
 }
 
 interface Props {
@@ -43,19 +57,23 @@ interface Props {
 export function CoachingOverlay({ config, onBack }: Props) {
   const [meetingState, setMeetingState] = useState<MeetingState>({
     active: false, meetingId: null, startTime: null,
-    duration: 0, transcriptLineCount: 0, lastCoachingTip: null, detectedApp: null,
+    duration: 0, transcriptLineCount: 0, lastCoachingTip: null,
+    detectedApp: null, speakers: [], isCoaching: false,
   });
   const [transcriptLines, setTranscriptLines] = useState<TranscriptLine[]>([]);
   const [partialMic, setPartialMic] = useState('');
   const [partialSystem, setPartialSystem] = useState('');
   const [coachingTips, setCoachingTips] = useState<CoachingTip[]>([]);
+  const [activeCoaching, setActiveCoaching] = useState<CoachingTip | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
-  const [showTips, setShowTips] = useState(true);
   const [hasElevenLabsKey, setHasElevenLabsKey] = useState(false);
+  const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
+  const [speakerNameInput, setSpeakerNameInput] = useState('');
 
   const transcriptRef = useRef<HTMLDivElement>(null);
+  const coachingRef = useRef<HTMLDivElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const systemStreamRef = useRef<MediaStream | null>(null);
@@ -80,22 +98,46 @@ export function CoachingOverlay({ config, onBack }: Props) {
         if (data.source === 'mic') setPartialMic(data.text);
         else setPartialSystem(data.text);
       } else if (data.line) {
-        setTranscriptLines(prev => [...prev.slice(-49), data.line]);
+        setTranscriptLines(prev => [...prev.slice(-99), data.line]);
         if (data.line.source === 'mic') setPartialMic('');
         else setPartialSystem('');
       }
     }));
 
+    // Coaching started — new tip being streamed
     cleanups.push(window.kxai.onMeetingCoaching((tip: CoachingTip) => {
-      setCoachingTips(prev => [...prev, tip]);
+      setActiveCoaching({ ...tip, tip: '' });
     }));
+
+    // Coaching chunk — streaming text
+    if (window.kxai.onMeetingCoachingChunk) {
+      cleanups.push(window.kxai.onMeetingCoachingChunk((data: { id: string; chunk: string; fullText: string }) => {
+        setActiveCoaching(prev => {
+          if (!prev || prev.id !== data.id) return prev;
+          return { ...prev, tip: data.fullText };
+        });
+      }));
+    }
+
+    // Coaching done — finalize
+    if (window.kxai.onMeetingCoachingDone) {
+      cleanups.push(window.kxai.onMeetingCoachingDone((data: { id: string; tip: string; category: string; questionText?: string }) => {
+        setCoachingTips(prev => [...prev, {
+          id: data.id,
+          timestamp: Date.now(),
+          tip: data.tip,
+          category: data.category,
+          questionText: data.questionText,
+        }]);
+        setActiveCoaching(null);
+      }));
+    }
 
     cleanups.push(window.kxai.onMeetingError((data: { error: string }) => {
       setError(data.error);
       setTimeout(() => setError(null), 8000);
     }));
 
-    // Get initial state
     window.kxai.meetingGetState().then(setMeetingState);
 
     return () => cleanups.forEach(fn => fn());
@@ -107,6 +149,13 @@ export function CoachingOverlay({ config, onBack }: Props) {
       transcriptRef.current.scrollTop = transcriptRef.current.scrollHeight;
     }
   }, [transcriptLines, partialMic, partialSystem]);
+
+  // Auto-scroll coaching
+  useEffect(() => {
+    if (coachingRef.current) {
+      coachingRef.current.scrollTop = coachingRef.current.scrollHeight;
+    }
+  }, [activeCoaching, coachingTips]);
 
   // ──────────── Audio Capture ────────────
 
@@ -140,15 +189,12 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
       // System audio (via desktopCapturer)
       try {
-        // @ts-ignore — Electron desktopCapturer in renderer
         const sources = await (window as any).kxai.captureScreen();
         if (sources?.success && sources.data?.length > 0) {
           const systemStream = await navigator.mediaDevices.getUserMedia({
             audio: {
               // @ts-ignore — Electron-specific constraint
-              mandatory: {
-                chromeMediaSource: 'desktop',
-              },
+              mandatory: { chromeMediaSource: 'desktop' },
             } as any,
             video: false,
           });
@@ -182,7 +228,6 @@ export function CoachingOverlay({ config, onBack }: Props) {
     micStreamRef.current?.getTracks().forEach(t => t.stop());
     systemStreamRef.current?.getTracks().forEach(t => t.stop());
     audioContextRef.current?.close();
-
     micProcessorRef.current = null;
     systemProcessorRef.current = null;
     micStreamRef.current = null;
@@ -190,11 +235,8 @@ export function CoachingOverlay({ config, onBack }: Props) {
     audioContextRef.current = null;
   }, []);
 
-  // Listen for stop-capture event from main
   useEffect(() => {
-    const cleanup = window.kxai.onMeetingStopCapture(() => {
-      stopAudioCapture();
-    });
+    const cleanup = window.kxai.onMeetingStopCapture(() => stopAudioCapture());
     return cleanup;
   }, [stopAudioCapture]);
 
@@ -205,11 +247,11 @@ export function CoachingOverlay({ config, onBack }: Props) {
       setError('Ustaw klucz API ElevenLabs w ustawieniach');
       return;
     }
-
     setIsStarting(true);
     setError(null);
     setTranscriptLines([]);
     setCoachingTips([]);
+    setActiveCoaching(null);
 
     try {
       await window.kxai.meetingStart();
@@ -225,10 +267,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
     setIsStopping(true);
     try {
       stopAudioCapture();
-      const result = await window.kxai.meetingStop();
-      if (result?.data?.id) {
-        setError(null);
-      }
+      await window.kxai.meetingStop();
     } catch (err: any) {
       setError(err.message || 'Błąd podczas zatrzymywania');
     } finally {
@@ -238,9 +277,14 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
   const handleOpenDashboard = async () => {
     const url = await window.kxai.meetingGetDashboardUrl();
-    if (url) {
-      // Open in default browser
-      window.open(url, '_blank');
+    if (url) window.open(url, '_blank');
+  };
+
+  const handleRenameSpeaker = (speakerId: string) => {
+    if (speakerNameInput.trim() && window.kxai.meetingMapSpeaker) {
+      window.kxai.meetingMapSpeaker(speakerId, speakerNameInput.trim());
+      setEditingSpeaker(null);
+      setSpeakerNameInput('');
     }
   };
 
@@ -262,32 +306,20 @@ export function CoachingOverlay({ config, onBack }: Props) {
     <div className="coaching-overlay">
       {/* Header */}
       <div className="coaching-overlay__header">
-        <button className="coaching-overlay__back" onClick={onBack} title="Powrót">
-          ←
-        </button>
+        <button className="coaching-overlay__back" onClick={onBack} title="Powrót">←</button>
         <span className="coaching-overlay__title">🎙️ Meeting Coach</span>
         <div className="coaching-overlay__actions">
-          <button className="coaching-overlay__btn coaching-overlay__btn--dashboard" onClick={handleOpenDashboard} title="Otwórz dashboard">
-            📊
-          </button>
+          <button className="coaching-overlay__btn coaching-overlay__btn--dashboard" onClick={handleOpenDashboard} title="Dashboard">📊</button>
         </div>
       </div>
 
       {/* Error */}
-      {error && (
-        <div className="coaching-overlay__error">
-          ⚠️ {error}
-        </div>
-      )}
+      {error && <div className="coaching-overlay__error">⚠️ {error}</div>}
 
       {/* Controls */}
       <div className="coaching-overlay__controls">
         {!meetingState.active ? (
-          <button
-            className="coaching-overlay__btn coaching-overlay__btn--start"
-            onClick={handleStart}
-            disabled={isStarting}
-          >
+          <button className="coaching-overlay__btn coaching-overlay__btn--start" onClick={handleStart} disabled={isStarting}>
             {isStarting ? '⏳ Uruchamiam...' : '🔴 Rozpocznij nagrywanie'}
           </button>
         ) : (
@@ -298,106 +330,155 @@ export function CoachingOverlay({ config, onBack }: Props) {
               {meetingState.detectedApp && (
                 <span className="coaching-overlay__app-badge">{meetingState.detectedApp}</span>
               )}
-              <span className="coaching-overlay__line-count">
-                💬 {meetingState.transcriptLineCount}
-              </span>
+              <span className="coaching-overlay__line-count">💬 {meetingState.transcriptLineCount}</span>
+              {meetingState.isCoaching && (
+                <span className="coaching-overlay__coaching-indicator">🧠 Generuję...</span>
+              )}
             </div>
-            <button
-              className="coaching-overlay__btn coaching-overlay__btn--stop"
-              onClick={handleStop}
-              disabled={isStopping}
-            >
+            <button className="coaching-overlay__btn coaching-overlay__btn--stop" onClick={handleStop} disabled={isStopping}>
               {isStopping ? '⏳ Kończę...' : '⏹ Zakończ'}
             </button>
           </div>
         )}
       </div>
 
-      {/* Content area */}
+      {/* Active meeting content */}
       {meetingState.active && (
         <div className="coaching-overlay__content">
-          {/* Tabs */}
-          <div className="coaching-overlay__tabs">
-            <button
-              className={`coaching-overlay__tab ${!showTips ? 'coaching-overlay__tab--active' : ''}`}
-              onClick={() => setShowTips(false)}
-            >
-              📜 Transkrypcja
-            </button>
-            <button
-              className={`coaching-overlay__tab ${showTips ? 'coaching-overlay__tab--active' : ''}`}
-              onClick={() => setShowTips(true)}
-            >
-              💡 Wskazówki ({coachingTips.length})
-            </button>
-          </div>
-
-          {/* Transcript */}
-          {!showTips && (
-            <div className="coaching-overlay__transcript" ref={transcriptRef}>
-              {transcriptLines.map((line, i) => (
-                <div key={i} className="coaching-overlay__line">
-                  <span className="coaching-overlay__line-time">{formatTime(line.timestamp)}</span>
-                  <span className={`coaching-overlay__line-speaker ${line.speaker === 'Ja' ? 'coaching-overlay__line-speaker--me' : ''}`}>
-                    {line.speaker}:
-                  </span>
-                  <span className="coaching-overlay__line-text">{line.text}</span>
+          {/* ═══════ COACHING SUGGESTION (prominent, top) ═══════ */}
+          {(activeCoaching || coachingTips.length > 0) && (
+            <div className="coaching-overlay__coaching-panel">
+              {activeCoaching ? (
+                <div className="coaching-overlay__active-coaching">
+                  <div className="coaching-overlay__coaching-label">
+                    💡 Sugestia odpowiedzi
+                    {activeCoaching.questionText && (
+                      <span className="coaching-overlay__question-preview">
+                        na: "{activeCoaching.questionText.substring(0, 60)}..."
+                      </span>
+                    )}
+                  </div>
+                  <div className="coaching-overlay__coaching-text coaching-overlay__coaching-text--streaming">
+                    {activeCoaching.tip || '▍'}
+                    {activeCoaching.tip && <span className="coaching-overlay__cursor">▍</span>}
+                  </div>
                 </div>
-              ))}
-
-              {/* Partials */}
-              {partialMic && (
-                <div className="coaching-overlay__line coaching-overlay__line--partial">
-                  <span className="coaching-overlay__line-speaker coaching-overlay__line-speaker--me">Ja:</span>
-                  <span className="coaching-overlay__line-text">{partialMic}...</span>
-                </div>
-              )}
-              {partialSystem && (
-                <div className="coaching-overlay__line coaching-overlay__line--partial">
-                  <span className="coaching-overlay__line-speaker">Uczestnik:</span>
-                  <span className="coaching-overlay__line-text">{partialSystem}...</span>
-                </div>
-              )}
-
-              {transcriptLines.length === 0 && !partialMic && !partialSystem && (
-                <div className="coaching-overlay__empty">
-                  🎤 Oczekuję na mowę...
+              ) : coachingTips.length > 0 && (
+                <div className="coaching-overlay__last-coaching">
+                  <div className="coaching-overlay__coaching-label">
+                    ✅ Ostatnia sugestia
+                    <span className="coaching-overlay__coaching-time">
+                      {formatTime(coachingTips[coachingTips.length - 1].timestamp)}
+                    </span>
+                  </div>
+                  <div className="coaching-overlay__coaching-text">
+                    {coachingTips[coachingTips.length - 1].tip}
+                  </div>
                 </div>
               )}
             </div>
           )}
 
-          {/* Coaching tips */}
-          {showTips && (
-            <div className="coaching-overlay__tips">
-              {coachingTips.length === 0 ? (
-                <div className="coaching-overlay__empty">
-                  💡 Wskazówki pojawią się po kilku wypowiedziach...
-                </div>
-              ) : (
-                coachingTips.slice().reverse().map(tip => (
-                  <div key={tip.id} className="coaching-overlay__tip">
-                    <div className="coaching-overlay__tip-header">
-                      <span className="coaching-overlay__tip-category">{tip.category}</span>
-                      <span className="coaching-overlay__tip-time">{formatTime(tip.timestamp)}</span>
-                    </div>
-                    <div className="coaching-overlay__tip-text">{tip.tip}</div>
+          {/* ═══════ TRANSCRIPT ═══════ */}
+          <div className="coaching-overlay__transcript" ref={transcriptRef}>
+            {transcriptLines.map((line, i) => (
+              <div key={i} className="coaching-overlay__line">
+                <span className="coaching-overlay__line-time">{formatTime(line.timestamp)}</span>
+                <span className={`coaching-overlay__line-speaker ${line.speaker === 'Ja' ? 'coaching-overlay__line-speaker--me' : ''}`}>
+                  {line.speaker}:
+                </span>
+                <span className="coaching-overlay__line-text">{line.text}</span>
+              </div>
+            ))}
+
+            {/* Partials */}
+            {partialMic && (
+              <div className="coaching-overlay__line coaching-overlay__line--partial">
+                <span className="coaching-overlay__line-speaker coaching-overlay__line-speaker--me">Ja:</span>
+                <span className="coaching-overlay__line-text">{partialMic}...</span>
+              </div>
+            )}
+            {partialSystem && (
+              <div className="coaching-overlay__line coaching-overlay__line--partial">
+                <span className="coaching-overlay__line-speaker">Uczestnik:</span>
+                <span className="coaching-overlay__line-text">{partialSystem}...</span>
+              </div>
+            )}
+
+            {transcriptLines.length === 0 && !partialMic && !partialSystem && (
+              <div className="coaching-overlay__empty">🎤 Oczekuję na mowę...</div>
+            )}
+          </div>
+
+          {/* ═══════ SPEAKERS ═══════ */}
+          {meetingState.speakers.length > 0 && (
+            <div className="coaching-overlay__speakers">
+              <div className="coaching-overlay__speakers-label">👥 Uczestnicy:</div>
+              <div className="coaching-overlay__speakers-list">
+                {meetingState.speakers.map(speaker => (
+                  <div key={speaker.id} className="coaching-overlay__speaker">
+                    {editingSpeaker === speaker.id ? (
+                      <div className="coaching-overlay__speaker-edit">
+                        <input
+                          className="coaching-overlay__speaker-input"
+                          value={speakerNameInput}
+                          onChange={e => setSpeakerNameInput(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && handleRenameSpeaker(speaker.id)}
+                          placeholder="Nazwa..."
+                          autoFocus
+                        />
+                        <button className="coaching-overlay__speaker-save" onClick={() => handleRenameSpeaker(speaker.id)}>✓</button>
+                        <button className="coaching-overlay__speaker-cancel" onClick={() => setEditingSpeaker(null)}>✗</button>
+                      </div>
+                    ) : (
+                      <span
+                        className="coaching-overlay__speaker-name"
+                        onClick={() => {
+                          setEditingSpeaker(speaker.id);
+                          setSpeakerNameInput(speaker.name);
+                        }}
+                        title="Kliknij aby zmienić nazwę"
+                      >
+                        {speaker.name}
+                        {speaker.isAutoDetected && ' ✏️'}
+                        <span className="coaching-overlay__speaker-count">({speaker.utteranceCount})</span>
+                      </span>
+                    )}
                   </div>
-                ))
-              )}
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* ═══════ COACHING HISTORY ═══════ */}
+          {coachingTips.length > 1 && (
+            <div className="coaching-overlay__tips-history" ref={coachingRef}>
+              <div className="coaching-overlay__tips-label">📋 Historia sugestii ({coachingTips.length})</div>
+              {coachingTips.slice().reverse().slice(1).map(tip => (
+                <div key={tip.id} className="coaching-overlay__tip-history-item">
+                  <span className="coaching-overlay__tip-time">{formatTime(tip.timestamp)}</span>
+                  {tip.questionText && (
+                    <div className="coaching-overlay__tip-question">❓ {tip.questionText}</div>
+                  )}
+                  <div className="coaching-overlay__tip-answer">{tip.tip}</div>
+                </div>
+              ))}
             </div>
           )}
         </div>
       )}
 
-      {/* Summaries link when no active meeting */}
+      {/* Idle state */}
       {!meetingState.active && (
         <div className="coaching-overlay__idle">
           <div className="coaching-overlay__idle-info">
-            <p>Rozpocznij nagrywanie, aby aktywować transkrypcję i coaching w czasie rzeczywistym.</p>
+            <p>Rozpocznij nagrywanie aby aktywować real-time coaching.</p>
+            <p style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.3rem' }}>
+              Agent automatycznie wykrywa pytania skierowane do Ciebie i natychmiast podpowiada co odpowiedzieć.
+            </p>
             <p style={{ marginTop: '0.5rem' }}>
               <button className="coaching-overlay__btn coaching-overlay__btn--link" onClick={handleOpenDashboard}>
-                📊 Otwórz dashboard z podsumowaniami
+                📊 Otwórz dashboard
               </button>
             </p>
           </div>
@@ -409,9 +490,6 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
 // ──────────── Helpers ────────────
 
-/**
- * Convert Float32Array audio samples to Int16Array (PCM 16-bit).
- */
 function float32ToInt16(float32: Float32Array): Int16Array {
   const int16 = new Int16Array(float32.length);
   for (let i = 0; i < float32.length; i++) {

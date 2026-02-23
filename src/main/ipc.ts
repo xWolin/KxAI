@@ -754,7 +754,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     const meetingDashboard = services.dashboardServer;
 
     // Forward meeting events to renderer
-    const meetingEvents = ['meeting:state', 'meeting:transcript', 'meeting:coaching', 'meeting:error', 'meeting:stop-capture', 'meeting:detected'];
+    const meetingEvents = ['meeting:state', 'meeting:transcript', 'meeting:coaching', 'meeting:coaching-chunk', 'meeting:coaching-done', 'meeting:error', 'meeting:stop-capture', 'meeting:detected'];
     for (const event of meetingEvents) {
       meetingCoach.on(event, (data: any) => {
         safeSend(event, data);
@@ -810,6 +810,11 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     // Audio chunk from renderer (non-invoke, fire-and-forget)
     ipcMain.on('meeting:audio-chunk', (_event, source: string, chunk: Buffer) => {
       meetingCoach.sendAudioChunk(source as 'mic' | 'system', chunk);
+    });
+
+    // Speaker mapping (non-invoke, fire-and-forget)
+    ipcMain.on('meeting:map-speaker', (_event, speakerId: string, name: string) => {
+      meetingCoach.mapSpeaker(speakerId, name);
     });
   }
 

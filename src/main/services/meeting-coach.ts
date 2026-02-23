@@ -1,15 +1,16 @@
 /**
- * MeetingCoachService — Live Meeting Coach with real-time transcription + AI coaching.
+ * MeetingCoachService — Event-driven Real-time Meeting Coach.
  *
- * Orchestrates:
- * - Audio capture (via renderer IPC)
- * - Transcription (ElevenLabs Scribe v2 Realtime)
- * - AI coaching suggestions during meeting
- * - Post-meeting summary generation
- * - Meeting storage and retrieval
+ * Architecture:
+ * 1. Two audio channels: mic (user = "Ja") + system (others)
+ * 2. ElevenLabs Scribe v2 Realtime with VAD commit for instant transcripts
+ * 3. Event-driven question detection on each committed_transcript from system channel
+ * 4. Streaming AI coaching responses with RAG context injection
+ * 5. Speaker mapping via AI context analysis + manual labeling
+ * 6. Post-meeting summary with full transcript + speaker map
  *
- * Meeting detection: auto-detect via window title (Teams, Meet, Zoom)
- * or manual start by user.
+ * Flow:
+ *   system audio → committed_transcript → question detection → RAG search → streaming AI → overlay
  */
 
 import { EventEmitter } from 'events';
@@ -27,29 +28,34 @@ import { PromptService } from './prompt-service';
 
 export interface MeetingConfig {
   enabled: boolean;
-  autoDetect: boolean;           // Auto-detect meetings via window title
-  coachingEnabled: boolean;      // Send AI coaching suggestions
-  coachingIntervalSec: number;   // How often to generate coaching tips (seconds)
-  language: string;              // Transcription language (ISO 639-1)
-  dashboardPort: number;         // Localhost dashboard port
-  captureSystemAudio: boolean;   // Capture system audio (loopback)
-  captureMicrophone: boolean;    // Capture microphone
+  autoDetect: boolean;
+  coachingEnabled: boolean;
+  language: string;
+  dashboardPort: number;
+  captureSystemAudio: boolean;
+  captureMicrophone: boolean;
+  // Sensitivity & feature flags
+  questionDetectionSensitivity: 'low' | 'medium' | 'high';
+  useRAG: boolean;
+  streamingCoaching: boolean;
 }
 
 export const DEFAULT_MEETING_CONFIG: MeetingConfig = {
   enabled: false,
   autoDetect: true,
   coachingEnabled: true,
-  coachingIntervalSec: 60,
   language: 'pl',
   dashboardPort: 5678,
   captureSystemAudio: true,
   captureMicrophone: true,
+  questionDetectionSensitivity: 'medium',
+  useRAG: true,
+  streamingCoaching: true,
 };
 
 export interface TranscriptLine {
   timestamp: number;
-  speaker: string;        // 'Ja' (mic) or speaker ID from system audio
+  speaker: string;
   text: string;
   source: 'mic' | 'system';
 }
@@ -58,7 +64,18 @@ export interface CoachingTip {
   id: string;
   timestamp: number;
   tip: string;
-  category: 'communication' | 'technical' | 'strategy' | 'general';
+  category: 'answer' | 'communication' | 'technical' | 'strategy' | 'general';
+  isStreaming?: boolean;
+  questionText?: string;
+}
+
+export interface SpeakerInfo {
+  id: string;
+  name: string;
+  source: 'system';
+  utteranceCount: number;
+  lastSeen: number;
+  isAutoDetected: boolean;
 }
 
 export interface MeetingSummary {
@@ -66,13 +83,14 @@ export interface MeetingSummary {
   title: string;
   startTime: number;
   endTime: number;
-  duration: number;          // minutes
+  duration: number;
   transcript: TranscriptLine[];
   coachingTips: CoachingTip[];
-  summary: string;           // AI-generated summary
+  summary: string;
   keyPoints: string[];
   actionItems: string[];
   participants: string[];
+  speakers: SpeakerInfo[];
   detectedApp?: string;
 }
 
@@ -80,10 +98,12 @@ export interface MeetingState {
   active: boolean;
   meetingId: string | null;
   startTime: number | null;
-  duration: number;          // seconds elapsed
+  duration: number;
   transcriptLineCount: number;
   lastCoachingTip: string | null;
   detectedApp: string | null;
+  speakers: SpeakerInfo[];
+  isCoaching: boolean;
 }
 
 // Window title patterns for meeting detection
@@ -101,6 +121,32 @@ const MEETING_PATTERNS = [
   { pattern: /Slack.*Huddle/i, app: 'Slack' },
 ];
 
+// Question detection patterns (Polish + English)
+const QUESTION_PATTERNS = [
+  // Polish question words + question mark
+  /\b(co|jak|kiedy|gdzie|dlaczego|czemu|czy|ile|kto|jaki|jaka|jakie|który|która|które)\b.*\?/i,
+  // Polish question words at start of sentence
+  /^(co|jak|kiedy|gdzie|dlaczego|czemu|czy|ile|kto|jaki|jaka|jakie|który|która|które)\s+/i,
+  // English question words
+  /\b(what|how|when|where|why|who|which|can|could|would|should|do|does|did|is|are|was|were|will|have|has)\b.*\?/i,
+  // Direct request patterns (Polish)
+  /\b(powiedz|opowiedz|wyjaśnij|wytłumacz|przedstaw|omów|opisz|pokaż)\b/i,
+  // Direct request patterns (English)
+  /\b(tell|explain|describe|elaborate|show|present)\b/i,
+  // Question mark at end
+  /\?\s*$/,
+  // Polish intonation-based questions (word order implies question)
+  /\b(może|prawda|zgadzasz|zgadza|myślisz|uważasz|sądzisz|wiesz|wiecie|pamiętasz|pamiętacie)\b/i,
+];
+
+// Patterns suggesting the question is directed at the user
+const DIRECTED_PATTERNS = [
+  /\b(ty|pan|pani|wy|wasz|twój|twoja|twoje|państwo)\b/i,
+  /\b(you|your)\b/i,
+  /\b(możesz|mógłbyś|mogłabyś|zrobiłeś|zrobiłaś|myślisz|uważasz|sądzisz|wiesz)\b/i,
+  /\b(could you|can you|would you|do you|are you|have you|will you)\b/i,
+];
+
 // ──────────────── Service ────────────────
 
 export class MeetingCoachService extends EventEmitter {
@@ -109,6 +155,7 @@ export class MeetingCoachService extends EventEmitter {
   private configService: ConfigService;
   private securityService: SecurityService;
   private promptService: PromptService;
+  private ragService: any | null = null;
 
   private config: MeetingConfig;
   private storagePath: string;
@@ -118,14 +165,24 @@ export class MeetingCoachService extends EventEmitter {
   private meetingStartTime: number | null = null;
   private transcript: TranscriptLine[] = [];
   private coachingTips: CoachingTip[] = [];
+  private speakers: Map<string, SpeakerInfo> = new Map();
   private detectedApp: string | null = null;
-  private coachingTimer: ReturnType<typeof setInterval> | null = null;
   private durationTimer: ReturnType<typeof setInterval> | null = null;
   private elapsedSeconds = 0;
 
-  // Partial transcript buffer (for display)
+  // Partial transcript buffer
   private partialMic = '';
   private partialSystem = '';
+
+  // Coaching state
+  private isCoaching = false;
+  private coachingQueue: string[] = [];
+  private lastCoachingTime = 0;
+  private readonly COACHING_COOLDOWN = 5000; // Min 5s between coaching triggers
+
+  // Transcript context windows
+  private recentSystemUtterances: TranscriptLine[] = [];
+  private recentMicUtterances: TranscriptLine[] = [];
 
   // Meeting detection
   private detectionInterval: ReturnType<typeof setInterval> | null = null;
@@ -135,6 +192,7 @@ export class MeetingCoachService extends EventEmitter {
     aiService: AIService,
     configService: ConfigService,
     securityService: SecurityService,
+    ragService?: any,
   ) {
     super();
     this.transcriptionService = transcriptionService;
@@ -142,12 +200,11 @@ export class MeetingCoachService extends EventEmitter {
     this.configService = configService;
     this.securityService = securityService;
     this.promptService = new PromptService();
+    this.ragService = ragService || null;
 
-    // Load config
     const saved = configService.get('meetingCoach') as Partial<MeetingConfig> | undefined;
     this.config = { ...DEFAULT_MEETING_CONFIG, ...saved };
 
-    // Storage path for meeting summaries
     this.storagePath = path.join(app.getPath('userData'), 'workspace', 'meetings');
     if (!fs.existsSync(this.storagePath)) {
       fs.mkdirSync(this.storagePath, { recursive: true });
@@ -163,9 +220,6 @@ export class MeetingCoachService extends EventEmitter {
 
   // ──────────────── Public API ────────────────
 
-  /**
-   * Start recording a meeting.
-   */
   async startMeeting(title?: string, detectedApp?: string): Promise<string> {
     if (this.meetingId) {
       throw new Error('Spotkanie jest już w toku. Najpierw je zakończ.');
@@ -180,14 +234,19 @@ export class MeetingCoachService extends EventEmitter {
     this.meetingStartTime = Date.now();
     this.transcript = [];
     this.coachingTips = [];
+    this.speakers = new Map();
     this.detectedApp = detectedApp || null;
     this.elapsedSeconds = 0;
     this.partialMic = '';
     this.partialSystem = '';
+    this.isCoaching = false;
+    this.coachingQueue = [];
+    this.lastCoachingTime = 0;
+    this.recentSystemUtterances = [];
+    this.recentMicUtterances = [];
 
     console.log(`[MeetingCoach] Starting meeting ${this.meetingId}: ${title || 'Untitled'}`);
 
-    // Start transcription sessions
     const lang = this.config.language || 'pl';
     try {
       if (this.config.captureMicrophone) {
@@ -209,59 +268,38 @@ export class MeetingCoachService extends EventEmitter {
       this.emit('meeting:tick', { seconds: this.elapsedSeconds });
     }, 1000);
 
-    // Coaching timer
-    if (this.config.coachingEnabled) {
-      this.coachingTimer = setInterval(() => {
-        this.generateCoachingTip().catch(err => {
-          console.error('[MeetingCoach] Coaching error:', err);
-        });
-      }, this.config.coachingIntervalSec * 1000);
-    }
-
     this.emitState();
     this.emit('meeting:started', { meetingId: this.meetingId, title });
-
     return this.meetingId;
   }
 
-  /**
-   * Stop the current meeting and generate summary.
-   */
   async stopMeeting(): Promise<MeetingSummary | null> {
     if (!this.meetingId) return null;
 
     const meetingId = this.meetingId;
     console.log(`[MeetingCoach] Stopping meeting ${meetingId}`);
 
-    // Stop timers
-    if (this.coachingTimer) { clearInterval(this.coachingTimer); this.coachingTimer = null; }
     if (this.durationTimer) { clearInterval(this.durationTimer); this.durationTimer = null; }
 
-    // Stop transcription
     await this.transcriptionService.stopAll();
-
-    // Notify renderer to stop audio capture
     this.emit('meeting:stop-capture');
 
-    // Generate summary
     const summary = await this.generateSummary(meetingId);
 
-    // Reset state
     this.meetingId = null;
     this.meetingStartTime = null;
     this.elapsedSeconds = 0;
     this.partialMic = '';
     this.partialSystem = '';
+    this.isCoaching = false;
+    this.coachingQueue = [];
+    this.speakers = new Map();
 
     this.emitState();
     this.emit('meeting:stopped', { meetingId, summary });
-
     return summary;
   }
 
-  /**
-   * Send audio chunk from renderer to transcription.
-   */
   sendAudioChunk(source: 'mic' | 'system', chunk: Buffer): void {
     if (!this.meetingId) return;
     const sessionId = `${this.meetingId}-${source}`;
@@ -269,8 +307,33 @@ export class MeetingCoachService extends EventEmitter {
   }
 
   /**
-   * Get current meeting state.
+   * Map a speaker to a name (manual labeling from UI).
    */
+  mapSpeaker(speakerId: string, name: string): void {
+    const existing = this.speakers.get(speakerId);
+    if (existing) {
+      existing.name = name;
+      existing.isAutoDetected = false;
+    } else {
+      this.speakers.set(speakerId, {
+        id: speakerId,
+        name,
+        source: 'system',
+        utteranceCount: 0,
+        lastSeen: Date.now(),
+        isAutoDetected: false,
+      });
+    }
+
+    // Update existing transcript lines
+    for (const line of this.transcript) {
+      if (line.source === 'system' && line.speaker === speakerId) {
+        line.speaker = name;
+      }
+    }
+    this.emitState();
+  }
+
   getState(): MeetingState {
     return {
       active: this.meetingId !== null,
@@ -282,63 +345,42 @@ export class MeetingCoachService extends EventEmitter {
         ? this.coachingTips[this.coachingTips.length - 1].tip
         : null,
       detectedApp: this.detectedApp,
+      speakers: Array.from(this.speakers.values()),
+      isCoaching: this.isCoaching,
     };
   }
 
-  /**
-   * Get current config.
-   */
-  getConfig(): MeetingConfig {
-    return { ...this.config };
-  }
+  getConfig(): MeetingConfig { return { ...this.config }; }
 
-  /**
-   * Update config.
-   */
   setConfig(updates: Partial<MeetingConfig>): void {
     this.config = { ...this.config, ...updates };
     this.configService.set('meetingCoach', this.config);
   }
 
-  /**
-   * Check if a window title indicates a meeting.
-   */
   detectMeeting(windowTitle: string): { detected: boolean; app?: string } {
     for (const { pattern, app } of MEETING_PATTERNS) {
-      if (pattern.test(windowTitle)) {
-        return { detected: true, app };
-      }
+      if (pattern.test(windowTitle)) return { detected: true, app };
     }
     return { detected: false };
   }
 
-  /**
-   * Start auto-detection of meetings.
-   * Call this when proactive mode is active.
-   */
   startAutoDetection(getWindowTitle: () => string | null): void {
     if (!this.config.enabled || !this.config.autoDetect) return;
     if (this.detectionInterval) return;
 
     console.log('[MeetingCoach] Auto-detection started');
     this.detectionInterval = setInterval(async () => {
-      if (this.meetingId) return; // already in a meeting
-
+      if (this.meetingId) return;
       const title = getWindowTitle();
       if (!title) return;
-
       const { detected, app } = this.detectMeeting(title);
       if (detected) {
         console.log(`[MeetingCoach] Meeting detected: ${app} — "${title}"`);
         this.emit('meeting:detected', { app, title });
-        // Don't auto-start — let user confirm or use manual start
       }
     }, 5000);
   }
 
-  /**
-   * Stop auto-detection.
-   */
   stopAutoDetection(): void {
     if (this.detectionInterval) {
       clearInterval(this.detectionInterval);
@@ -346,72 +388,39 @@ export class MeetingCoachService extends EventEmitter {
     }
   }
 
-  /**
-   * Get all stored meeting summaries (metadata only).
-   */
   async getSummaries(): Promise<Array<{ id: string; title: string; startTime: number; duration: number; participants: string[] }>> {
     try {
-      const files = fs.readdirSync(this.storagePath)
-        .filter(f => f.endsWith('.json'))
-        .sort()
-        .reverse();
-
+      const files = fs.readdirSync(this.storagePath).filter(f => f.endsWith('.json')).sort().reverse();
       const summaries: Array<{ id: string; title: string; startTime: number; duration: number; participants: string[] }> = [];
-
       for (const file of files.slice(0, 50)) {
         try {
           const data = JSON.parse(fs.readFileSync(path.join(this.storagePath, file), 'utf8'));
-          summaries.push({
-            id: data.id,
-            title: data.title,
-            startTime: data.startTime,
-            duration: data.duration,
-            participants: data.participants || [],
-          });
-        } catch { /* skip corrupt files */ }
+          summaries.push({ id: data.id, title: data.title, startTime: data.startTime, duration: data.duration, participants: data.participants || [] });
+        } catch { /* skip */ }
       }
-
       return summaries;
-    } catch {
-      return [];
-    }
+    } catch { return []; }
   }
 
-  /**
-   * Get a specific meeting summary by ID.
-   */
   async getSummary(meetingId: string): Promise<MeetingSummary | null> {
     try {
-      const files = fs.readdirSync(this.storagePath)
-        .filter(f => f.includes(meetingId));
-
+      const files = fs.readdirSync(this.storagePath).filter(f => f.includes(meetingId));
       if (files.length === 0) return null;
-
-      const data = JSON.parse(fs.readFileSync(path.join(this.storagePath, files[0]), 'utf8'));
-      return data as MeetingSummary;
-    } catch {
-      return null;
-    }
+      return JSON.parse(fs.readFileSync(path.join(this.storagePath, files[0]), 'utf8'));
+    } catch { return null; }
   }
 
-  /**
-   * Is a meeting currently active?
-   */
-  isMeetingActive(): boolean {
-    return this.meetingId !== null;
-  }
+  isMeetingActive(): boolean { return this.meetingId !== null; }
 
-  /**
-   * Get current live transcript (for overlay).
-   */
   getLiveTranscript(lastN: number = 10): TranscriptLine[] {
     return this.transcript.slice(-lastN);
   }
 
-  // ──────────────── Internal ────────────────
+  // ──────────────── Event-Driven Coaching Engine ────────────────
 
   /**
    * Handle incoming transcript events from TranscriptionService.
+   * Core event handler that drives the entire coaching system.
    */
   private onTranscript(event: TranscriptEvent): void {
     if (!this.meetingId) return;
@@ -419,94 +428,305 @@ export class MeetingCoachService extends EventEmitter {
     const source = event.label as 'mic' | 'system';
 
     if (event.isFinal) {
+      const speakerName = this.resolveSpeakerName(source, event.speaker);
       const line: TranscriptLine = {
         timestamp: Date.now(),
-        speaker: source === 'mic' ? 'Ja' : (event.speaker || 'Uczestnik'),
+        speaker: speakerName,
         text: event.text,
         source,
       };
       this.transcript.push(line);
 
-      // Clear partial for this source
+      // Track in recent utterances window
+      if (source === 'system') {
+        this.recentSystemUtterances.push(line);
+        if (this.recentSystemUtterances.length > 15) this.recentSystemUtterances.shift();
+      } else {
+        this.recentMicUtterances.push(line);
+        if (this.recentMicUtterances.length > 10) this.recentMicUtterances.shift();
+      }
+
       if (source === 'mic') this.partialMic = '';
       else this.partialSystem = '';
 
       this.emit('meeting:transcript', { line, partial: false });
+
+      if (source === 'system') {
+        this.trackSpeaker(event.speaker || 'unknown');
+      }
+
+      // ═══════ EVENT-DRIVEN COACHING TRIGGER ═══════
+      if (source === 'system' && this.config.coachingEnabled) {
+        this.evaluateForCoaching(line);
+      }
+
     } else {
-      // Update partial
       if (source === 'mic') this.partialMic = event.text;
       else this.partialSystem = event.text;
 
-      this.emit('meeting:transcript', {
-        partial: true,
-        source,
-        text: event.text,
-      });
+      this.emit('meeting:transcript', { partial: true, source, text: event.text });
     }
   }
 
   /**
-   * Generate a coaching tip based on recent transcript.
+   * Evaluate a system audio utterance for coaching trigger.
+   * Replaces old timer-based approach with instant event-driven detection.
    */
-  private async generateCoachingTip(): Promise<void> {
-    if (!this.meetingId || this.transcript.length < 3) return;
+  private async evaluateForCoaching(utterance: TranscriptLine): Promise<void> {
+    const now = Date.now();
+    if (this.isCoaching || (now - this.lastCoachingTime) < this.COACHING_COOLDOWN) return;
 
-    // Get last 20 transcript lines for context
-    const recentLines = this.transcript.slice(-20);
-    const transcriptText = recentLines
-      .map(l => `[${l.speaker}]: ${l.text}`)
-      .join('\n');
+    // Step 1: Fast regex-based question detection
+    const isLikelyQuestion = this.detectQuestionFast(utterance.text);
+    if (!isLikelyQuestion) return;
 
-    const coachingRules = this.promptService.load('MEETING_COACH.md');
-    const prompt = `${coachingRules}
+    // Step 2: Is the question directed at the user?
+    const isDirected = this.isQuestionDirected(utterance.text);
 
-Transkrypcja (ostatnie wypowiedzi):
-${transcriptText}
+    // Step 3: Apply sensitivity filter
+    const sensitivity = this.config.questionDetectionSensitivity;
+    const shouldTrigger = sensitivity === 'high'
+      ? isLikelyQuestion
+      : sensitivity === 'medium'
+        ? isLikelyQuestion && (isDirected || this.isConversationContextFavorable())
+        : isDirected; // 'low' — only explicit questions directed at user
 
-Daj JEDNĄ krótką wskazówkę (max 2 zdania) dla osoby oznaczonej jako "Ja". 
-Wskazówka może dotyczyć: komunikacji, strategii rozmowy, technik negocjacji, lub merytoryki.
-Jeśli nie ma nic do zasugerowania, odpowiedz "SKIP".
-Odpowiedz TYLKO wskazówką, bez wstępu.`;
+    if (!shouldTrigger) return;
+
+    console.log(`[MeetingCoach] 🎯 Question detected: "${utterance.text.substring(0, 80)}..."`);
+    this.triggerCoaching(utterance.text);
+  }
+
+  private detectQuestionFast(text: string): boolean {
+    const trimmed = text.trim();
+    if (trimmed.length < 5) return false;
+    for (const pattern of QUESTION_PATTERNS) {
+      if (pattern.test(trimmed)) return true;
+    }
+    return false;
+  }
+
+  private isQuestionDirected(text: string): boolean {
+    for (const pattern of DIRECTED_PATTERNS) {
+      if (pattern.test(text)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Check if conversation context suggests the next question is for the user.
+   * If user was the last speaker or spoke recently, it's more likely the question is for them.
+   */
+  private isConversationContextFavorable(): boolean {
+    if (this.recentMicUtterances.length === 0) return false;
+    const lastMicTime = this.recentMicUtterances[this.recentMicUtterances.length - 1].timestamp;
+    const lastSystemTime = this.recentSystemUtterances.length > 1
+      ? this.recentSystemUtterances[this.recentSystemUtterances.length - 2]?.timestamp || 0
+      : 0;
+
+    // If user spoke recently (within last 30s) and was part of the conversation flow
+    return (lastMicTime > lastSystemTime - 5000) && (Date.now() - lastMicTime < 30000);
+  }
+
+  /**
+   * Trigger streaming coaching response.
+   */
+  private async triggerCoaching(questionText: string): Promise<void> {
+    if (this.isCoaching) {
+      this.coachingQueue.push(questionText);
+      return;
+    }
+
+    this.isCoaching = true;
+    this.lastCoachingTime = Date.now();
+    this.emitState();
+
+    const tipId = uuid();
 
     try {
-      const response = await this.aiService.sendMessage(prompt);
-      if (response && !response.includes('SKIP')) {
-        const tip: CoachingTip = {
-          id: uuid(),
-          timestamp: Date.now(),
-          tip: response.trim(),
-          category: this.categorizeCoachingTip(response),
-        };
-        this.coachingTips.push(tip);
-        this.emit('meeting:coaching', tip);
+      const recentContext = this.buildRecentContext();
+
+      // Get RAG context if enabled
+      let ragContext = '';
+      if (this.config.useRAG && this.ragService) {
+        try {
+          ragContext = await this.ragService.buildRAGContext(questionText, 1500);
+        } catch (err) {
+          console.warn('[MeetingCoach] RAG search failed:', err);
+        }
       }
+
+      const coachingPrompt = this.buildCoachingPrompt(questionText, recentContext, ragContext);
+
+      const tip: CoachingTip = {
+        id: tipId,
+        timestamp: Date.now(),
+        tip: '',
+        category: 'answer',
+        isStreaming: true,
+        questionText,
+      };
+      this.coachingTips.push(tip);
+
+      // Emit "coaching started"
+      this.emit('meeting:coaching', { ...tip });
+
+      if (this.config.streamingCoaching) {
+        // ═══════ STREAMING COACHING ═══════
+        await this.aiService.streamMessage(
+          coachingPrompt,
+          undefined,
+          (chunk: string) => {
+            tip.tip += chunk;
+            this.emit('meeting:coaching-chunk', {
+              id: tipId,
+              chunk,
+              fullText: tip.tip,
+            });
+          },
+          this.promptService.load('MEETING_COACH.md'),
+        );
+      } else {
+        const response = await this.aiService.sendMessage(coachingPrompt);
+        tip.tip = response || '';
+      }
+
+      tip.isStreaming = false;
+      tip.category = this.categorizeCoachingTip(tip.tip);
+
+      this.emit('meeting:coaching-done', {
+        id: tipId,
+        tip: tip.tip,
+        category: tip.category,
+        questionText,
+      });
+
     } catch (err) {
       console.error('[MeetingCoach] Coaching generation error:', err);
+      this.emit('meeting:coaching-done', {
+        id: tipId,
+        tip: '(Nie udało się wygenerować podpowiedzi)',
+        category: 'general',
+        error: true,
+      });
+    } finally {
+      this.isCoaching = false;
+      this.emitState();
+
+      // Process queued questions
+      if (this.coachingQueue.length > 0) {
+        const nextQuestion = this.coachingQueue.shift()!;
+        setTimeout(() => this.triggerCoaching(nextQuestion), 1000);
+      }
     }
   }
 
-  /**
-   * Categorize a coaching tip.
-   */
+  private buildRecentContext(): string {
+    const last30 = this.transcript.slice(-30);
+    if (last30.length === 0) return '(brak wcześniejszej transkrypcji)';
+    return last30.map(l => `[${l.speaker}]: ${l.text}`).join('\n');
+  }
+
+  private buildCoachingPrompt(questionText: string, recentContext: string, ragContext: string): string {
+    const speakerList = Array.from(this.speakers.values())
+      .map(s => `- ${s.name} (${s.utteranceCount} wypowiedzi)`)
+      .join('\n');
+
+    let prompt = `PYTANIE ZADANE PODCZAS SPOTKANIA:
+"${questionText}"
+
+PRZEBIEG ROZMOWY (ostatnie wypowiedzi):
+${recentContext}
+
+UCZESTNICY SPOTKANIA:
+- Ja (użytkownik)
+${speakerList || '- Inni uczestnicy'}
+`;
+
+    if (ragContext) {
+      prompt += `
+KONTEKST PROJEKTU (z bazy wiedzy):
+${ragContext}
+`;
+    }
+
+    prompt += `
+Wygeneruj DOKŁADNĄ odpowiedź, którą użytkownik może powiedzieć 1:1 naturalnym językiem.
+Odpowiedź ma brzmieć naturalnie, jakby to mówił ekspert w rozmowie.
+NIE pisz wskazówek ani rad — pisz gotową odpowiedź do powiedzenia.
+Bądź rzeczowy i konkretny. Max 3-4 zdania.`;
+
+    return prompt;
+  }
+
+  // ──────────────── Speaker Mapping ────────────────
+
+  private resolveSpeakerName(source: 'mic' | 'system', speakerId?: string): string {
+    if (source === 'mic') return 'Ja';
+
+    if (!speakerId || speakerId === 'unknown') {
+      return this.getDefaultSystemSpeaker();
+    }
+
+    const mapped = this.speakers.get(speakerId);
+    if (mapped) return mapped.name;
+
+    // Auto-assign numbered name for new speakers
+    const speakerNum = this.speakers.size + 1;
+    const autoName = `Uczestnik ${speakerNum}`;
+    this.speakers.set(speakerId, {
+      id: speakerId,
+      name: autoName,
+      source: 'system',
+      utteranceCount: 0,
+      lastSeen: Date.now(),
+      isAutoDetected: true,
+    });
+    this.emitState();
+    return autoName;
+  }
+
+  private getDefaultSystemSpeaker(): string {
+    if (this.speakers.size === 0) {
+      this.speakers.set('system-default', {
+        id: 'system-default',
+        name: 'Uczestnik',
+        source: 'system',
+        utteranceCount: 0,
+        lastSeen: Date.now(),
+        isAutoDetected: true,
+      });
+    }
+    return 'Uczestnik';
+  }
+
+  private trackSpeaker(speakerId: string): void {
+    const key = speakerId || 'system-default';
+    const speaker = this.speakers.get(key);
+    if (speaker) {
+      speaker.utteranceCount++;
+      speaker.lastSeen = Date.now();
+    }
+  }
+
+  // ──────────────── Categorization ────────────────
+
   private categorizeCoachingTip(tip: string): CoachingTip['category'] {
     const lower = tip.toLowerCase();
     if (/komunikacj|słuchaj|pytaj|ton|emocj|empatia|cisza/i.test(lower)) return 'communication';
-    if (/techni|kod|system|architektur|implement|bug|dane/i.test(lower)) return 'technical';
-    if (/strategi|negocjac|cel|priorytet|argument|decyzj/i.test(lower)) return 'strategy';
-    return 'general';
+    if (/techni|kod|system|architektur|implement|bug|dane|api|baz/i.test(lower)) return 'technical';
+    if (/strategi|negocjac|cel|priorytet|argument|decyzj|budżet|koszt/i.test(lower)) return 'strategy';
+    return 'answer';
   }
 
-  /**
-   * Generate full meeting summary after meeting ends.
-   */
+  // ──────────────── Summary ────────────────
+
   private async generateSummary(meetingId: string): Promise<MeetingSummary> {
     const endTime = Date.now();
     const duration = Math.round(this.elapsedSeconds / 60);
-
-    // Collect unique participants
     const participants = [...new Set(this.transcript.map(l => l.speaker))];
+    const speakersArray = Array.from(this.speakers.values());
 
-    // Build full transcript text
     const fullTranscript = this.transcript
       .map(l => `[${new Date(l.timestamp).toLocaleTimeString('pl')}] ${l.speaker}: ${l.text}`)
       .join('\n');
@@ -515,22 +735,31 @@ Odpowiedz TYLKO wskazówką, bez wstępu.`;
     let keyPoints: string[] = [];
     let actionItems: string[] = [];
 
-    // Generate AI summary if transcript is long enough
     if (this.transcript.length >= 5) {
       try {
-        const prompt = `Wygeneruj profesjonalne podsumowanie spotkania na podstawie transkrypcji.
+        const speakerDesc = speakersArray
+          .map(s => `- ${s.name}: ${s.utteranceCount} wypowiedzi`)
+          .join('\n');
+
+        const prompt = `Wygeneruj profesjonalne podsumowanie spotkania.
+
+UCZESTNICY:
+- Ja (użytkownik)
+${speakerDesc}
 
 TRANSKRYPCJA:
 ${fullTranscript}
 
-${this.promptService.load('MEETING_COACH.md')}
-
-Odpowiedz TYLKO JSON-em, bez markdown.`;
+Odpowiedz TYLKO JSON-em bez markdown:
+{
+  "summary": "Ogólne podsumowanie (2-3 zdania)",
+  "keyPoints": ["punkt 1", "punkt 2"],
+  "actionItems": ["zadanie 1 (kto: osoba)", "zadanie 2 (kto: osoba)"]
+}`;
 
         const response = await this.aiService.sendMessage(prompt);
         if (response) {
           try {
-            // Try to parse JSON from response
             const jsonMatch = response.match(/\{[\s\S]*\}/);
             if (jsonMatch) {
               const parsed = JSON.parse(jsonMatch[0]);
@@ -538,10 +767,7 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
               keyPoints = parsed.keyPoints || [];
               actionItems = parsed.actionItems || [];
             }
-          } catch {
-            // If JSON parsing fails, use raw response as summary
-            aiSummary = response;
-          }
+          } catch { aiSummary = response; }
         }
       } catch (err) {
         console.error('[MeetingCoach] Summary generation error:', err);
@@ -565,25 +791,20 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
       keyPoints,
       actionItems,
       participants,
+      speakers: speakersArray,
       detectedApp: this.detectedApp || undefined,
     };
 
-    // Save to disk
     await this.saveSummary(summary);
-
     return summary;
   }
 
-  /**
-   * Save meeting summary to disk.
-   */
   private async saveSummary(summary: MeetingSummary): Promise<void> {
     try {
       const dateStr = new Date(summary.startTime).toISOString().slice(0, 10);
       const timeStr = new Date(summary.startTime).toLocaleTimeString('pl').replace(/:/g, '-');
       const fileName = `${dateStr}_${timeStr}_${summary.id}.json`;
       const filePath = path.join(this.storagePath, fileName);
-
       fs.writeFileSync(filePath, JSON.stringify(summary, null, 2), 'utf8');
       console.log(`[MeetingCoach] Summary saved: ${fileName}`);
     } catch (err) {
@@ -591,9 +812,6 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
     }
   }
 
-  /**
-   * Emit current meeting state to renderer.
-   */
   private emitState(): void {
     this.emit('meeting:state', this.getState());
   }

@@ -74,7 +74,15 @@ export class TranscriptionService extends EventEmitter {
     const wsUrl = new URL('wss://api.elevenlabs.io/v1/speech-to-text/realtime');
     wsUrl.searchParams.set('model_id', 'scribe_v2_realtime');
     wsUrl.searchParams.set('language_code', language);
-    wsUrl.searchParams.set('sample_rate', '16000');
+    wsUrl.searchParams.set('audio_format', 'pcm_16000');
+    // VAD commit strategy for instant transcript delivery on silence
+    wsUrl.searchParams.set('commit_strategy', 'vad');
+    wsUrl.searchParams.set('vad_silence_threshold_secs', '1.2');
+    wsUrl.searchParams.set('vad_threshold', '0.4');
+    wsUrl.searchParams.set('min_speech_duration_ms', '100');
+    wsUrl.searchParams.set('min_silence_duration_ms', '100');
+    // Enable word-level timestamps for better analysis
+    wsUrl.searchParams.set('include_timestamps', 'true');
 
     const ws = new WebSocket(wsUrl.toString(), {
       headers: { 'xi-api-key': apiKey },
@@ -155,11 +163,14 @@ export class TranscriptionService extends EventEmitter {
 
   /**
    * Handle incoming WebSocket messages from ElevenLabs.
+   * ElevenLabs uses `message_type` field for event types.
    */
   private handleMessage(sessionId: string, label: string, msg: any): void {
-    switch (msg.type) {
+    const msgType = msg.message_type || msg.type;
+
+    switch (msgType) {
       case 'session_started':
-        console.log(`[Transcription] Session '${label}' started, server_id: ${msg.session_id}`);
+        console.log(`[Transcription] Session '${label}' started, server config:`, JSON.stringify(msg.config || {}).substring(0, 200));
         break;
 
       case 'partial_transcript':
@@ -176,26 +187,42 @@ export class TranscriptionService extends EventEmitter {
         break;
 
       case 'committed_transcript':
-      case 'committed_transcript_with_timestamps':
         if (msg.text?.trim()) {
+          this.reconnectAttempts.set(sessionId, 0);
           this.emit('transcript', {
             sessionId,
             label,
             text: msg.text,
             isFinal: true,
             speaker: msg.speaker_id,
-            words: msg.words,
           } as TranscriptEvent);
         }
         break;
 
-      case 'error':
-        console.error(`[Transcription] Server error in '${label}':`, msg.message || msg);
-        this.emit('session:error', { sessionId, label, error: msg.message || 'Unknown error' });
+      case 'committed_transcript_with_timestamps':
+        if (msg.text?.trim()) {
+          this.reconnectAttempts.set(sessionId, 0);
+          const words = msg.words
+            ?.filter((w: any) => w.type === 'word')
+            ?.map((w: any) => ({ text: w.text, start: w.start, end: w.end }));
+          this.emit('transcript', {
+            sessionId,
+            label,
+            text: msg.text,
+            isFinal: true,
+            speaker: msg.speaker_id,
+            words,
+          } as TranscriptEvent);
+        }
         break;
 
       default:
-        // Ignore unknown message types (e.g. vad_event)
+        // Handle error message types
+        if (msgType?.includes('error') || msgType?.includes('Error')) {
+          console.error(`[Transcription] Server error in '${label}': ${msgType}`, msg.message || msg);
+          this.emit('session:error', { sessionId, label, error: msg.message || msgType });
+        }
+        // Ignore unknown message types
         break;
     }
   }
@@ -203,11 +230,17 @@ export class TranscriptionService extends EventEmitter {
   /**
    * Send a PCM audio chunk to a specific session.
    * Expected format: raw PCM 16-bit, 16kHz, mono.
+   * Converts to base64 and wraps in ElevenLabs JSON message format.
    */
   sendAudioChunk(sessionId: string, chunk: Buffer): void {
     const session = this.sessions.get(sessionId);
     if (session?.ws && session.connected && session.ws.readyState === WebSocket.OPEN) {
-      session.ws.send(chunk);
+      const message = JSON.stringify({
+        message_type: 'input_audio_chunk',
+        audio_base_64: chunk.toString('base64'),
+        sample_rate: 16000,
+      });
+      session.ws.send(message);
     }
   }
 
@@ -223,8 +256,8 @@ export class TranscriptionService extends EventEmitter {
 
     try {
       if (session.ws.readyState === WebSocket.OPEN) {
-        // Send flush to get final transcripts
-        session.ws.send(JSON.stringify({ type: 'flush' }));
+        // Send commit to get final transcripts before closing
+        session.ws.send(JSON.stringify({ message_type: 'commit' }));
         await new Promise(r => setTimeout(r, 800));
         session.ws.close(1000, 'Session ended');
       }
