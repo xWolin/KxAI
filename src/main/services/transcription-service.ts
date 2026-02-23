@@ -72,7 +72,7 @@ export class TranscriptionService extends EventEmitter {
     sessionId: string, label: string, language: string, apiKey: string
   ): Promise<void> {
     const wsUrl = new URL('wss://api.elevenlabs.io/v1/speech-to-text/realtime');
-    wsUrl.searchParams.set('model_id', 'scribe_v1');
+    wsUrl.searchParams.set('model_id', 'scribe_v2_realtime');
     wsUrl.searchParams.set('language_code', language);
     wsUrl.searchParams.set('sample_rate', '16000');
 
@@ -92,7 +92,9 @@ export class TranscriptionService extends EventEmitter {
 
     ws.on('open', () => {
       session.connected = true;
-      this.reconnectAttempts.set(sessionId, 0);
+      // NOTE: Don't reset reconnectAttempts here — only reset after receiving
+      // actual transcript data. Otherwise, a connect→immediate-close loop
+      // would reset the counter every time and reconnect infinitely.
       console.log(`[Transcription] Session '${label}' connected`);
       this.emit('session:connected', { sessionId, label });
     });
@@ -116,12 +118,23 @@ export class TranscriptionService extends EventEmitter {
       const reasonStr = reason.toString();
       console.log(`[Transcription] Session '${label}' closed: ${code} ${reasonStr}`);
 
+      // Don't reconnect on policy violations (invalid request) — the request
+      // itself is malformed and retrying won't help.
+      if (code === 1008) {
+        console.error(`[Transcription] Session '${label}' rejected with 1008 (invalid request) — nie ponawiam`);
+        this.sessions.delete(sessionId);
+        this.reconnectAttempts.delete(sessionId);
+        this.emit('session:error', { sessionId, label, error: `Serwer odrzucił połączenie: ${reasonStr}` });
+        this.emit('session:closed', { sessionId, label });
+        return;
+      }
+
       // Auto-reconnect on unexpected close
       const attempts = this.reconnectAttempts.get(sessionId) || 0;
       if (code !== 1000 && attempts < this.MAX_RECONNECT) {
         this.reconnectAttempts.set(sessionId, attempts + 1);
         console.log(`[Transcription] Reconnecting '${label}'... (attempt ${attempts + 1})`);
-        await new Promise(r => setTimeout(r, 1000 * (attempts + 1)));
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempts))); // exponential backoff
         if (this.sessions.has(sessionId)) {
           // Re-fetch API key to avoid using a stale/rotated key
           const freshKey = await this.securityService.getApiKey('elevenlabs');
@@ -151,6 +164,8 @@ export class TranscriptionService extends EventEmitter {
 
       case 'partial_transcript':
         if (msg.text?.trim()) {
+          // Reset reconnect counter — we're getting real data
+          this.reconnectAttempts.set(sessionId, 0);
           this.emit('transcript', {
             sessionId,
             label,

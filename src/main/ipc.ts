@@ -322,14 +322,30 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
         // Receives ALL monitors for multi-screen awareness
         async (ctx, screenshots) => {
           try {
-            const screenshotData = screenshots.map((s, i) => ({
-              base64: `data:image/png;base64,${s.base64}`,
-              width: 1024,
-              height: 768,
-              displayId: i,
-              displayLabel: s.label || `Monitor ${i + 1}`,
-              timestamp: Date.now(),
-            }));
+            const screenshotData = screenshots
+              .filter((s) => {
+                // Validate base64 data — filter out empty/corrupt screenshots
+                if (!s.base64 || s.base64.length < 100) {
+                  console.warn(`[Proactive] Pominięto pusty screenshot: ${s.label}`);
+                  return false;
+                }
+                return true;
+              })
+              .map((s, i) => ({
+                base64: `data:image/png;base64,${s.base64}`,
+                width: 1024,
+                height: 768,
+                displayId: i,
+                displayLabel: s.label || `Monitor ${i + 1}`,
+                timestamp: Date.now(),
+              }));
+
+            if (screenshotData.length === 0) {
+              console.warn('[Proactive] Brak prawidłowych screenshotów do analizy');
+              return;
+            }
+
+            console.log(`[Proactive] T2 callback triggered — starting AI analysis (${screenshotData.length} screen(s))...`);
             const analysis = await aiService.analyzeScreens(screenshotData);
             if (analysis && analysis.hasInsight) {
               agentLoop.logScreenActivity(analysis.context, analysis.message);
