@@ -1,4 +1,4 @@
-import { desktopCapturer, screen } from 'electron';
+import { desktopCapturer, screen, systemPreferences } from 'electron';
 
 export interface ScreenshotData {
   displayId: number;
@@ -12,6 +12,15 @@ export interface ScreenshotData {
 export class ScreenCaptureService {
   private watchInterval: NodeJS.Timeout | null = null;
   private isWatching = false;
+
+  /**
+   * Check if screen recording permission is granted on macOS.
+   * On other platforms, always returns true.
+   */
+  hasScreenPermission(): boolean {
+    if (process.platform !== 'darwin') return true;
+    return systemPreferences.getMediaAccessStatus('screen') === 'granted';
+  }
 
   /**
    * Get the actual display size (with DPI scaling) for a display.
@@ -40,6 +49,11 @@ export class ScreenCaptureService {
   }
 
   async captureAllScreens(): Promise<ScreenshotData[]> {
+    // macOS: check screen recording permission
+    if (process.platform === 'darwin' && !this.hasScreenPermission()) {
+      console.warn('[ScreenCapture] macOS Screen Recording permission not granted. Screenshots will be empty.');
+    }
+
     const displays = screen.getAllDisplays();
 
     // Use the largest display's native resolution for thumbnail size
@@ -156,6 +170,12 @@ export class ScreenCaptureService {
    */
   async captureForComputerUse(): Promise<ComputerUseScreenshot | null> {
     try {
+      // macOS: check screen recording permission
+      if (process.platform === 'darwin' && !this.hasScreenPermission()) {
+        console.warn('[ScreenCapture] macOS Screen Recording permission not granted');
+        return null;
+      }
+
       const primaryDisplay = screen.getPrimaryDisplay();
       const nativeSize = this.getDisplaySize(primaryDisplay);
 

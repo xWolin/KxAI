@@ -81,12 +81,15 @@ export class ToolsService {
       };
     });
 
+    // Determine default shell based on platform
+    const defaultShell = process.platform === 'win32' ? 'PowerShell' : (process.platform === 'darwin' ? 'zsh/bash' : 'bash');
+
     this.register({
       name: 'run_shell_command',
-      description: 'Wykonuje komendę w terminalu systemowym (PowerShell/bash). Komenda jest walidowana pod kątem bezpieczeństwa.',
+      description: `Wykonuje komendę w terminalu systemowym (${defaultShell}). Komenda jest walidowana pod kątem bezpieczeństwa. OS: ${process.platform}.`,
       category: 'system',
       parameters: {
-        command: { type: 'string', description: 'Komenda do wykonania', required: true },
+        command: { type: 'string', description: `Komenda do wykonania w ${defaultShell}`, required: true },
         timeout: { type: 'number', description: 'Timeout w ms (default 30000)' },
       },
     }, async (params) => {
@@ -96,9 +99,14 @@ export class ToolsService {
         return { success: false, error: `🛡️ ${validation.reason}` };
       }
 
+      // Use platform-appropriate shell
+      const shellOpts: Record<string, any> = process.platform === 'win32'
+        ? { shell: 'powershell.exe' }
+        : { shell: '/bin/sh' };
+
       return new Promise((resolve) => {
         const timeout = Math.min(params.timeout || 30000, 60000); // Max 60s
-        exec(params.command, { timeout, maxBuffer: 1024 * 1024 }, (err, stdout, stderr) => {
+        exec(params.command, { timeout, maxBuffer: 1024 * 1024, ...shellOpts }, (err, stdout, stderr) => {
           if (err) {
             resolve({ success: false, error: err.message, data: { stdout: stdout?.slice(0, 5000), stderr: stderr?.slice(0, 2000) } });
           } else {
@@ -451,13 +459,19 @@ export class ToolsService {
       const { language, code } = params;
       const timeout = Math.min(params.timeout || 60000, 120000);
 
-      // Map language to interpreter + file extension
+      // Map language to interpreter + file extension (platform-aware)
+      const isWin = process.platform === 'win32';
+      const pythonCmd = isWin ? 'python' : 'python3';
+      const psCmd = isWin ? 'powershell' : 'pwsh';
+      const psArgs = isWin ? ['-ExecutionPolicy', 'Bypass', '-File'] : ['-File'];
+
       const langMap: Record<string, { cmd: string; ext: string; args?: string[] }> = {
         node: { cmd: 'node', ext: '.js' },
         javascript: { cmd: 'node', ext: '.js' },
-        python: { cmd: 'python', ext: '.py' },
-        powershell: { cmd: 'powershell', ext: '.ps1', args: ['-ExecutionPolicy', 'Bypass', '-File'] },
-        bash: { cmd: 'bash', ext: '.sh' },
+        python: { cmd: pythonCmd, ext: '.py' },
+        powershell: { cmd: psCmd, ext: '.ps1', args: psArgs },
+        bash: { cmd: isWin ? 'bash' : '/bin/bash', ext: '.sh' },
+        sh: { cmd: '/bin/sh', ext: '.sh' },
         typescript: { cmd: 'npx', ext: '.ts', args: ['tsx'] },
       };
 
@@ -676,10 +690,10 @@ export class ToolsService {
 
     this.register({
       name: 'install_package',
-      description: 'Instaluje pakiet/bibliotekę (pip install / npm install -g). Używaj gdy potrzebujesz narzędzia lub biblioteki do execute_code. Wymaga potwierdzenia użytkownika (via shell).',
+      description: `Instaluje pakiet/bibliotekę. Dostępne menedżery: pip, npm, cargo${process.platform === 'win32' ? ', choco, winget' : ''}${process.platform === 'darwin' ? ', brew' : ''}${process.platform === 'linux' ? ', apt, dnf' : ''}.`,
       category: 'coding',
       parameters: {
-        manager: { type: 'string', description: 'Menedżer pakietów: "pip", "npm", "cargo", "choco", "winget"', required: true },
+        manager: { type: 'string', description: `Menedżer pakietów: "pip", "npm", "cargo"${process.platform === 'win32' ? ', "choco", "winget"' : ''}${process.platform === 'darwin' ? ', "brew"' : ''}${process.platform === 'linux' ? ', "apt", "dnf"' : ''}`, required: true },
         package: { type: 'string', description: 'Nazwa pakietu do instalacji', required: true },
       },
     }, async (params) => {
@@ -690,12 +704,17 @@ export class ToolsService {
         return { success: false, error: '🛡️ Nieprawidłowa nazwa pakietu' };
       }
 
+      const pipCmd = process.platform === 'win32' ? 'pip' : 'pip3';
       const cmdMap: Record<string, string> = {
-        pip: `pip install ${pkg}`,
+        pip: `${pipCmd} install ${pkg}`,
+        pip3: `pip3 install ${pkg}`,
         npm: `npm install -g ${pkg}`,
         cargo: `cargo install ${pkg}`,
         choco: `choco install ${pkg} -y`,
         winget: `winget install ${pkg}`,
+        brew: `brew install ${pkg}`,
+        apt: `sudo apt-get install -y ${pkg}`,
+        dnf: `sudo dnf install -y ${pkg}`,
       };
 
       const cmd = cmdMap[manager.toLowerCase()];
@@ -740,12 +759,19 @@ export class ToolsService {
         return { success: false, error: `🛡️ ${writeValidation.reason}` };
       }
 
+      // Platform-aware interpreters
+      const isWin = process.platform === 'win32';
+      const pythonCmd = isWin ? 'python' : 'python3';
+      const psCmd = isWin ? 'powershell' : 'pwsh';
+      const psArgs = isWin ? ['-ExecutionPolicy', 'Bypass', '-File'] : ['-File'];
+
       const langMap: Record<string, { cmd: string; ext: string; cmdArgs?: string[] }> = {
         node: { cmd: 'node', ext: '.js' },
         javascript: { cmd: 'node', ext: '.js' },
-        python: { cmd: 'python', ext: '.py' },
-        powershell: { cmd: 'powershell', ext: '.ps1', cmdArgs: ['-ExecutionPolicy', 'Bypass', '-File'] },
-        bash: { cmd: 'bash', ext: '.sh' },
+        python: { cmd: pythonCmd, ext: '.py' },
+        powershell: { cmd: psCmd, ext: '.ps1', cmdArgs: psArgs },
+        bash: { cmd: isWin ? 'bash' : '/bin/bash', ext: '.sh' },
+        sh: { cmd: '/bin/sh', ext: '.sh' },
         typescript: { cmd: 'npx', ext: '.ts', cmdArgs: ['tsx'] },
       };
 

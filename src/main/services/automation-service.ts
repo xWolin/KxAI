@@ -2,6 +2,7 @@ import { exec } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
+import { systemPreferences } from 'electron';
 
 const MAX_COORD = 32767; // Safe maximum screen coordinate
 
@@ -25,8 +26,16 @@ export class AutomationService {
 
   /**
    * Enable automation (must be called explicitly).
+   * On macOS, checks Accessibility permission first.
    */
   enable(): void {
+    if (process.platform === 'darwin') {
+      // Prompt macOS for Accessibility permission (shows system dialog if not granted)
+      const trusted = systemPreferences.isTrustedAccessibilityClient(true);
+      if (!trusted) {
+        console.warn('[Automation] macOS Accessibility permission not granted. Some automation features may not work.');
+      }
+    }
     this.enabled = true;
   }
 

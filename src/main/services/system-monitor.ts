@@ -255,7 +255,10 @@ export class SystemMonitor {
 
       let result: string;
       if (isWin) {
-        result = await this.execCommand('wmic logicaldisk get size,freespace,caption /format:csv');
+        // Use PowerShell Get-CimInstance (wmic is deprecated/removed in modern Windows)
+        result = await this.execCommand(
+          'powershell -NoProfile -Command "Get-CimInstance Win32_LogicalDisk | Select-Object Caption,Size,FreeSpace | ConvertTo-Csv -NoTypeInformation"'
+        );
       } else {
         try {
           result = await this.execCommand(dfCmd);
@@ -332,7 +335,7 @@ export class SystemMonitor {
     try {
       if (process.platform === 'win32') {
         const output = await this.execCommand(
-          'WMIC PATH Win32_Battery GET BatteryStatus,EstimatedChargeRemaining /FORMAT:CSV'
+          'powershell -NoProfile -Command "Get-CimInstance Win32_Battery | Select-Object BatteryStatus,EstimatedChargeRemaining | ConvertTo-Csv -NoTypeInformation"'
         );
         const lines = output.trim().split('\n').filter((l) => l.trim());
         if (lines.length > 1) {
@@ -422,9 +425,11 @@ export class SystemMonitor {
           `powershell -NoProfile -Command "Get-Process | Where-Object {$_.Id -ne 0} | Sort-Object CPU -Descending | Select-Object -First ${limit} Name,Id,@{N='CpuPct';E={if($_.StartTime){[math]::Round(($_.CPU / ((Get-Date) - $_.StartTime).TotalSeconds) / [Environment]::ProcessorCount * 100, 1)}else{0}}},@{N='MemMB';E={[math]::Round($_.WorkingSet64/1MB,1)}} | ConvertTo-Csv -NoTypeInformation"`
         );
       } else {
-        output = await this.execCommand(
-          `ps aux --sort=-%cpu | head -n ${limit + 1}`
-        );
+        // macOS ps doesn't support --sort; use -r for CPU sort
+        const psCmd = process.platform === 'darwin'
+          ? `ps aux -r | head -n ${limit + 1}`
+          : `ps aux --sort=-%cpu | head -n ${limit + 1}`;
+        output = await this.execCommand(psCmd);
       }
 
       const processes = this.parseProcessOutput(output, limit);
