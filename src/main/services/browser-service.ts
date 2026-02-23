@@ -185,7 +185,124 @@ export class BrowserService {
   private userDataDir: string;
 
   constructor() {
+    // Will be set to user's real profile in launch() based on detected browser
     this.userDataDir = path.join(os.tmpdir(), 'kxai-browser-profile');
+  }
+
+  // ════════════════════════════════════════════════════
+  //  User Profile Detection
+  // ════════════════════════════════════════════════════
+
+  /**
+   * Get the user's real browser profile directory based on the detected browser executable.
+   * This allows the agent to use existing cookies, logins, and sessions.
+   */
+  private getUserProfileDir(browserExe: string): string {
+    const name = path.basename(browserExe).toLowerCase();
+    const platform = process.platform;
+
+    let profileDir: string | null = null;
+
+    if (platform === 'win32') {
+      const localAppData = process.env['LOCALAPPDATA'] || '';
+      if (name.includes('chrome')) profileDir = path.join(localAppData, 'Google', 'Chrome', 'User Data');
+      else if (name.includes('msedge') || name.includes('edge')) profileDir = path.join(localAppData, 'Microsoft', 'Edge', 'User Data');
+      else if (name.includes('brave')) profileDir = path.join(localAppData, 'BraveSoftware', 'Brave-Browser', 'User Data');
+    } else if (platform === 'darwin') {
+      const home = os.homedir();
+      if (name.includes('chrome')) profileDir = path.join(home, 'Library', 'Application Support', 'Google', 'Chrome');
+      else if (name.includes('edge')) profileDir = path.join(home, 'Library', 'Application Support', 'Microsoft Edge');
+      else if (name.includes('brave')) profileDir = path.join(home, 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser');
+    } else {
+      const home = os.homedir();
+      if (name.includes('chrome') || name.includes('chromium')) profileDir = path.join(home, '.config', 'google-chrome');
+      else if (name.includes('edge')) profileDir = path.join(home, '.config', 'microsoft-edge');
+      else if (name.includes('brave')) profileDir = path.join(home, '.config', 'BraveSoftware', 'Brave-Browser');
+    }
+
+    if (profileDir && fs.existsSync(profileDir)) {
+      console.log(`[BrowserService] Znaleziono profil użytkownika: ${profileDir}`);
+      return profileDir;
+    }
+
+    console.log('[BrowserService] Brak profilu użytkownika, używam izolowanego profilu');
+    return path.join(os.tmpdir(), 'kxai-browser-profile');
+  }
+
+  /**
+   * Try to connect to an already-running browser via its DevToolsActivePort file.
+   * Chrome writes this file when started with --remote-debugging-port.
+   */
+  private async tryConnectToExisting(profileDir: string): Promise<boolean> {
+    const activePortFile = path.join(profileDir, 'DevToolsActivePort');
+    if (!fs.existsSync(activePortFile)) return false;
+
+    try {
+      const content = fs.readFileSync(activePortFile, 'utf-8');
+      const port = parseInt(content.split('\n')[0], 10);
+      if (!port || port <= 0) return false;
+
+      console.log(`[BrowserService] Znaleziono DevToolsActivePort na porcie ${port}, próbuję połączyć...`);
+      const wsUrl = await this.waitForBrowserReady(port, 5000);
+
+      if (!this.pw) {
+        this.pw = require('playwright-core');
+      }
+
+      this.browser = await this.pw.chromium.connectOverCDP(wsUrl);
+      const contexts = this.browser.contexts();
+      this.context = contexts.length > 0 ? contexts[0] : await this.browser.newContext();
+      this.activePageIdx = 0;
+      this.debugPort = port;
+
+      if (this.context.pages().length === 0) {
+        await this.context.newPage();
+      }
+
+      console.log(`[BrowserService] Połączono z istniejącą przeglądarką na porcie ${port}`);
+      return true;
+    } catch (err: any) {
+      console.log(`[BrowserService] Nie udało się połączyć z istniejącą przeglądarką: ${err.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Check if the browser is already running with the given user data dir.
+   * Chrome creates a lockfile 'SingletonLock' (Linux/Mac) or 'lockfile' (Windows).
+   */
+  private isBrowserProfileLocked(profileDir: string): boolean {
+    // Windows: check 'lockfile' or 'Local State' modification + process
+    // Linux/Mac: check 'SingletonLock' symlink
+    const lockFiles = [
+      path.join(profileDir, 'SingletonLock'),    // Linux/Mac
+      path.join(profileDir, 'lockfile'),          // Windows (sometimes)
+    ];
+
+    for (const lf of lockFiles) {
+      try {
+        // SingletonLock on Linux is a symlink; fs.lstatSync doesn't throw if it exists
+        fs.lstatSync(lf);
+        return true;
+      } catch { /* not found */ }
+    }
+
+    // Windows fallback: check if parent process name matches browser
+    if (process.platform === 'win32') {
+      try {
+        // Check if any Chrome/Edge process is running
+        const result = execSync('tasklist /FI "STATUS eq Running" /FO CSV /NH', {
+          encoding: 'utf-8',
+          timeout: 5000,
+          windowsHide: true,
+        });
+        return result.toLowerCase().includes('chrome.exe') ||
+               result.toLowerCase().includes('msedge.exe') ||
+               result.toLowerCase().includes('brave.exe');
+      } catch { /* ignore */ }
+    }
+
+    return false;
   }
 
   // ════════════════════════════════════════════════════
@@ -292,6 +409,37 @@ export class BrowserService {
     try {
       if (!this.pw) {
         this.pw = require('playwright-core');
+      }
+
+      // Resolve user's real browser profile for cookies/logins/sessions
+      this.userDataDir = this.getUserProfileDir(execPath);
+
+      // Try to connect to an already-running browser with CDP first
+      if (await this.tryConnectToExisting(this.userDataDir)) {
+        if (options?.url) {
+          const page = this.getActivePage();
+          if (page) {
+            await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+          }
+        }
+        const page = this.getActivePage();
+        return {
+          success: true,
+          data: {
+            browser: path.basename(execPath) + ' (istniejąca sesja)',
+            url: page?.url() || 'about:blank',
+            title: page ? await page.title() : '',
+          },
+        };
+      }
+
+      // If browser is already running with same profile, use KxAI-specific profile dir
+      // (can't share user-data-dir with a running instance)
+      if (this.isBrowserProfileLocked(this.userDataDir)) {
+        const kxaiProfileDir = path.join(os.tmpdir(), 'kxai-browser-profile');
+        console.warn(`[BrowserService] Przeglądarka jest już uruchomiona z tym profilem. Używam profilu KxAI: ${kxaiProfileDir}`);
+        console.warn('[BrowserService] Zamknij przeglądarkę aby agent mógł użyć Twoich zapisanych sesji/loginów.');
+        this.userDataDir = kxaiProfileDir;
       }
 
       if (!fs.existsSync(this.userDataDir)) {

@@ -75,7 +75,7 @@ export class ScreenMonitorService {
   // Callbacks
   private onWindowChange: ((info: WindowInfo) => void) | null = null;
   private onContentChange: ((ctx: ScreenContext) => void) | null = null;
-  private onVisionNeeded: ((ctx: ScreenContext, screenshotBase64: string) => void) | null = null;
+  private onVisionNeeded: ((ctx: ScreenContext, screenshots: Array<{ base64: string; label: string }>) => void) | null = null;
   private onIdleStart: (() => void) | null = null;
   private onIdleEnd: (() => void) | null = null;
 
@@ -104,7 +104,7 @@ export class ScreenMonitorService {
   start(
     onWindowChange?: (info: WindowInfo) => void,
     onContentChange?: (ctx: ScreenContext) => void,
-    onVisionNeeded?: (ctx: ScreenContext, screenshotBase64: string) => void,
+    onVisionNeeded?: (ctx: ScreenContext, screenshots: Array<{ base64: string; label: string }>) => void,
     onIdleStart?: () => void,
     onIdleEnd?: () => void
   ): void {
@@ -365,11 +365,14 @@ Write-Output "$title<SEP>$proc"
         this.onContentChange?.(ctx);
 
         // T2: Trigger vision if we have a callback and content changed meaningfully
-        // Send first screen's base64 for vision (primary monitor)
-        if (this.onVisionNeeded && allScreens[0]) {
+        // Send ALL screens for multi-monitor awareness
+        if (this.onVisionNeeded && allScreens.length > 0) {
           this.lastVisionTimestamp = Date.now();
-          const base64 = allScreens[0].base64.replace(/^data:image\/\w+;base64,/, '');
-          this.onVisionNeeded(ctx, base64);
+          const screenshots = allScreens.map(s => ({
+            base64: s.base64.replace(/^data:image\/\w+;base64,/, ''),
+            label: s.displayLabel,
+          }));
+          this.onVisionNeeded(ctx, screenshots);
         }
       }
     } catch (error) {
@@ -419,11 +422,14 @@ Write-Output "$title<SEP>$proc"
       const ctx = this.getScreenContext();
       ctx.contentChanged = true; // Force — periodic check
 
-      console.log(`[ScreenMonitor] Periodic T2 vision check — window: ${ctx.windowTitle}`);
+      console.log(`[ScreenMonitor] Periodic T2 vision check — window: ${ctx.windowTitle}, ${allScreens.length} screen(s)`);
 
-      // Send primary screen for vision analysis
-      const base64 = allScreens[0].base64.replace(/^data:image\/\w+;base64,/, '');
-      this.onVisionNeeded(ctx, base64);
+      // Send ALL screens for multi-monitor vision
+      const screenshots = allScreens.map(s => ({
+        base64: s.base64.replace(/^data:image\/\w+;base64,/, ''),
+        label: s.displayLabel,
+      }));
+      this.onVisionNeeded(ctx, screenshots);
     } catch (error) {
       console.error('[ScreenMonitor] Periodic vision error:', error);
     }

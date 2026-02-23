@@ -319,16 +319,18 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
           }
         },
         // T2: Vision needed — full AI analysis on significant changes or periodic
-        async (ctx, screenshotBase64) => {
+        // Receives ALL monitors for multi-screen awareness
+        async (ctx, screenshots) => {
           try {
-            const analysis = await aiService.analyzeScreens([{
-              base64: `data:image/png;base64,${screenshotBase64}`,
+            const screenshotData = screenshots.map((s, i) => ({
+              base64: `data:image/png;base64,${s.base64}`,
               width: 1024,
               height: 768,
-              displayId: 0,
-              displayLabel: 'monitor',
+              displayId: i,
+              displayLabel: s.label || `Monitor ${i + 1}`,
               timestamp: Date.now(),
-            }]);
+            }));
+            const analysis = await aiService.analyzeScreens(screenshotData);
             if (analysis && analysis.hasInsight) {
               agentLoop.logScreenActivity(analysis.context, analysis.message);
 

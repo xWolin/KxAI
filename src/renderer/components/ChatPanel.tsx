@@ -92,8 +92,10 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
   const [agentStatus, setAgentStatus] = useState<AgentStatus>({ state: 'idle' });
   const [ragProgress, setRagProgress] = useState<IndexProgress | null>(null);
+  const [isRecording, setIsRecording] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const recognitionRef = useRef<any>(null);
 
   // Keep a ref to streaming content so the onAIStream callback can read the latest value
   const streamingContentRef = useRef('');
@@ -297,6 +299,83 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
     }
   }
 
+  // ─── Voice Input (Web Speech API) ───
+
+  function toggleVoiceInput() {
+    if (isRecording) {
+      stopVoiceInput();
+    } else {
+      startVoiceInput();
+    }
+  }
+
+  function startVoiceInput() {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      console.warn('[ChatPanel] SpeechRecognition API niedostępne');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'pl-PL';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+    recognition.maxAlternatives = 1;
+
+    let finalTranscript = '';
+
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript + ' ';
+        } else {
+          interim += transcript;
+        }
+      }
+      // Show interim results in the input field
+      setInput(finalTranscript + interim);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('[ChatPanel] Speech recognition error:', event.error);
+      setIsRecording(false);
+      recognitionRef.current = null;
+    };
+
+    recognition.onend = () => {
+      setIsRecording(false);
+      recognitionRef.current = null;
+      // Keep the transcribed text in the input
+      if (finalTranscript.trim()) {
+        setInput(finalTranscript.trim());
+        inputRef.current?.focus();
+      }
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+    setIsRecording(true);
+  }
+
+  function stopVoiceInput() {
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+    }
+  }
+
+  async function openDashboard() {
+    try {
+      const url = await window.kxai.getDashboardUrl();
+      if (url) {
+        window.open(url, '_blank');
+      }
+    } catch (err) {
+      console.error('[ChatPanel] Nie udało się otworzyć dashboardu:', err);
+    }
+  }
+
   function formatTime(timestamp: number): string {
     return new Date(timestamp).toLocaleTimeString('pl-PL', {
       hour: '2-digit',
@@ -359,6 +438,15 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
             className="chat-btn"
           >
             ⏰
+          </button>
+
+          {/* Dashboard */}
+          <button
+            onClick={openDashboard}
+            title="Otwórz Dashboard"
+            className="chat-btn"
+          >
+            📊
           </button>
 
           {/* Meeting Coach */}
@@ -482,6 +570,14 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
             className="chat-textarea"
             rows={1}
           />
+          <button
+            onClick={toggleVoiceInput}
+            title={isRecording ? 'Zatrzymaj nagrywanie' : 'Nagrywaj głos'}
+            className={`chat-voice${isRecording ? ' chat-voice--recording' : ''}`}
+            disabled={isStreaming}
+          >
+            {isRecording ? '⏹' : '🎤'}
+          </button>
           <button
             onClick={sendMessage}
             disabled={!input.trim() || isStreaming}
