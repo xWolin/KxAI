@@ -808,8 +808,9 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     });
 
     // Audio chunk from renderer (non-invoke, fire-and-forget)
-    ipcMain.on('meeting:audio-chunk', (_event, source: string, chunk: Buffer) => {
-      meetingCoach.sendAudioChunk(source as 'mic' | 'system', chunk);
+    ipcMain.on('meeting:audio-chunk', (_event, source: string, chunk: Uint8Array | Buffer) => {
+      // Renderer sends Uint8Array (safe across context isolation), convert to Buffer for service
+      meetingCoach.sendAudioChunk(source as 'mic' | 'system', Buffer.from(chunk));
     });
 
     // Speaker mapping (non-invoke, fire-and-forget)

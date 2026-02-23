@@ -329,6 +329,74 @@ export class AIService {
     return responseText;
   }
 
+  /**
+   * Send a message with image attachments (vision).
+   * Supports both OpenAI and Anthropic image formats.
+   * Used for screen-based speaker identification, etc.
+   */
+  async sendVisionMessage(
+    userMessage: string,
+    images: Array<{ base64Data: string; mediaType?: string }>,
+    systemPrompt?: string,
+  ): Promise<string> {
+    await this.ensureClient();
+    const provider = this.config.get('aiProvider') || 'openai';
+    const model = this.config.get('aiModel') || 'gpt-5';
+
+    const system = systemPrompt || 'You are KxAI, a helpful AI assistant with vision capabilities.';
+
+    if (provider === 'openai' && this.openaiClient) {
+      const content: any[] = [
+        { type: 'text', text: userMessage },
+        ...images.map(img => ({
+          type: 'image_url',
+          image_url: {
+            url: img.base64Data.startsWith('data:')
+              ? img.base64Data
+              : `data:${img.mediaType || 'image/png'};base64,${img.base64Data}`,
+            detail: 'low' as const,
+          },
+        })),
+      ];
+
+      const systemRole = this.getSystemRole(model);
+      const response = await this.openaiClient.chat.completions.create({
+        model,
+        messages: [
+          { role: systemRole, content: system },
+          { role: 'user', content },
+        ],
+        ...this.openaiTokenParam(1024),
+        temperature: 0.3,
+      });
+      return response.choices[0]?.message?.content || '';
+
+    } else if (provider === 'anthropic' && this.anthropicClient) {
+      const content: any[] = [
+        { type: 'text', text: userMessage },
+        ...images.map(img => ({
+          type: 'image',
+          source: {
+            type: 'base64',
+            media_type: (img.mediaType || 'image/png') as 'image/png',
+            data: img.base64Data.replace(/^data:image\/\w+;base64,/, ''),
+          },
+        })),
+      ];
+
+      const response = await this.anthropicClient.messages.create({
+        model,
+        max_tokens: 1024,
+        system,
+        messages: [{ role: 'user', content }],
+      });
+      return response.content[0]?.type === 'text' ? response.content[0].text : '';
+
+    } else {
+      throw new Error('Brak klucza API dla vision.');
+    }
+  }
+
   async streamMessage(
     userMessage: string,
     extraContext?: string,

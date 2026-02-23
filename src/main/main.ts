@@ -91,17 +91,18 @@ function startCompanionMonitor(win: BrowserWindow): void {
       }
     },
     // T2: Vision needed — full AI analysis
-    async (ctx, screenshotBase64) => {
+    async (ctx, screenshots) => {
       try {
         console.log('[Proactive] T2 callback triggered — starting AI analysis...');
-        const analysis = await aiService.analyzeScreens([{
-          base64: `data:image/png;base64,${screenshotBase64}`,
+        const screenshotData = screenshots.map(s => ({
+          base64: s.base64.startsWith('data:') ? s.base64 : `data:image/png;base64,${s.base64}`,
           width: 1024,
           height: 768,
           displayId: 0,
-          displayLabel: 'monitor',
+          displayLabel: s.label || 'monitor',
           timestamp: Date.now(),
-        }]);
+        }));
+        const analysis = await aiService.analyzeScreens(screenshotData);
         console.log('[Proactive] AI analysis result:', analysis ? `hasInsight=${analysis.hasInsight}` : 'null');
         if (analysis && analysis.hasInsight) {
           agentLoop.logScreenActivity(analysis.context, analysis.message);
@@ -311,10 +312,10 @@ async function initializeServices(): Promise<void> {
   screenMonitorService.setScreenCapture(screenCapture);
   agentLoop.setScreenMonitorService(screenMonitorService);
 
-  // Meeting Coach — transcription + AI coaching (with RAG for context-aware answers)
+  // Meeting Coach — transcription + AI coaching (with RAG for context-aware answers + screen capture for speaker ID)
   transcriptionService = new TranscriptionService(securityService);
   meetingCoachService = new MeetingCoachService(
-    transcriptionService, aiService, configService, securityService, ragService
+    transcriptionService, aiService, configService, securityService, ragService, screenCapture
   );
 
   // Dashboard — localhost server for full agent dashboard

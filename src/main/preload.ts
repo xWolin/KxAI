@@ -180,7 +180,8 @@ contextBridge.exposeInMainWorld('kxai', {
   meetingGetSummary: (id: string) => ipcRenderer.invoke('meeting:get-summary', id),
   meetingGetDashboardUrl: () => ipcRenderer.invoke('meeting:get-dashboard-url'),
   meetingSendAudio: (source: string, chunk: ArrayBuffer) => {
-    ipcRenderer.send('meeting:audio-chunk', source, Buffer.from(chunk));
+    // Send as Uint8Array — Buffer is not safe across context isolation boundary
+    ipcRenderer.send('meeting:audio-chunk', source, new Uint8Array(chunk));
   },
   meetingMapSpeaker: (speakerId: string, name: string) => {
     ipcRenderer.send('meeting:map-speaker', speakerId, name);

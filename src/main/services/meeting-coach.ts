@@ -23,6 +23,7 @@ import { AIService } from './ai-service';
 import { ConfigService } from './config';
 import { SecurityService } from './security';
 import { PromptService } from './prompt-service';
+import { ScreenCaptureService } from './screen-capture';
 
 // ──────────────── Types ────────────────
 
@@ -177,6 +178,7 @@ export class MeetingCoachService extends EventEmitter {
   private securityService: SecurityService;
   private promptService: PromptService;
   private ragService: any | null = null;
+  private screenCapture: ScreenCaptureService | null = null;
 
   private config: MeetingConfig;
   private storagePath: string;
@@ -211,12 +213,18 @@ export class MeetingCoachService extends EventEmitter {
   // Pre-meeting briefing
   private briefing: MeetingBriefing | null = null;
 
+  // Screen-based speaker identification
+  private lastScreenIdentifyTime = 0;
+  private readonly SCREEN_IDENTIFY_COOLDOWN = 8000; // Min 8s between screen captures for speaker ID
+  private pendingScreenIdentify = false;
+
   constructor(
     transcriptionService: TranscriptionService,
     aiService: AIService,
     configService: ConfigService,
     securityService: SecurityService,
     ragService?: any,
+    screenCapture?: ScreenCaptureService,
   ) {
     super();
     this.transcriptionService = transcriptionService;
@@ -225,6 +233,7 @@ export class MeetingCoachService extends EventEmitter {
     this.securityService = securityService;
     this.promptService = new PromptService();
     this.ragService = ragService || null;
+    this.screenCapture = screenCapture || null;
 
     const saved = configService.get('meetingCoach') as Partial<MeetingConfig> | undefined;
     this.config = { ...DEFAULT_MEETING_CONFIG, ...saved };
@@ -839,7 +848,115 @@ Bądź rzeczowy i konkretny. Max 3-4 zdania.`;
       isAutoDetected: true,
     });
     this.emitState();
+
+    // Trigger async screen-based identification for new speakers
+    this.tryScreenIdentify(speakerId);
+
     return autoName;
+  }
+
+  /**
+   * Try to identify the current speaker by capturing a screenshot of the meeting app.
+   * In Teams/Meet/Zoom the active speaker's tile has a highlighted border.
+   * AI vision reads the name label from the highlighted tile.
+   */
+  private async tryScreenIdentify(speakerId: string): Promise<void> {
+    if (!this.screenCapture) return;
+    if (this.pendingScreenIdentify) return;
+
+    const now = Date.now();
+    if (now - this.lastScreenIdentifyTime < this.SCREEN_IDENTIFY_COOLDOWN) return;
+
+    this.pendingScreenIdentify = true;
+    this.lastScreenIdentifyTime = now;
+
+    try {
+      // Small delay to let the speaking indicator appear on screen
+      await new Promise(r => setTimeout(r, 500));
+
+      const screenshot = await this.screenCapture.captureFast();
+      if (!screenshot) {
+        console.warn('[MeetingCoach] Screen capture failed for speaker identification');
+        return;
+      }
+
+      const base64Data = screenshot.base64.replace(/^data:image\/\w+;base64,/, '');
+
+      // Build list of known participants from briefing
+      let participantHint = '';
+      if (this.briefing?.participants.length) {
+        participantHint = `\nOczekiwani uczestnicy spotkania: ${this.briefing.participants.map(p => p.name).join(', ')}`;
+      }
+
+      const prompt = `Przeanalizuj zrzut ekranu z aplikacji do spotkań wideo (Microsoft Teams, Google Meet, Zoom, Discord itp.).
+
+Szukam osoby, która AKTUALNIE MÓWI — jej kafelek/okienko powinno mieć podświetloną/kolorową obramówkę (zwykle niebieską, zieloną lub fioletową).
+
+Przeczytaj IMIĘ I NAZWISKO osoby, której kafelek jest podświetlony (aktywnie mówi).
+${participantHint}
+
+Jeśli nie widzisz aplikacji do spotkań lub nie możesz odczytać nazwy mówcy, zwróć: {"speaker": null, "reason": "..."}
+Jeśli widzisz mówcę, zwróć: {"speaker": "Imię Nazwisko", "confidence": "high"|"medium"|"low", "app": "Teams"|"Meet"|"Zoom"|"inne"}
+
+Odpowiedz TYLKO JSON-em, bez markdown.`;
+
+      const response = await this.aiService.sendVisionMessage(
+        prompt,
+        [{ base64Data: base64Data, mediaType: 'image/png' }],
+      );
+
+      if (response) {
+        try {
+          const jsonMatch = response.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const result = JSON.parse(jsonMatch[0]);
+            if (result.speaker && result.confidence !== 'low') {
+              console.log(`[MeetingCoach] 🎯 Screen identified speaker "${result.speaker}" (confidence: ${result.confidence}, app: ${result.app})`);
+
+              // Map the speaker
+              const speaker = this.speakers.get(speakerId);
+              if (speaker && speaker.isAutoDetected) {
+                speaker.name = result.speaker;
+                speaker.isAutoDetected = false;
+
+                // Also update transcript lines
+                for (const line of this.transcript) {
+                  if (line.source === 'system' && line.speaker.startsWith('Uczestnik')) {
+                    // Only update the last few lines from this speaker
+                    if (Math.abs(line.timestamp - now) < 10000) {
+                      line.speaker = result.speaker;
+                    }
+                  }
+                }
+
+                // Detect app if not already set
+                if (!this.detectedApp && result.app) {
+                  this.detectedApp = result.app;
+                }
+
+                this.emitState();
+                this.emit('meeting:speaker-identified', {
+                  speakerId,
+                  name: result.speaker,
+                  confidence: result.confidence,
+                  app: result.app,
+                });
+
+                console.log(`[MeetingCoach] Speaker ${speakerId} → "${result.speaker}" (via screen)`);
+              }
+            } else {
+              console.log(`[MeetingCoach] Screen identify: no speaker found — ${result.reason || 'unknown'}`);
+            }
+          }
+        } catch (parseErr) {
+          console.warn('[MeetingCoach] Failed to parse screen identify response:', parseErr);
+        }
+      }
+    } catch (err) {
+      console.warn('[MeetingCoach] Screen-based speaker identification error:', err);
+    } finally {
+      this.pendingScreenIdentify = false;
+    }
   }
 
   private getDefaultSystemSpeaker(): string {
