@@ -10,7 +10,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import type { KxAIConfig } from '../types';
+import type { KxAIConfig, MeetingBriefingParticipant, MeetingBriefingInfo } from '../types';
 
 interface TranscriptLine {
   timestamp: number;
@@ -47,6 +47,7 @@ interface MeetingState {
   detectedApp: string | null;
   speakers: SpeakerInfo[];
   isCoaching: boolean;
+  hasBriefing: boolean;
 }
 
 interface Props {
@@ -58,7 +59,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
   const [meetingState, setMeetingState] = useState<MeetingState>({
     active: false, meetingId: null, startTime: null,
     duration: 0, transcriptLineCount: 0, lastCoachingTip: null,
-    detectedApp: null, speakers: [], isCoaching: false,
+    detectedApp: null, speakers: [], isCoaching: false, hasBriefing: false,
   });
   const [transcriptLines, setTranscriptLines] = useState<TranscriptLine[]>([]);
   const [partialMic, setPartialMic] = useState('');
@@ -72,6 +73,21 @@ export function CoachingOverlay({ config, onBack }: Props) {
   const [editingSpeaker, setEditingSpeaker] = useState<string | null>(null);
   const [speakerNameInput, setSpeakerNameInput] = useState('');
 
+  // Briefing state
+  const [showBriefing, setShowBriefing] = useState(false);
+  const [briefingTopic, setBriefingTopic] = useState('');
+  const [briefingAgenda, setBriefingAgenda] = useState('');
+  const [briefingNotes, setBriefingNotes] = useState('');
+  const [briefingUrls, setBriefingUrls] = useState('');
+  const [briefingProjectPaths, setBriefingProjectPaths] = useState('');
+  const [briefingParticipants, setBriefingParticipants] = useState<MeetingBriefingParticipant[]>([]);
+  const [briefingLoading, setBriefingLoading] = useState(false);
+  const [briefingSaved, setBriefingSaved] = useState(false);
+  const [newParticipantName, setNewParticipantName] = useState('');
+  const [newParticipantRole, setNewParticipantRole] = useState('');
+  const [newParticipantCompany, setNewParticipantCompany] = useState('');
+  const [newParticipantNotes, setNewParticipantNotes] = useState('');
+
   const transcriptRef = useRef<HTMLDivElement>(null);
   const coachingRef = useRef<HTMLDivElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -80,9 +96,20 @@ export function CoachingOverlay({ config, onBack }: Props) {
   const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const systemProcessorRef = useRef<ScriptProcessorNode | null>(null);
 
-  // Check API key on mount
+  // Check API key on mount + load existing briefing
   useEffect(() => {
     window.kxai.hasApiKey('elevenlabs').then(setHasElevenLabsKey);
+    window.kxai.meetingGetBriefing().then((b: MeetingBriefingInfo | null) => {
+      if (b) {
+        setBriefingTopic(b.topic || '');
+        setBriefingAgenda(b.agenda || '');
+        setBriefingNotes(b.notes || '');
+        setBriefingUrls(b.urls.join('\n'));
+        setBriefingProjectPaths(b.projectPaths.join('\n'));
+        setBriefingParticipants(b.participants || []);
+        setBriefingSaved(true);
+      }
+    });
   }, []);
 
   // Wire up IPC events
@@ -288,6 +315,65 @@ export function CoachingOverlay({ config, onBack }: Props) {
     }
   };
 
+  // ──────────── Briefing Handlers ────────────
+
+  const handleAddParticipant = () => {
+    if (!newParticipantName.trim()) return;
+    setBriefingParticipants(prev => [...prev, {
+      name: newParticipantName.trim(),
+      role: newParticipantRole.trim() || undefined,
+      company: newParticipantCompany.trim() || undefined,
+      notes: newParticipantNotes.trim() || undefined,
+    }]);
+    setNewParticipantName('');
+    setNewParticipantRole('');
+    setNewParticipantCompany('');
+    setNewParticipantNotes('');
+    setBriefingSaved(false);
+  };
+
+  const handleRemoveParticipant = (index: number) => {
+    setBriefingParticipants(prev => prev.filter((_, i) => i !== index));
+    setBriefingSaved(false);
+  };
+
+  const handleSaveBriefing = async () => {
+    setBriefingLoading(true);
+    setError(null);
+    try {
+      const briefing: MeetingBriefingInfo = {
+        topic: briefingTopic.trim(),
+        agenda: briefingAgenda.trim() || undefined,
+        participants: briefingParticipants,
+        notes: briefingNotes.trim(),
+        urls: briefingUrls.split('\n').map(u => u.trim()).filter(Boolean),
+        projectPaths: briefingProjectPaths.split('\n').map(p => p.trim()).filter(Boolean),
+      };
+      const result = await window.kxai.meetingSetBriefing(briefing);
+      if (result.success) {
+        setBriefingSaved(true);
+      } else {
+        setError(result.error || 'Nie udało się zapisać briefingu');
+      }
+    } catch (err: any) {
+      setError(err.message || 'Błąd zapisu briefingu');
+    } finally {
+      setBriefingLoading(false);
+    }
+  };
+
+  const handleClearBriefing = async () => {
+    await window.kxai.meetingClearBriefing();
+    setBriefingTopic('');
+    setBriefingAgenda('');
+    setBriefingNotes('');
+    setBriefingUrls('');
+    setBriefingProjectPaths('');
+    setBriefingParticipants([]);
+    setBriefingSaved(false);
+    setShowBriefing(false);
+  };
+
   // ──────────── Format helpers ────────────
 
   const formatDuration = (seconds: number): string => {
@@ -333,6 +419,9 @@ export function CoachingOverlay({ config, onBack }: Props) {
               <span className="coaching-overlay__line-count">💬 {meetingState.transcriptLineCount}</span>
               {meetingState.isCoaching && (
                 <span className="coaching-overlay__coaching-indicator">🧠 Generuję...</span>
+              )}
+              {meetingState.hasBriefing && (
+                <span className="coaching-overlay__briefing-indicator" title="Briefing załadowany">📋</span>
               )}
             </div>
             <button className="coaching-overlay__btn coaching-overlay__btn--stop" onClick={handleStop} disabled={isStopping}>
@@ -468,11 +557,162 @@ export function CoachingOverlay({ config, onBack }: Props) {
         </div>
       )}
 
-      {/* Idle state */}
+      {/* Idle state — briefing + start */}
       {!meetingState.active && (
         <div className="coaching-overlay__idle">
+          {/* Briefing toggle */}
+          <div className="coaching-overlay__briefing-toggle">
+            <button
+              className={`coaching-overlay__btn coaching-overlay__btn--briefing ${showBriefing ? 'coaching-overlay__btn--active' : ''}`}
+              onClick={() => setShowBriefing(!showBriefing)}
+            >
+              📋 {showBriefing ? 'Ukryj briefing' : 'Pre-meeting briefing'}
+              {briefingSaved && !showBriefing && <span className="coaching-overlay__briefing-badge">✓</span>}
+            </button>
+          </div>
+
+          {/* Briefing Form */}
+          {showBriefing && (
+            <div className="coaching-overlay__briefing-form">
+              {/* Topic */}
+              <div className="coaching-overlay__briefing-field">
+                <label className="coaching-overlay__briefing-label">📌 Temat spotkania</label>
+                <input
+                  className="coaching-overlay__briefing-input"
+                  value={briefingTopic}
+                  onChange={e => { setBriefingTopic(e.target.value); setBriefingSaved(false); }}
+                  placeholder="np. Sprint review, design review, 1:1 z managerem..."
+                />
+              </div>
+
+              {/* Agenda */}
+              <div className="coaching-overlay__briefing-field">
+                <label className="coaching-overlay__briefing-label">📝 Agenda</label>
+                <textarea
+                  className="coaching-overlay__briefing-textarea"
+                  value={briefingAgenda}
+                  onChange={e => { setBriefingAgenda(e.target.value); setBriefingSaved(false); }}
+                  placeholder="Punkty do omówienia..."
+                  rows={2}
+                />
+              </div>
+
+              {/* Participants */}
+              <div className="coaching-overlay__briefing-field">
+                <label className="coaching-overlay__briefing-label">👥 Uczestnicy</label>
+                {briefingParticipants.length > 0 && (
+                  <div className="coaching-overlay__briefing-participants">
+                    {briefingParticipants.map((p, i) => (
+                      <div key={i} className="coaching-overlay__briefing-participant">
+                        <span className="coaching-overlay__briefing-participant-info">
+                          <strong>{p.name}</strong>
+                          {p.role && <span> — {p.role}</span>}
+                          {p.company && <span> ({p.company})</span>}
+                          {p.notes && <span className="coaching-overlay__briefing-participant-notes">: {p.notes}</span>}
+                        </span>
+                        <button
+                          className="coaching-overlay__briefing-remove"
+                          onClick={() => handleRemoveParticipant(i)}
+                          title="Usuń"
+                        >✗</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="coaching-overlay__briefing-add-participant">
+                  <input
+                    className="coaching-overlay__briefing-input coaching-overlay__briefing-input--small"
+                    value={newParticipantName}
+                    onChange={e => setNewParticipantName(e.target.value)}
+                    placeholder="Imię i nazwisko"
+                    onKeyDown={e => e.key === 'Enter' && handleAddParticipant()}
+                  />
+                  <input
+                    className="coaching-overlay__briefing-input coaching-overlay__briefing-input--small"
+                    value={newParticipantRole}
+                    onChange={e => setNewParticipantRole(e.target.value)}
+                    placeholder="Rola (opcjonalnie)"
+                    onKeyDown={e => e.key === 'Enter' && handleAddParticipant()}
+                  />
+                  <input
+                    className="coaching-overlay__briefing-input coaching-overlay__briefing-input--small"
+                    value={newParticipantCompany}
+                    onChange={e => setNewParticipantCompany(e.target.value)}
+                    placeholder="Firma (opcjonalnie)"
+                    onKeyDown={e => e.key === 'Enter' && handleAddParticipant()}
+                  />
+                  <input
+                    className="coaching-overlay__briefing-input coaching-overlay__briefing-input--small"
+                    value={newParticipantNotes}
+                    onChange={e => setNewParticipantNotes(e.target.value)}
+                    placeholder="Notatki (opcjonalnie)"
+                    onKeyDown={e => e.key === 'Enter' && handleAddParticipant()}
+                  />
+                  <button className="coaching-overlay__btn coaching-overlay__btn--add" onClick={handleAddParticipant}>+ Dodaj</button>
+                </div>
+              </div>
+
+              {/* Notes */}
+              <div className="coaching-overlay__briefing-field">
+                <label className="coaching-overlay__briefing-label">📄 Notatki / kontekst</label>
+                <textarea
+                  className="coaching-overlay__briefing-textarea"
+                  value={briefingNotes}
+                  onChange={e => { setBriefingNotes(e.target.value); setBriefingSaved(false); }}
+                  placeholder="Wolne notatki: co pamiętać, tło rozmowy, kluczowe fakty..."
+                  rows={3}
+                />
+              </div>
+
+              {/* URLs */}
+              <div className="coaching-overlay__briefing-field">
+                <label className="coaching-overlay__briefing-label">🌐 Strony internetowe (po jednym URL w linii)</label>
+                <textarea
+                  className="coaching-overlay__briefing-textarea"
+                  value={briefingUrls}
+                  onChange={e => { setBriefingUrls(e.target.value); setBriefingSaved(false); }}
+                  placeholder="https://github.com/org/repo&#10;https://docs.example.com/api"
+                  rows={2}
+                />
+              </div>
+
+              {/* Project paths */}
+              <div className="coaching-overlay__briefing-field">
+                <label className="coaching-overlay__briefing-label">📁 Ścieżki projektów (lokalne foldery, po jednym w linii)</label>
+                <textarea
+                  className="coaching-overlay__briefing-textarea"
+                  value={briefingProjectPaths}
+                  onChange={e => { setBriefingProjectPaths(e.target.value); setBriefingSaved(false); }}
+                  placeholder="C:\Projects\my-app&#10;/home/user/repos/backend"
+                  rows={2}
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="coaching-overlay__briefing-actions">
+                <button
+                  className="coaching-overlay__btn coaching-overlay__btn--save"
+                  onClick={handleSaveBriefing}
+                  disabled={briefingLoading}
+                >
+                  {briefingLoading ? '⏳ Przetwarzam...' : briefingSaved ? '✅ Zapisany' : '💾 Zapisz briefing'}
+                </button>
+                {briefingSaved && (
+                  <button className="coaching-overlay__btn coaching-overlay__btn--clear" onClick={handleClearBriefing}>
+                    🗑️ Wyczyść
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="coaching-overlay__idle-info">
             <p>Rozpocznij nagrywanie aby aktywować real-time coaching.</p>
+            {briefingSaved && (
+              <p style={{ fontSize: '0.75rem', color: '#4ade80', marginTop: '0.2rem' }}>
+                ✅ Briefing załadowany — coach zna kontekst spotkania
+              </p>
+            )}
             <p style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.3rem' }}>
               Agent automatycznie wykrywa pytania skierowane do Ciebie i natychmiast podpowiada co odpowiedzieć.
             </p>

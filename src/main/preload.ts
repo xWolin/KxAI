@@ -185,6 +185,9 @@ contextBridge.exposeInMainWorld('kxai', {
   meetingMapSpeaker: (speakerId: string, name: string) => {
     ipcRenderer.send('meeting:map-speaker', speakerId, name);
   },
+  meetingSetBriefing: (briefing: any) => ipcRenderer.invoke('meeting:set-briefing', briefing),
+  meetingGetBriefing: () => ipcRenderer.invoke('meeting:get-briefing'),
+  meetingClearBriefing: () => ipcRenderer.invoke('meeting:clear-briefing'),
   onMeetingState: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on('meeting:state', handler);
@@ -224,6 +227,11 @@ contextBridge.exposeInMainWorld('kxai', {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on('meeting:detected', handler);
     return () => { ipcRenderer.removeListener('meeting:detected', handler); };
+  },
+  onMeetingBriefingUpdated: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on('meeting:briefing-updated', handler);
+    return () => { ipcRenderer.removeListener('meeting:briefing-updated', handler); };
   },
 
   // Sub-agents

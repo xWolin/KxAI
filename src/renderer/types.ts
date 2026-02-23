@@ -131,6 +131,9 @@ export interface KxAIBridge {
   meetingGetDashboardUrl: () => Promise<string>;
   meetingSendAudio: (source: 'mic' | 'system', chunk: ArrayBuffer) => void;
   meetingMapSpeaker: (speakerId: string, name: string) => void;
+  meetingSetBriefing: (briefing: MeetingBriefingInfo) => Promise<{ success: boolean; error?: string }>;
+  meetingGetBriefing: () => Promise<MeetingBriefingInfo | null>;
+  meetingClearBriefing: () => Promise<{ success: boolean }>;
   onMeetingState: (callback: (state: MeetingStateInfo) => void) => (() => void);
   onMeetingTranscript: (callback: (data: any) => void) => (() => void);
   onMeetingCoaching: (callback: (tip: MeetingCoachingTip) => void) => (() => void);
@@ -139,6 +142,7 @@ export interface KxAIBridge {
   onMeetingError: (callback: (data: { error: string }) => void) => (() => void);
   onMeetingStopCapture: (callback: () => void) => (() => void);
   onMeetingDetected: (callback: (data: { app: string; title: string }) => void) => (() => void);
+  onMeetingBriefingUpdated: (callback: (briefing: MeetingBriefingInfo | null) => void) => (() => void);
 
   // Sub-agents
   subagentSpawn: (task: string, allowedTools?: string[]) => Promise<{ success: boolean; data?: { id: string }; error?: string }>;
@@ -380,6 +384,7 @@ export interface MeetingStateInfo {
   detectedApp: string | null;
   speakers: MeetingSpeakerInfo[];
   isCoaching: boolean;
+  hasBriefing: boolean;
 }
 
 export interface MeetingCoachConfig {
@@ -418,6 +423,25 @@ export interface MeetingCoachingTip {
   timestamp: number;
   tip: string;
   category: string;
+}
+
+// ──────────────── Meeting Briefing ────────────────
+export interface MeetingBriefingParticipant {
+  name: string;
+  role?: string;
+  company?: string;
+  notes?: string;
+}
+
+export interface MeetingBriefingInfo {
+  topic: string;
+  agenda?: string;
+  participants: MeetingBriefingParticipant[];
+  notes: string;
+  urls: string[];
+  projectPaths: string[];
+  urlContents?: Array<{ url: string; content: string; error?: string }>;
+  ragIndexed?: boolean;
 }
 
 // ──────────────── Sub-agents ────────────────

@@ -78,6 +78,25 @@ export interface SpeakerInfo {
   isAutoDetected: boolean;
 }
 
+export interface MeetingBriefingParticipant {
+  name: string;
+  role?: string;        // e.g. "Tech Lead", "Product Owner"
+  company?: string;
+  notes?: string;       // co o nim wiedzieć
+}
+
+export interface MeetingBriefing {
+  topic: string;
+  agenda?: string;
+  participants: MeetingBriefingParticipant[];
+  notes: string;         // free-form notes / context
+  urls: string[];        // URLs to fetch content from
+  projectPaths: string[]; // local/remote paths to RAG-index
+  // Populated after processing
+  urlContents?: Array<{ url: string; content: string; error?: string }>;
+  ragIndexed?: boolean;
+}
+
 export interface MeetingSummary {
   id: string;
   title: string;
@@ -92,6 +111,7 @@ export interface MeetingSummary {
   participants: string[];
   speakers: SpeakerInfo[];
   detectedApp?: string;
+  briefing?: MeetingBriefing;
 }
 
 export interface MeetingState {
@@ -104,6 +124,7 @@ export interface MeetingState {
   detectedApp: string | null;
   speakers: SpeakerInfo[];
   isCoaching: boolean;
+  hasBriefing: boolean;
 }
 
 // Window title patterns for meeting detection
@@ -186,6 +207,9 @@ export class MeetingCoachService extends EventEmitter {
 
   // Meeting detection
   private detectionInterval: ReturnType<typeof setInterval> | null = null;
+
+  // Pre-meeting briefing
+  private briefing: MeetingBriefing | null = null;
 
   constructor(
     transcriptionService: TranscriptionService,
@@ -334,6 +358,95 @@ export class MeetingCoachService extends EventEmitter {
     this.emitState();
   }
 
+  /**
+   * Set pre-meeting briefing context.
+   * Automatically fetches URL contents and indexes project paths via RAG.
+   */
+  async setBriefing(briefing: MeetingBriefing): Promise<void> {
+    this.briefing = { ...briefing, urlContents: [], ragIndexed: false };
+
+    console.log(`[MeetingCoach] Briefing set: topic="${briefing.topic}", ${briefing.participants.length} participants, ${briefing.urls.length} URLs, ${briefing.projectPaths.length} project paths`);
+
+    // Fetch URL contents in parallel
+    if (briefing.urls.length > 0) {
+      console.log(`[MeetingCoach] Fetching ${briefing.urls.length} URLs...`);
+      const urlResults = await Promise.allSettled(
+        briefing.urls.map(url => this.fetchUrlContent(url)),
+      );
+      this.briefing.urlContents = urlResults.map((result, i) => {
+        if (result.status === 'fulfilled') {
+          return { url: briefing.urls[i], content: result.value };
+        } else {
+          console.warn(`[MeetingCoach] Failed to fetch ${briefing.urls[i]}:`, result.reason);
+          return { url: briefing.urls[i], content: '', error: String(result.reason) };
+        }
+      });
+      console.log(`[MeetingCoach] Fetched ${this.briefing.urlContents.filter(u => !u.error).length}/${briefing.urls.length} URLs`);
+    }
+
+    // Index project paths via RAG
+    if (briefing.projectPaths.length > 0 && this.ragService) {
+      console.log(`[MeetingCoach] Indexing ${briefing.projectPaths.length} project paths via RAG...`);
+      for (const projPath of briefing.projectPaths) {
+        try {
+          await this.ragService.addFolder(projPath);
+        } catch (err) {
+          console.warn(`[MeetingCoach] Failed to index ${projPath}:`, err);
+        }
+      }
+      this.briefing.ragIndexed = true;
+      console.log('[MeetingCoach] RAG indexing complete');
+    }
+
+    this.emit('meeting:briefing-updated', this.getBriefing());
+  }
+
+  getBriefing(): MeetingBriefing | null {
+    return this.briefing ? { ...this.briefing } : null;
+  }
+
+  clearBriefing(): void {
+    this.briefing = null;
+    this.emit('meeting:briefing-updated', null);
+  }
+
+  /**
+   * Fetch text content from a URL for briefing context.
+   */
+  private async fetchUrlContent(url: string): Promise<string> {
+    const https = await import('https');
+    const http = await import('http');
+    const mod = url.startsWith('https') ? https : http;
+
+    return new Promise((resolve, reject) => {
+      const req = mod.get(url, { timeout: 10000, headers: { 'User-Agent': 'KxAI-MeetingCoach/1.0' } }, (res) => {
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          this.fetchUrlContent(res.headers.location).then(resolve).catch(reject);
+          return;
+        }
+        if (res.statusCode && res.statusCode >= 400) {
+          reject(new Error(`HTTP ${res.statusCode}`));
+          return;
+        }
+        let data = '';
+        res.on('data', (chunk: string) => { data += chunk; });
+        res.on('end', () => {
+          // Strip HTML tags for cleaner text
+          const text = data
+            .replace(/<script[\s\S]*?<\/script>/gi, '')
+            .replace(/<style[\s\S]*?<\/style>/gi, '')
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim()
+            .substring(0, 5000); // Limit to 5000 chars per URL
+          resolve(text);
+        });
+      });
+      req.on('error', reject);
+      req.on('timeout', () => { req.destroy(); reject(new Error('Timeout')); });
+    });
+  }
+
   getState(): MeetingState {
     return {
       active: this.meetingId !== null,
@@ -347,6 +460,7 @@ export class MeetingCoachService extends EventEmitter {
       detectedApp: this.detectedApp,
       speakers: Array.from(this.speakers.values()),
       isCoaching: this.isCoaching,
+      hasBriefing: this.briefing !== null,
     };
   }
 
@@ -643,6 +757,48 @@ UCZESTNICY SPOTKANIA:
 ${speakerList || '- Inni uczestnicy'}
 `;
 
+    // ═══════ BRIEFING CONTEXT INJECTION ═══════
+    if (this.briefing) {
+      prompt += `\n--- PRE-MEETING BRIEFING ---\n`;
+
+      if (this.briefing.topic) {
+        prompt += `TEMAT SPOTKANIA: ${this.briefing.topic}\n`;
+      }
+
+      if (this.briefing.agenda) {
+        prompt += `AGENDA: ${this.briefing.agenda}\n`;
+      }
+
+      if (this.briefing.participants.length > 0) {
+        prompt += `\nINFORMACJE O UCZESTNIKACH:\n`;
+        for (const p of this.briefing.participants) {
+          let desc = `- ${p.name}`;
+          if (p.role) desc += ` — ${p.role}`;
+          if (p.company) desc += ` (${p.company})`;
+          if (p.notes) desc += `: ${p.notes}`;
+          prompt += desc + '\n';
+        }
+      }
+
+      if (this.briefing.notes) {
+        prompt += `\nNOTATKI PRE-MEETING:\n${this.briefing.notes}\n`;
+      }
+
+      if (this.briefing.urlContents && this.briefing.urlContents.length > 0) {
+        const validUrls = this.briefing.urlContents.filter(u => u.content && !u.error);
+        if (validUrls.length > 0) {
+          prompt += `\nKONTEKST ZE STRON INTERNETOWYCH:\n`;
+          for (const u of validUrls) {
+            // Limit each URL to 1500 chars in prompt to avoid bloat
+            const trimmed = u.content.substring(0, 1500);
+            prompt += `[${u.url}]: ${trimmed}\n\n`;
+          }
+        }
+      }
+
+      prompt += `--- KONIEC BRIEFINGU ---\n\n`;
+    }
+
     if (ragContext) {
       prompt += `
 KONTEKST PROJEKTU (z bazy wiedzy):
@@ -741,12 +897,23 @@ Bądź rzeczowy i konkretny. Max 3-4 zdania.`;
           .map(s => `- ${s.name}: ${s.utteranceCount} wypowiedzi`)
           .join('\n');
 
+        let briefingContext = '';
+        if (this.briefing) {
+          briefingContext = `\nBRIEFING PRE-MEETING:\n`;
+          if (this.briefing.topic) briefingContext += `Temat: ${this.briefing.topic}\n`;
+          if (this.briefing.agenda) briefingContext += `Agenda: ${this.briefing.agenda}\n`;
+          if (this.briefing.participants.length > 0) {
+            briefingContext += `Uczestnicy: ${this.briefing.participants.map(p => `${p.name}${p.role ? ` (${p.role})` : ''}`).join(', ')}\n`;
+          }
+          if (this.briefing.notes) briefingContext += `Notatki: ${this.briefing.notes}\n`;
+        }
+
         const prompt = `Wygeneruj profesjonalne podsumowanie spotkania.
 
 UCZESTNICY:
 - Ja (użytkownik)
 ${speakerDesc}
-
+${briefingContext}
 TRANSKRYPCJA:
 ${fullTranscript}
 
@@ -793,6 +960,7 @@ Odpowiedz TYLKO JSON-em bez markdown:
       participants,
       speakers: speakersArray,
       detectedApp: this.detectedApp || undefined,
+      briefing: this.briefing || undefined,
     };
 
     await this.saveSummary(summary);

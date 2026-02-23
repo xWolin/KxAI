@@ -754,7 +754,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     const meetingDashboard = services.dashboardServer;
 
     // Forward meeting events to renderer
-    const meetingEvents = ['meeting:state', 'meeting:transcript', 'meeting:coaching', 'meeting:coaching-chunk', 'meeting:coaching-done', 'meeting:error', 'meeting:stop-capture', 'meeting:detected'];
+    const meetingEvents = ['meeting:state', 'meeting:transcript', 'meeting:coaching', 'meeting:coaching-chunk', 'meeting:coaching-done', 'meeting:error', 'meeting:stop-capture', 'meeting:detected', 'meeting:briefing-updated'];
     for (const event of meetingEvents) {
       meetingCoach.on(event, (data: any) => {
         safeSend(event, data);
@@ -815,6 +815,25 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     // Speaker mapping (non-invoke, fire-and-forget)
     ipcMain.on('meeting:map-speaker', (_event, speakerId: string, name: string) => {
       meetingCoach.mapSpeaker(speakerId, name);
+    });
+
+    // Briefing
+    ipcMain.handle('meeting:set-briefing', async (_event, briefing: any) => {
+      try {
+        await meetingCoach.setBriefing(briefing);
+        return { success: true };
+      } catch (err: any) {
+        return { success: false, error: err.message };
+      }
+    });
+
+    ipcMain.handle('meeting:get-briefing', async () => {
+      return meetingCoach.getBriefing();
+    });
+
+    ipcMain.handle('meeting:clear-briefing', async () => {
+      meetingCoach.clearBriefing();
+      return { success: true };
     });
   }
 
