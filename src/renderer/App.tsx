@@ -133,8 +133,8 @@ export default function App() {
 
   return (
     <div className={`app-container${view === 'widget' ? ' app-container--transparent' : ''}`}>
-      {/* Proactive notifications */}
-      {proactiveMessages.map((msg) => (
+      {/* Proactive notifications — hide during active meeting (compact bar mode) */}
+      {!meetingActive && proactiveMessages.map((msg) => (
         <ProactiveNotification
           key={msg.id}
           message={msg}

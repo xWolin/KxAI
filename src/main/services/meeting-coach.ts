@@ -113,6 +113,8 @@ export interface MeetingSummary {
   speakers: SpeakerInfo[];
   detectedApp?: string;
   briefing?: MeetingBriefing;
+  sentiment?: string;
+  diarized?: boolean;
 }
 
 export interface MeetingState {
@@ -219,6 +221,11 @@ export class MeetingCoachService extends EventEmitter {
   private readonly SCREEN_IDENTIFY_COOLDOWN = 8000; // Min 8s between screen captures for speaker ID
   private pendingScreenIdentify = false;
 
+  // PCM audio recording for post-meeting batch diarization
+  private systemAudioChunks: Buffer[] = [];
+  private micAudioChunks: Buffer[] = [];
+  private recordingActive = false;
+
   constructor(
     transcriptionService: TranscriptionService,
     aiService: AIService,
@@ -283,6 +290,9 @@ export class MeetingCoachService extends EventEmitter {
     this.lastCoachingTime = 0;
     this.recentSystemUtterances = [];
     this.recentMicUtterances = [];
+    this.systemAudioChunks = [];
+    this.micAudioChunks = [];
+    this.recordingActive = true;
 
     console.log(`[MeetingCoach] Starting meeting ${this.meetingId}: ${title || 'Untitled'}`);
 
@@ -328,9 +338,20 @@ export class MeetingCoachService extends EventEmitter {
     // Give renderer ~200ms to actually stop sending chunks
     await new Promise(r => setTimeout(r, 200));
 
+    this.recordingActive = false;
+
     await this.transcriptionService.stopAll();
 
     const summary = await this.generateSummary(meetingId);
+
+    // Run batch diarization in background — updates saved summary with speaker labels
+    this.runBatchDiarization(meetingId, summary).catch(err => {
+      console.error('[MeetingCoach] Batch diarization failed:', err);
+    });
+
+    // Free PCM buffers
+    this.systemAudioChunks = [];
+    this.micAudioChunks = [];
 
     this.meetingId = null;
     this.meetingStartTime = null;
@@ -351,6 +372,15 @@ export class MeetingCoachService extends EventEmitter {
     if (!this.meetingId) return;
     const sessionId = `${this.meetingId}-${source}`;
     this.transcriptionService.sendAudioChunk(sessionId, chunk);
+
+    // Record PCM for post-meeting batch diarization
+    if (this.recordingActive) {
+      if (source === 'system') {
+        this.systemAudioChunks.push(Buffer.from(chunk));
+      } else {
+        this.micAudioChunks.push(Buffer.from(chunk));
+      }
+    }
   }
 
   /**
@@ -1146,5 +1176,281 @@ Odpowiedz TYLKO JSON-em bez markdown:
 
   private emitState(): void {
     this.emit('meeting:state', this.getState());
+  }
+
+  // ──────────────── Batch Diarization ────────────────
+
+  /**
+   * Build a WAV file from raw PCM 16-bit 16kHz mono chunks.
+   * Mixes system + mic channels into a single mono stream.
+   */
+  private buildWavBuffer(systemChunks: Buffer[], micChunks: Buffer[]): Buffer {
+    // Determine total length from the longer channel
+    const systemTotal = systemChunks.reduce((sum, c) => sum + c.length, 0);
+    const micTotal = micChunks.reduce((sum, c) => sum + c.length, 0);
+    const totalBytes = Math.max(systemTotal, micTotal);
+
+    if (totalBytes === 0) throw new Error('No audio data recorded');
+
+    // Flatten chunks
+    const systemBuf = Buffer.concat(systemChunks);
+    const micBuf = Buffer.concat(micChunks);
+
+    // Mix both channels (average as int16) into mono
+    const numSamples = Math.floor(totalBytes / 2);
+    const mixed = Buffer.alloc(numSamples * 2);
+
+    for (let i = 0; i < numSamples; i++) {
+      const offset = i * 2;
+      const sysSample = offset + 1 < systemBuf.length ? systemBuf.readInt16LE(offset) : 0;
+      const micSample = offset + 1 < micBuf.length ? micBuf.readInt16LE(offset) : 0;
+      // Mix: clamp to int16 range
+      const sum = sysSample + micSample;
+      const clamped = Math.max(-32768, Math.min(32767, sum));
+      mixed.writeInt16LE(clamped, offset);
+    }
+
+    // WAV header (44 bytes)
+    const sampleRate = 16000;
+    const numChannels = 1;
+    const bitsPerSample = 16;
+    const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+    const blockAlign = numChannels * (bitsPerSample / 8);
+    const dataSize = mixed.length;
+
+    const header = Buffer.alloc(44);
+    header.write('RIFF', 0);
+    header.writeUInt32LE(36 + dataSize, 4);
+    header.write('WAVE', 8);
+    header.write('fmt ', 12);
+    header.writeUInt32LE(16, 16);        // subchunk1 size
+    header.writeUInt16LE(1, 20);         // PCM format
+    header.writeUInt16LE(numChannels, 22);
+    header.writeUInt32LE(sampleRate, 24);
+    header.writeUInt32LE(byteRate, 28);
+    header.writeUInt16LE(blockAlign, 32);
+    header.writeUInt16LE(bitsPerSample, 34);
+    header.write('data', 36);
+    header.writeUInt32LE(dataSize, 40);
+
+    return Buffer.concat([header, mixed]);
+  }
+
+  /**
+   * Run post-meeting batch diarization via ElevenLabs Scribe v2 (non-realtime).
+   * Sends recorded audio as WAV → gets back transcript with speaker_id per word.
+   * Updates the saved summary JSON with diarized transcript.
+   */
+  private async runBatchDiarization(meetingId: string, summary: MeetingSummary): Promise<void> {
+    if (this.systemAudioChunks.length === 0 && this.micAudioChunks.length === 0) {
+      console.log('[MeetingCoach] No audio recorded — skipping batch diarization');
+      return;
+    }
+
+    const apiKey = await this.securityService.getApiKey('elevenlabs');
+    if (!apiKey) {
+      console.warn('[MeetingCoach] No ElevenLabs key — skipping batch diarization');
+      return;
+    }
+
+    console.log(`[MeetingCoach] Starting batch diarization for meeting ${meetingId}...`);
+    const startTime = Date.now();
+
+    try {
+      const wavBuffer = this.buildWavBuffer(this.systemAudioChunks, this.micAudioChunks);
+      console.log(`[MeetingCoach] WAV built: ${(wavBuffer.length / 1024 / 1024).toFixed(1)} MB`);
+
+      // Multipart form POST to ElevenLabs STT using Node.js built-in fetch
+      const wavBlob = new Blob([wavBuffer.buffer.slice(wavBuffer.byteOffset, wavBuffer.byteOffset + wavBuffer.byteLength)] as BlobPart[], { type: 'audio/wav' });
+
+      const formData = new FormData();
+      formData.append('model_id', 'scribe_v2');
+      formData.append('file', wavBlob, 'meeting.wav');
+      formData.append('language_code', this.config.language || 'pl');
+      formData.append('diarize', 'true');
+      formData.append('tag_audio_events', 'false');
+      formData.append('timestamps_granularity', 'word');
+
+      // Determine max speakers from briefing if available
+      const expectedSpeakers = (this.briefing?.participants?.length || 0) + 1; // +1 for user
+      if (expectedSpeakers >= 2 && expectedSpeakers <= 32) {
+        formData.append('num_speakers', String(expectedSpeakers));
+      }
+
+      const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+        method: 'POST',
+        headers: {
+          'xi-api-key': apiKey,
+        },
+        body: formData,
+        signal: AbortSignal.timeout(300000), // 5 min timeout
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`STT batch API ${response.status}: ${errorText.substring(0, 500)}`);
+      }
+
+      const result = await response.json() as any;
+      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`[MeetingCoach] Batch diarization completed in ${elapsedSec}s`);
+
+      if (!result.words || result.words.length === 0) {
+        console.warn('[MeetingCoach] Batch diarization returned no words');
+        return;
+      }
+
+      // Parse diarized words into transcript lines grouped by speaker
+      const diarizedLines: TranscriptLine[] = [];
+      let currentSpeaker = '';
+      let currentText = '';
+      let currentTimestamp = summary.startTime;
+
+      for (const word of result.words) {
+        if (word.type !== 'word') continue;
+        const speaker = word.speaker_id || 'unknown';
+
+        if (speaker !== currentSpeaker && currentText.trim()) {
+          diarizedLines.push({
+            timestamp: currentTimestamp,
+            speaker: this.formatSpeakerId(currentSpeaker),
+            text: currentText.trim(),
+            source: 'system',
+          });
+          currentText = '';
+          currentTimestamp = summary.startTime + Math.round((word.start || 0) * 1000);
+        }
+        currentSpeaker = speaker;
+        currentText += word.text;
+      }
+      // Push last segment
+      if (currentText.trim()) {
+        diarizedLines.push({
+          timestamp: currentTimestamp,
+          speaker: this.formatSpeakerId(currentSpeaker),
+          text: currentText.trim(),
+          source: 'system',
+        });
+      }
+
+      if (diarizedLines.length === 0) {
+        console.warn('[MeetingCoach] Diarization produced no lines');
+        return;
+      }
+
+      // Build speaker map from diarized results
+      const speakerMap = new Map<string, SpeakerInfo>();
+      for (const line of diarizedLines) {
+        const existing = speakerMap.get(line.speaker);
+        if (existing) {
+          existing.utteranceCount++;
+          existing.lastSeen = line.timestamp;
+        } else {
+          speakerMap.set(line.speaker, {
+            id: line.speaker,
+            name: line.speaker,
+            source: 'system',
+            utteranceCount: 1,
+            lastSeen: line.timestamp,
+            isAutoDetected: true,
+          });
+        }
+      }
+
+      // Try to match briefing participant names to speaker IDs by utterance count
+      if (this.briefing?.participants && this.briefing.participants.length > 0) {
+        const sortedSpeakers = Array.from(speakerMap.values())
+          .filter(s => s.id !== 'Ja')
+          .sort((a, b) => b.utteranceCount - a.utteranceCount);
+        for (let i = 0; i < Math.min(this.briefing.participants.length, sortedSpeakers.length); i++) {
+          sortedSpeakers[i].name = this.briefing.participants[i].name;
+        }
+        // Update transcript lines with actual names
+        for (const line of diarizedLines) {
+          const speaker = speakerMap.get(line.speaker);
+          if (speaker && speaker.name !== line.speaker) {
+            line.speaker = speaker.name;
+          }
+        }
+      }
+
+      // Update summary with diarized data
+      summary.transcript = diarizedLines;
+      summary.participants = [...new Set(diarizedLines.map(l => l.speaker))];
+      summary.speakers = Array.from(speakerMap.values());
+
+      // Re-generate AI summary with diarized transcript for better quality
+      console.log(`[MeetingCoach] Re-generating summary with diarized transcript (${diarizedLines.length} lines, ${speakerMap.size} speakers)`);
+      try {
+        const fullTranscript = diarizedLines
+          .map(l => `[${new Date(l.timestamp).toLocaleTimeString('pl')}] ${l.speaker}: ${l.text}`)
+          .join('\n');
+
+        const speakerDesc = Array.from(speakerMap.values())
+          .map(s => `- ${s.name}: ${s.utteranceCount} wypowiedzi`)
+          .join('\n');
+
+        let briefingContext = '';
+        if (this.briefing) {
+          if (this.briefing.topic) briefingContext += `Temat: ${this.briefing.topic}\n`;
+          if (this.briefing.agenda) briefingContext += `Agenda: ${this.briefing.agenda}\n`;
+        }
+
+        const prompt = `Wygeneruj profesjonalne podsumowanie spotkania na podstawie diaryzowanej transkrypcji (rozdzieleni mówcy).
+
+UCZESTNICY:
+${speakerDesc}
+${briefingContext}
+TRANSKRYPCJA (z rozpoznanymi mówcami):
+${fullTranscript}
+
+Odpowiedz TYLKO JSON-em bez markdown:
+{
+  "summary": "Ogólne podsumowanie — kto o czym mówił, jakie wnioski (3-4 zdania)",
+  "keyPoints": ["punkt 1", "punkt 2"],
+  "actionItems": ["zadanie 1 (kto: osoba)", "zadanie 2 (kto: osoba)"],
+  "sentiment": "ogólna ocena atmosfery spotkania (1 zdanie)"
+}`;
+
+        const aiResponse = await this.aiService.sendMessage(prompt);
+        if (aiResponse) {
+          const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const parsed = JSON.parse(jsonMatch[0]);
+            summary.summary = parsed.summary || summary.summary;
+            summary.keyPoints = parsed.keyPoints || summary.keyPoints;
+            summary.actionItems = parsed.actionItems || summary.actionItems;
+            if (parsed.sentiment) summary.sentiment = parsed.sentiment;
+          }
+        }
+      } catch (err) {
+        console.error('[MeetingCoach] Re-summary with diarized transcript failed:', err);
+      }
+
+      summary.diarized = true;
+
+      // Save updated summary
+      await this.saveSummary(summary);
+      console.log(`[MeetingCoach] Summary updated with diarized transcript`);
+
+      // Notify dashboard
+      this.emit('meeting:diarized', { meetingId, speakers: Array.from(speakerMap.values()).map(s => s.name) });
+
+    } catch (err) {
+      console.error('[MeetingCoach] Batch diarization error:', err);
+    }
+  }
+
+  /**
+   * Format speaker_id from ElevenLabs (e.g. "speaker_0") into readable label.
+   */
+  private formatSpeakerId(speakerId: string): string {
+    if (!speakerId || speakerId === 'unknown') return 'Uczestnik';
+    // "speaker_0" → "Mówca 1", "speaker_1" → "Mówca 2", etc.
+    const match = speakerId.match(/speaker_(\d+)/);
+    if (match) {
+      return `Mówca ${parseInt(match[1], 10) + 1}`;
+    }
+    return speakerId;
   }
 }

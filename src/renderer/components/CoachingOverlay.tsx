@@ -55,9 +55,9 @@ interface Props {
 }
 
 // Compact coaching bar dimensions
-const COACHING_BAR_WIDTH = 520;
-const COACHING_BAR_HEIGHT = 180;
-const COACHING_BAR_EXPANDED_HEIGHT = 380;
+const COACHING_BAR_WIDTH = 420;
+const COACHING_BAR_HEIGHT = 140;
+const COACHING_BAR_EXPANDED_HEIGHT = 340;
 
 export function CoachingOverlay({ config, onBack }: Props) {
   const [meetingState, setMeetingState] = useState<MeetingState>({
@@ -128,7 +128,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
     cleanups.push(window.kxai.onMeetingTranscript((data: any) => {
       if (!data.partial && data.line) {
-        setRecentLines(prev => [...prev.slice(-2), data.line]);
+        setRecentLines(prev => [...prev.slice(-4), data.line]);
       }
     }));
 

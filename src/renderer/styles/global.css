@@ -2168,7 +2168,7 @@ html, body, #root {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: 6px 10px;
   background: rgba(22, 27, 34, 0.9);
   border-bottom: 1px solid #21262d;
   -webkit-app-region: drag;
@@ -2264,7 +2264,7 @@ html, body, #root {
 
 .coaching-bar__tip-area {
   flex: 1;
-  padding: 8px 12px;
+  padding: 6px 12px;
   overflow-y: auto;
   min-height: 0;
 }
@@ -2300,11 +2300,12 @@ html, body, #root {
 }
 
 .coaching-bar__tip-text {
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.45;
   color: #e6edf3;
-  max-height: 80px;
+  max-height: 60px;
   overflow-y: auto;
+  word-break: break-word;
 }
 
 .coaching-bar__tip-text--streaming {
@@ -2345,9 +2346,10 @@ html, body, #root {
 /* Expanded section */
 .coaching-bar__expanded {
   border-top: 1px solid #21262d;
-  padding: 8px 12px;
+  padding: 6px 10px;
   overflow-y: auto;
-  max-height: 200px;
+  flex: 1;
+  min-height: 0;
 }
 
 .coaching-bar__section-label {
@@ -2359,10 +2361,11 @@ html, body, #root {
 }
 
 .coaching-bar__recent-line {
-  font-size: 12px;
+  font-size: 11px;
   padding: 2px 0;
   display: flex;
   gap: 6px;
+  line-height: 1.35;
 }
 
 .coaching-bar__speaker {

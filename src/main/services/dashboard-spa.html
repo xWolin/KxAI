@@ -64,6 +64,7 @@
     .badge--yellow { background: rgba(210,153,34,0.15); color: var(--warning); }
     .badge--red { background: rgba(248,81,73,0.15); color: var(--danger); }
     .badge--purple { background: rgba(188,140,255,0.15); color: var(--purple); }
+    .badge--dim { background: rgba(139,148,158,0.1); color: var(--text-dim); }
 
     .progress-bar { height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden; }
     .progress-bar__fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
@@ -165,6 +166,8 @@
   var $$ = function(s, p) { return Array.from((p || document).querySelectorAll(s)); };
   var API = '';
   var currentPage = 'overview';
+  // Expose to window for onclick handlers in dynamically generated HTML
+  window._dashNav = function(page) { currentPage = page; loadPage(page); };
   var wsConn = null;
   var agentStatus = { state: 'idle' };
   var liveMeetingState = null;
@@ -490,7 +493,7 @@
                 '💬 ' + (liveMeetingState.transcriptLineCount || liveTranscript.length) + ' linii transkrypcji · ' +
                 '💡 ' + liveCoachingTips.length + ' sugestii' +
               '</div>' +
-              '<button onclick="currentPage=\'meeting-live\';loadPage(\'meeting-live\')" style="background:rgba(88,166,255,0.12);color:var(--accent);border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">📡 Podgląd live →</button>' +
+              '<button onclick="_dashNav(\'meeting-live\')" style="background:rgba(88,166,255,0.12);color:var(--accent);border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">📡 Podgląd live →</button>' +
             '</div>' +
           '</div>';
       }
@@ -506,7 +509,7 @@
         var dateStr = new Date(m.startTime).toLocaleDateString('pl', { day: '2-digit', month: '2-digit', year: 'numeric' });
         var timeStr = new Date(m.startTime).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' });
         var hasSummary = m.summary && m.summary.length > 10;
-        return '<tr style="cursor:pointer" onclick="currentPage=\'meeting/' + m.id + '\';loadPage(\'meeting/' + m.id + '\')">' +
+        return '<tr style="cursor:pointer" onclick="_dashNav(\'meeting/' + m.id + '\')">'  +
           '<td><strong style="color:var(--accent)">' + escapeHtml(m.title) + '</strong></td>' +
           '<td>' + dateStr + ' ' + timeStr + '</td>' +
           '<td>' + durationStr + '</td>' +
@@ -534,7 +537,7 @@
       var timeEnd = new Date(m.endTime).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit' });
 
       // Header
-      var html = '<div style="margin-bottom:8px"><button onclick="currentPage=\'meetings\';loadPage(\'meetings\')" style="background:transparent;color:var(--accent);border:none;cursor:pointer;font-size:13px;padding:4px 0">← Powrót do listy</button></div>';
+      var html = '<div style="margin-bottom:8px"><button onclick="_dashNav(\'meetings\')" style="background:transparent;color:var(--accent);border:none;cursor:pointer;font-size:13px;padding:4px 0">← Powrót do listy</button></div>';
 
       html += '<div class="card" style="border-color:var(--accent)">' +
         '<div style="display:flex;justify-content:space-between;align-items:flex-start">' +
@@ -545,8 +548,17 @@
             '</div>' +
           '</div>' +
           (m.detectedApp ? '<span class="badge badge--blue">' + escapeHtml(m.detectedApp) + '</span>' : '') +
+          (m.diarized ? '<span class="badge badge--green">✓ Diaryzacja</span>' : '<span class="badge badge--dim">⏳ Bez diaryzacji</span>') +
         '</div>' +
       '</div>';
+
+      // Sentiment
+      if (m.sentiment) {
+        html += '<div class="card" style="border-left:3px solid #bc8cff">' +
+          '<div class="card__title"><span class="icon">🎭</span> Atmosfera spotkania</div>' +
+          '<p style="font-size:14px;line-height:1.6;color:var(--text);margin:0;font-style:italic">' + escapeHtml(m.sentiment) + '</p>' +
+        '</div>';
+      }
 
       // Summary
       if (m.summary) {
@@ -667,11 +679,11 @@
 
   function renderMeetingLive(el) {
     if (!liveMeetingState || !liveMeetingState.active) {
-      el.innerHTML = '<div class="empty"><div class="empty__icon">🎙️</div>Brak aktywnego spotkania<br><button onclick="currentPage=\'meetings\';loadPage(\'meetings\')" style="margin-top:12px;background:rgba(88,166,255,0.12);color:var(--accent);border:none;border-radius:6px;padding:8px 16px;cursor:pointer">← Powrót do spotkań</button></div>';
+      el.innerHTML = '<div class="empty"><div class="empty__icon">🎙️</div>Brak aktywnego spotkania<br><button onclick="_dashNav(\'meetings\')" style="margin-top:12px;background:rgba(88,166,255,0.12);color:var(--accent);border:none;border-radius:6px;padding:8px 16px;cursor:pointer">← Powrót do spotkań</button></div>';
       return;
     }
 
-    var html = '<div style="margin-bottom:8px"><button onclick="currentPage=\'meetings\';loadPage(\'meetings\')" style="background:transparent;color:var(--accent);border:none;cursor:pointer;font-size:13px;padding:4px 0">← Powrót do listy</button></div>';
+    var html = '<div style="margin-bottom:8px"><button onclick="_dashNav(\'meetings\')" style="background:transparent;color:var(--accent);border:none;cursor:pointer;font-size:13px;padding:4px 0">← Powrót do listy</button></div>';
 
     // Live status
     html += '<div class="card" style="border-color:#f85149">' +
