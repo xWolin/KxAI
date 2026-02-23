@@ -9,6 +9,7 @@ import { RAGService } from './rag-service';
 import { AutomationService } from './automation-service';
 import { SystemMonitor } from './system-monitor';
 import { ScreenCaptureService, ComputerUseScreenshot } from './screen-capture';
+import { PromptService } from './prompt-service';
 
 /**
  * AgentLoop orchestrates the full agent lifecycle:
@@ -32,6 +33,7 @@ export class AgentLoop {
   private screenCapture?: ScreenCaptureService;
   private screenMonitor?: import('./screen-monitor').ScreenMonitorService;
   private systemMonitor: SystemMonitor;
+  private promptService: PromptService;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private takeControlActive = false;
   private takeControlAbort = false;
@@ -80,6 +82,7 @@ export class AgentLoop {
     this.memory = memory;
     this.config = config;
     this.systemMonitor = new SystemMonitor();
+    this.promptService = new PromptService();
 
     // Wire cron executor to agent
     this.cron.setExecutor(async (job: CronJob) => {
@@ -419,15 +422,7 @@ export class AgentLoop {
 
     const prompt = `[HEARTBEAT — Obserwacja]\n\n${timeCtx}\n\nAktywne cron joby:\n${jobsSummary || '(brak)'}${heartbeatSection}${observationCtx}${screenSection}
 
-## Zasady obserwacji:
-1. PAMIĘTAJ poprzednie obserwacje (powyżej). NIE powtarzaj tego co już powiedziałeś.
-2. Jeśli użytkownik robi TO SAMO co wcześniej (np. ogląda ten sam film, koduje w tym samym pliku):
-   - NIE opisuj ponownie co robi — wiesz to z historii obserwacji
-   - Zamiast tego: zapytaj ile jeszcze planuje, zaproponuj pomoc, zaproponuj coś do zrobienia w tle, albo odpowiedz HEARTBEAT_OK
-3. Reaguj tylko na ZMIANY — nowe okno, nowa aktywność, zmiana kontekstu.
-4. Bądź jak prawdziwy asystent: zapytaj o plany, zaproponuj konkretną pomoc, zaoferuj coś pożytecznego.
-5. Jeśli nie masz nic NOWEGO i wartościowego do powiedzenia — odpowiedz "HEARTBEAT_OK".
-6. Nie opisuj za każdym razem co widzisz na ekranie — to nudne i powtarzalne.`;
+${this.promptService.load('HEARTBEAT.md')}`;
 
     try {
       const response = await this.ai.sendMessage(prompt, undefined, undefined, { skipHistory: true });
@@ -895,67 +890,9 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       ? `\n## Desktop Automation\nMasz możliwość przejęcia sterowania pulpitem użytkownika (myszka + klawiatura) w trybie autonomicznym.\nAby to zrobić, MUSISZ użyć bloku \`\`\`take_control (patrz instrukcje niżej).\nNIE próbuj sterować komputerem za pomocą narzędzi (mouse_click, keyboard_type itp.) w normalnym czacie — one działają TYLKO w trybie take_control.\n`
       : '';
 
-    const browserGuidance = `
-## 🌐 Przeglądarka i Internet — PRIORYTET
-Kiedy użytkownik prosi o wyszukanie czegoś w internecie, sprawdzenie strony, otwarcie URL, przeglądanie stron:
-- ZAWSZE używaj narzędzi browser: browser_launch → browser_navigate → browser_snapshot → browser_click/type
-- Możesz też użyć web_search (DuckDuckGo API) lub fetch_url do prostego pobrania treści
-- NIGDY nie używaj take_control do zadań internetowych — przeglądarka jest od tego!
-- Workflow: browser_launch → browser_navigate(url) → browser_snapshot (żeby zobaczyć stronę) → interakcja
-
-Tryb take_control jest TYLKO do zadań wymagających kontroli nad pulpitem/innymi aplikacjami,
-których NIE da się wykonać narzędziami browser (np. sterowanie Photoshopem, plik managerem, itd.).
-`;
-
-    const cronInstructions = `
-## Tworzenie Cron Jobów
-Możesz zasugerować nowy cron job odpowiadając blokiem:
-\`\`\`cron
-{"name": "Nazwa joba", "schedule": "30m", "action": "Co agent ma robić", "category": "routine"}
-\`\`\`
-Dozwolone schedule: "30s", "5m", "1h", "every 30 minutes", lub cron expression "*/5 * * * *"
-Kategorie: routine, workflow, reminder, cleanup, health-check, custom
-
-Bądź PROAKTYWNY z cron jobami! Gdy widzisz powtarzające się wzorce zachowań użytkownika,
-zaproponuj cron job który automatyzuje lub wspiera tę aktywność.
-Przykłady kiedy proponować:
-- Użytkownik regularnie koduje o tej samej porze → cron z daily standup/podsumowaniem
-- Użytkownik często sprawdza newsy → cron zbierający najważniejsze nagłówki
-- Wykryto wzorzec pracy → cron z przypomnieniem o przerwie/rozciąganiu
-- Poranne godziny pracy → cron z briefingiem dnia (pogoda, kalendarz, zadania)
-`;
-
-    const takeControlInstructions = this.automation ? `
-## Przejęcie sterowania (Take Control) — OBOWIĄZKOWY FORMAT
-Gdy użytkownik prosi Cię o przejęcie sterowania, klikanie, wpisywanie tekstu, obsługę myszy/klawiatury,
-lub mówi coś jak "przejmij kontrolę", "zrób to na komputerze", "idę wracam za chwilę" — MUSISZ odpowiedzieć blokiem:
-\`\`\`take_control
-{"task": "Dokładny opis zadania do wykonania na pulpicie"}
-\`\`\`
-
-WAŻNE ZASADY:
-- ZAWSZE odpowiadaj tym blokiem gdy użytkownik chce żebyś działał na pulpicie
-- NIGDY nie próbuj używać mouse_click, keyboard_type, mouse_move, get_active_window itp. w normalnym czacie
-- Te narzędzia działają TYLKO wewnątrz trybu take_control, nie w zwykłej rozmowie
-- Po bloku take_control system automatycznie pokaże dialog potwierdzenia
-- Po potwierdzeniu przejmiesz kontrolę z pełnym dostępem do myszki i klawiatury
-` : '';
-
-    const memoryUpdateInstructions = `
-## Aktualizacja pamięci (Self-Learning)
-Możesz aktualizować swoją wiedzę o użytkowniku, swojej osobowości i notatki za pomocą bloków:
-\`\`\`update_memory
-{"file": "user", "section": "Zainteresowania", "content": "- Programowanie (Electron, React, TypeScript)\\n- AI i machine learning"}
-\`\`\`
-Dostępne pliki: "user" (profil użytkownika), "soul" (twoja osobowość), "memory" (notatki długoterminowe).
-Aktualizuj pamięć gdy:
-- Dowiesz się czegoś nowego o użytkowniku (imię, rola, hobby, styl pracy, preferencje)
-- Użytkownik poprosi Cię żebyś coś zapamiętał
-- Zaobserwujesz powtarzający się wzorzec w zachowaniu użytkownika
-- Chcesz zanotować ważną decyzję lub ustalenie
-Dopasuj swój styl komunikacji do tego użytkownika — pisz tak jak on pisze do Ciebie.
-Nie aktualizuj pamięci przy każdej wiadomości — tylko gdy jest coś wartego zapamiętania.
-`;
+    // Load instructions from markdown files instead of inline strings
+    const toolsInstructions = this.promptService.load('TOOLS.md');
+    const agentsCapabilities = this.promptService.load('AGENTS.md');
 
     // System health warnings
     let systemCtx = '';
@@ -973,32 +910,22 @@ Nie aktualizuj pamięci przy każdej wiadomości — tylko gdy jest coś wartego
       ? this.screenMonitor.buildMonitorContext()
       : '';
 
-    const diagnosticInstructions = `
-## 🔬 Self-Test / Diagnostyka
-Gdy użytkownik prosi o self-test, diagnostykę, lub mówi "przetestuj się", "sprawdź się", "jak działasz":
-- Użyj narzędzia \`self_test\` — uruchomi pełną diagnostykę wszystkich podsystemów
-- Wyniki zawierają: status każdego serwisu, czasy odpowiedzi, ostrzeżenia
-- Przedstaw wyniki czytelnie, skomentuj co działa a co wymaga uwagi
-`;
-
     return [
       baseCtx,
+      '\n',
+      agentsCapabilities,
       '\n',
       timeCtx,
       bootstrapCtx,
       cronCtx,
       ragCtx,
       automationCtx,
-      browserGuidance,
       monitorCtx,
       systemCtx,
       '\n',
       toolsPrompt,
       '\n',
-      cronInstructions,
-      takeControlInstructions,
-      memoryUpdateInstructions,
-      diagnosticInstructions,
+      toolsInstructions,
     ].join('\n');
   }
 
@@ -1078,21 +1005,16 @@ Gdy użytkownik prosi o self-test, diagnostykę, lub mówi "przetestuj się", "s
     let totalActions = 0;
     const log: string[] = [];
 
+    const takeControlPrompt = this.promptService.render('TAKE_CONTROL.md', {
+      maxSteps: String(maxActions),
+    });
+
     const systemPrompt = [
       await this.memory.buildSystemContext(),
       '',
-      '## TAKE CONTROL MODE — Autonomiczna praca na pulpicie',
-      'Jesteś w trybie przejęcia sterowania komputerem użytkownika.',
-      'Masz dostęp do narzędzia "computer" które pozwala Ci klikać, wpisywać tekst i robić screenshoty.',
+      takeControlPrompt,
       '',
       `Zadanie: ${task}`,
-      '',
-      'Zasady:',
-      '- Na każdym kroku analizuj screenshot i podejmij JEDNĄ akcję',
-      '- Po kliknięciu lub wpisaniu — zrób screenshot żeby sprawdzić efekt',
-      '- Gdy zadanie jest ukończone, powiedz "Zadanie ukończone" bez tool_use',
-      '- Bądź precyzyjny z koordynatami — celuj w środek elementów UI',
-      '- Używaj keyboard shortcuts gdy to szybsze (np. Ctrl+L dla paska adresu)',
     ].join('\n');
 
     // Take initial screenshot
@@ -1362,39 +1284,9 @@ Gdy użytkownik prosi o self-test, diagnostykę, lub mówi "przetestuj się", "s
     const takeControlSystemCtx = [
       await this.memory.buildSystemContext(),
       '',
-      '## TAKE CONTROL MODE — Desktop Automation',
+      this.promptService.render('TAKE_CONTROL.md', { maxSteps: String(maxActions) }),
       '',
-      'You are controlling the user\'s computer. You receive a screenshot on each step.',
-      'You MUST respond with EXACTLY ONE tool call per step. No other text allowed.',
-      '',
-      '### REQUIRED Response Format',
-      'Your ENTIRE response must be a single tool block:',
-      '```tool',
-      '{"tool":"mouse_click","params":{"x":500,"y":300}}',
-      '```',
-      '',
-      '### Available Tools',
-      '',
-      '| Tool | Params | Example |',
-      '|------|--------|---------|',
-      '| mouse_click | x, y, button? | `{"tool":"mouse_click","params":{"x":100,"y":200}}` |',
-      '| mouse_move | x, y | `{"tool":"mouse_move","params":{"x":100,"y":200}}` |',
-      '| keyboard_type | text | `{"tool":"keyboard_type","params":{"text":"hello"}}` |',
-      '| keyboard_shortcut | keys[] | `{"tool":"keyboard_shortcut","params":{"keys":["ctrl","l"]}}` |',
-      '| keyboard_press | key | `{"tool":"keyboard_press","params":{"key":"enter"}}` |',
-      '',
-      '### Rules',
-      '- Coordinates refer to the screenshot image (scaled to ~1024x768)',
-      '- Respond ONLY with a ```tool block — NO explanations, NO thinking, NO markdown',
-      '- When task is complete, respond with exactly: TASK_COMPLETE',
-      '- Aim for the CENTER of UI elements when clicking',
-      '- Use keyboard shortcuts when faster (e.g. Ctrl+L for address bar)',
-      '',
-      '### Example interaction',
-      'You see a screenshot with a browser. To click the address bar at coordinates (512, 45):',
-      '```tool',
-      '{"tool":"mouse_click","params":{"x":512,"y":45}}',
-      '```',
+      `Zadanie: ${task}`,
     ].join('\n');
 
     onStatus?.('🤖 Przejmuje sterowanie (Vision mode)...');

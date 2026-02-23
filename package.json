@@ -64,6 +64,9 @@
       "dist/**/*",
       "assets/**/*"
     ],
+    "extraResources": [
+      { "from": "src/main/prompts", "to": "prompts" }
+    ],
     "win": {
       "target": "nsis",
       "icon": "assets/icons/win/icon.ico"

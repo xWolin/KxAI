@@ -21,6 +21,7 @@ import { TranscriptionService, TranscriptEvent } from './transcription-service';
 import { AIService } from './ai-service';
 import { ConfigService } from './config';
 import { SecurityService } from './security';
+import { PromptService } from './prompt-service';
 
 // ──────────────── Types ────────────────
 
@@ -107,6 +108,7 @@ export class MeetingCoachService extends EventEmitter {
   private aiService: AIService;
   private configService: ConfigService;
   private securityService: SecurityService;
+  private promptService: PromptService;
 
   private config: MeetingConfig;
   private storagePath: string;
@@ -139,6 +141,7 @@ export class MeetingCoachService extends EventEmitter {
     this.aiService = aiService;
     this.configService = configService;
     this.securityService = securityService;
+    this.promptService = new PromptService();
 
     // Load config
     const saved = configService.get('meetingCoach') as Partial<MeetingConfig> | undefined;
@@ -454,7 +457,8 @@ export class MeetingCoachService extends EventEmitter {
       .map(l => `[${l.speaker}]: ${l.text}`)
       .join('\n');
 
-    const prompt = `Jesteś coachem spotkań. Analizujesz bieżącą transkrypcję rozmowy i dajesz krótką, konkretną wskazówkę.
+    const coachingRules = this.promptService.load('MEETING_COACH.md');
+    const prompt = `${coachingRules}
 
 Transkrypcja (ostatnie wypowiedzi):
 ${transcriptText}
@@ -519,12 +523,7 @@ Odpowiedz TYLKO wskazówką, bez wstępu.`;
 TRANSKRYPCJA:
 ${fullTranscript}
 
-Odpowiedz w formacie JSON:
-{
-  "summary": "Zwięzłe podsumowanie spotkania (3-5 zdań)",
-  "keyPoints": ["punkt 1", "punkt 2", ...],
-  "actionItems": ["zadanie 1 — @osoba", "zadanie 2 — @osoba", ...]
-}
+${this.promptService.load('MEETING_COACH.md')}
 
 Odpowiedz TYLKO JSON-em, bez markdown.`;
 

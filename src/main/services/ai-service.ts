@@ -4,6 +4,7 @@ import { MemoryService } from './memory';
 import { ScreenshotData } from './screen-capture';
 import { ContextManager } from './context-manager';
 import { RetryHandler, createAIRetryHandler } from './retry-handler';
+import { PromptService } from './prompt-service';
 import { v4 as uuidv4 } from 'uuid';
 
 interface AIMessage {
@@ -63,6 +64,7 @@ export class AIService {
   private anthropicClient: any = null;
   private contextManager: ContextManager;
   private retryHandler: RetryHandler;
+  private promptService: PromptService;
 
   constructor(config: ConfigService, security: SecurityService, memoryService?: MemoryService) {
     this.config = config;
@@ -70,6 +72,7 @@ export class AIService {
     this.memoryService = memoryService;
     this.contextManager = new ContextManager();
     this.retryHandler = createAIRetryHandler();
+    this.promptService = new PromptService();
 
     // Auto-configure context window for the current model
     const model = this.config.get('aiModel') || 'gpt-5';
@@ -548,29 +551,7 @@ export class AIService {
       ? await this.memoryService.buildSystemContext()
       : '';
 
-    const analysisPrompt = `Jesteś KxAI — osobistym asystentem AI i towarzyszem na pulpicie użytkownika. Obserwujesz ekran i pomagasz.
-
-${systemContext}
-
-Twoje zadanie — bądź AKTYWNY i POMOCNY:
-1. Przeanalizuj co użytkownik aktualnie robi na ekranie
-2. Jeśli widzisz konwersację (WhatsApp, Messenger, Slack, Discord) — skomentuj, zaproponuj odpowiedź, daj tip
-3. Jeśli widzisz kod — zauważ błędy, zaproponuj poprawki, skomentuj architekturę
-4. Jeśli widzisz przeglądarkę — skomentuj stronę, zaproponuj coś przydatnego
-5. Jeśli widzisz dokument/notatki — pomoż z treścią, zaproponuj uzupełnienia
-6. Jeśli widzisz cokolwiek ciekawego — skomentuj to!
-
-Odpowiedz w formacie JSON:
-{
-  "hasInsight": true/false,
-  "message": "Twoja obserwacja/porada/analiza — bądź konkretny i pomocny",
-  "context": "krótki opis co widzisz na ekranie (max 2 zdania)",
-  "importance": "low/medium/high"
-}
-
-WAŻNE: Staraj się ZAWSZE znaleźć coś wartościowego do powiedzenia. Jesteś towarzyszem, nie milczącym obserwatorem.
-hasInsight=false TYLKO jeśli ekran jest naprawdę pusty lub zablokowany.
-Mów po polsku, bądź zwięzły ale pomocny.`;
+    const analysisPrompt = `${this.promptService.load('SCREEN_ANALYSIS.md')}\n\n${systemContext}`;
 
     try {
       if (provider === 'openai' && this.openaiClient) {
