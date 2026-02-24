@@ -3,7 +3,12 @@ import * as path from 'path';
 import { app } from 'electron';
 import { EmbeddingService } from './embedding-service';
 import { ConfigService } from './config';
+import { DatabaseService } from './database-service';
+import type { HybridSearchResult } from './database-service';
+import { createLogger } from './logger';
 import { PDFParse } from 'pdf-parse';
+
+const log = createLogger('RAGService');
 
 // Re-export from shared types (canonical source)
 export type { RAGChunk, RAGSearchResult, IndexProgress } from '../../shared/types/rag';
@@ -90,36 +95,42 @@ const MAX_TOTAL_FILES = 10000;
 export class RAGService {
   private embeddingService: EmbeddingService;
   private config: ConfigService;
+  private dbService: DatabaseService;
   private workspacePath: string;
-  private indexPath: string;
-  private chunks: RAGChunk[] = [];
+  private legacyIndexPath: string; // for migration
   private indexed = false;
   private indexing = false;
   private watchers: fs.FSWatcher[] = [];
   private watcherDebounce: NodeJS.Timeout | null = null;
   private pendingChanges = new Set<string>();
-  private folderStats = new Map<string, IndexedFolderInfo>();
-  private embeddingsRestored = false;
   private lastProgressTime = 0;
   private static readonly PROGRESS_THROTTLE_MS = 500;
 
   /** Progress callback — set from outside (e.g. IPC handler) */
   onProgress?: (progress: IndexProgress) => void;
 
-  constructor(embeddingService: EmbeddingService, config: ConfigService) {
+  constructor(embeddingService: EmbeddingService, config: ConfigService, dbService: DatabaseService) {
     this.embeddingService = embeddingService;
     this.config = config;
+    this.dbService = dbService;
     const userDataPath = app.getPath('userData');
     this.workspacePath = path.join(userDataPath, 'workspace');
-    this.indexPath = path.join(userDataPath, 'workspace', 'rag', 'index.json');
+    this.legacyIndexPath = path.join(userDataPath, 'workspace', 'rag', 'index.json');
   }
 
   /**
-   * Initialize RAG  load existing index or build new one.
+   * Initialize RAG — migrate legacy index if needed, or build new one.
    */
   async initialize(): Promise<void> {
-    const loaded = this.loadIndex();
-    if (!loaded) {
+    // Migrate legacy index.json to SQLite (one-time)
+    this.migrateLegacyIndex();
+
+    // Check if we have indexed data in SQLite
+    const chunkCount = this.dbService.getRAGChunkCount();
+    if (chunkCount > 0) {
+      this.indexed = true;
+      log.info(`Loaded ${chunkCount} chunks from SQLite`);
+    } else {
       await this.reindex();
     }
     this.startWatchers();
@@ -183,10 +194,9 @@ export class RAGService {
     const filtered = folders.filter((f) => f !== normalized);
     this.config.set('indexedFolders', filtered);
 
-    // Remove chunks from this folder
-    this.chunks = this.chunks.filter((c) => c.sourceFolder !== normalized);
-    this.folderStats.delete(normalized);
-    this.saveIndex();
+    // Remove chunks from this folder (SQLite)
+    this.dbService.deleteChunksByFolder(normalized);
+    this.dbService.deleteFolderStats(normalized);
 
     // Restart watchers
     this.stopWatchers();
@@ -197,31 +207,13 @@ export class RAGService {
    * Get stats about indexed folders.
    */
   getFolderStats(): IndexedFolderInfo[] {
-    const folders = this.getIndexedFolders();
-    const stats: IndexedFolderInfo[] = [];
-
-    // Workspace (always indexed)
-    const wsChunks = this.chunks.filter((c) => !c.sourceFolder || c.sourceFolder === 'workspace');
-    stats.push({
-      path: this.workspacePath,
-      fileCount: new Set(wsChunks.map((c) => c.filePath)).size,
-      chunkCount: wsChunks.length,
-      lastIndexed: this.folderStats.get('workspace')?.lastIndexed || 0,
-    });
-
-    // User folders
-    for (const folder of folders) {
-      const folderChunks = this.chunks.filter((c) => c.sourceFolder === folder);
-      const info = this.folderStats.get(folder);
-      stats.push({
-        path: folder,
-        fileCount: new Set(folderChunks.map((c) => c.filePath)).size,
-        chunkCount: folderChunks.length,
-        lastIndexed: info?.lastIndexed || 0,
-      });
-    }
-
-    return stats;
+    const dbStats = this.dbService.getRAGFolderStats();
+    return dbStats.map(s => ({
+      path: s.folder_path,
+      fileCount: s.file_count,
+      chunkCount: s.chunk_count,
+      lastIndexed: s.last_indexed * 1000, // unix timestamp to ms
+    }));
   }
 
   /**
@@ -242,7 +234,7 @@ export class RAGService {
    * Get total chunk count.
    */
   getChunkCount(): number {
-    return this.chunks.length;
+    return this.dbService.getRAGChunkCount();
   }
 
   /**
@@ -270,7 +262,7 @@ export class RAGService {
   }
 
   /**
-   * Full reindex — scan all folders, chunk, embed.
+   * Full reindex — scan all folders, chunk, embed, store in SQLite.
    * Non-blocking: yields to event loop periodically + reports progress.
    */
   async reindex(): Promise<void> {
@@ -296,8 +288,11 @@ export class RAGService {
     };
 
     try {
-      console.log('[RAG] Starting full reindex...');
+      log.info('Starting full reindex...');
       emitProgress({ phase: 'scanning', overallPercent: 0 });
+
+      // ─── Phase 0: Clear existing RAG data ───
+      this.dbService.clearRAGData();
 
       // ─── Phase 1: Collect files (sync but fast) ───
       const allFiles: Array<{ path: string; relativePath: string; sourceFolder: string }> = [];
@@ -314,10 +309,10 @@ export class RAGService {
       }
 
       const totalFiles = allFiles.length;
-      console.log(`[RAG] Found ${totalFiles} files to index`);
+      log.info(`Found ${totalFiles} files to index`);
       emitProgress({ phase: 'chunking', filesTotal: totalFiles, overallPercent: 5 });
 
-      // ─── Phase 2: Chunk files — yield every 50 files ───
+      // ─── Phase 2: Chunk files — yield every 20 files ───
       const allChunks: RAGChunk[] = [];
       const allTexts: string[] = [];
       let filesProcessed = 0;
@@ -354,40 +349,63 @@ export class RAGService {
         }
       }
 
-      // Update folder stats
-      this.updateFolderStats(allChunks, allFiles, userFolders);
-
-      // Safety check
-      if (allChunks.length > MAX_TOTAL_FILES * 5) {
-        console.warn(`[RAG] Chunk limit reached: ${allChunks.length}`);
-      }
-
-      console.log(`[RAG] Chunking done: ${allChunks.length} chunks from ${totalFiles} files`);
+      log.info(`Chunking done: ${allChunks.length} chunks from ${totalFiles} files`);
       emitProgress({
-        phase: 'embedding',
+        phase: 'saving',
         filesProcessed: totalFiles,
         filesTotal: totalFiles,
         chunksCreated: allChunks.length,
         overallPercent: 50,
       });
 
-      // ─── Phase 3: Embeddings — batch with progress ───
+      // ─── Phase 3: Store chunks in SQLite ───
+      // Batch insert chunks (metadata)
+      const CHUNK_BATCH = 500;
+      for (let i = 0; i < allChunks.length; i += CHUNK_BATCH) {
+        const batch = allChunks.slice(i, i + CHUNK_BATCH);
+        this.dbService.upsertChunks(batch);
+      }
+
+      // Update folder stats
+      this.updateFolderStats(allChunks, allFiles, userFolders);
+
+      emitProgress({
+        phase: 'embedding',
+        filesProcessed: totalFiles,
+        filesTotal: totalFiles,
+        chunksCreated: allChunks.length,
+        overallPercent: 55,
+      });
+
+      // ─── Phase 4: Embeddings — batch with progress ───
       if (!this.embeddingService.hasOpenAI()) {
         this.embeddingService.buildIDF(allTexts);
       }
 
       if (allChunks.length > 0) {
-        const EMBED_BATCH = 100; // Smaller batches for better UI responsiveness
+        const EMBED_BATCH = 100;
+        const embeddingEntries: Array<{ chunkId: string; embedding: number[] }> = [];
+
         for (let i = 0; i < allTexts.length; i += EMBED_BATCH) {
           const batchTexts = allTexts.slice(i, i + EMBED_BATCH);
           const embeddings = await this.embeddingService.embedBatch(batchTexts);
+
           for (let j = 0; j < embeddings.length; j++) {
-            allChunks[i + j].embedding = embeddings[j];
+            embeddingEntries.push({
+              chunkId: allChunks[i + j].id,
+              embedding: embeddings[j],
+            });
+          }
+
+          // Batch insert embeddings into vec0 every 500
+          if (embeddingEntries.length >= 500) {
+            this.dbService.upsertChunkEmbeddings(embeddingEntries);
+            embeddingEntries.length = 0;
           }
 
           await this.yieldToEventLoop();
           const embedPercent = Math.round(((i + batchTexts.length) / allTexts.length) * 100);
-          const overallPercent = 50 + Math.round(embedPercent * 0.45); // 50-95%
+          const overallPercent = 55 + Math.round(embedPercent * 0.40); // 55-95%
           emitProgress({
             phase: 'embedding',
             filesProcessed: totalFiles,
@@ -397,24 +415,17 @@ export class RAGService {
             overallPercent,
           });
         }
+
+        // Flush remaining embeddings
+        if (embeddingEntries.length > 0) {
+          this.dbService.upsertChunkEmbeddings(embeddingEntries);
+        }
       }
 
-      // ─── Phase 4: Save ───
-      emitProgress({
-        phase: 'saving',
-        filesProcessed: totalFiles,
-        filesTotal: totalFiles,
-        chunksCreated: allChunks.length,
-        embeddingPercent: 100,
-        overallPercent: 95,
-      });
-
-      this.chunks = allChunks;
+      // ─── Phase 5: Done ───
       this.indexed = true;
-      this.embeddingsRestored = true; // fresh embeddings in memory
-      this.saveIndex();
 
-      console.log(`[RAG] Indexing complete. ${this.chunks.length} chunks indexed.`);
+      log.info(`Indexing complete. ${allChunks.length} chunks indexed in SQLite.`);
       emitProgress({
         phase: 'done',
         filesProcessed: totalFiles,
@@ -424,7 +435,7 @@ export class RAGService {
         overallPercent: 100,
       });
     } catch (err: any) {
-      console.error('[RAG] Reindex failed:', err);
+      log.error('Reindex failed:', err);
       emitProgress({ phase: 'error', error: err?.message || 'Unknown error' });
     } finally {
       this.indexing = false;
@@ -432,7 +443,7 @@ export class RAGService {
   }
 
   /**
-   * Update folder stats after indexing.
+   * Update folder stats after indexing (stores in SQLite).
    */
   private updateFolderStats(
     allChunks: RAGChunk[],
@@ -441,21 +452,12 @@ export class RAGService {
   ): void {
     const wsFiles = allFiles.filter(f => f.sourceFolder === 'workspace');
     const wsChunks = allChunks.filter(c => !c.sourceFolder || c.sourceFolder === 'workspace');
-    this.folderStats.set('workspace', {
-      path: this.workspacePath,
-      fileCount: wsFiles.length,
-      chunkCount: wsChunks.length,
-      lastIndexed: Date.now(),
-    });
+    this.dbService.upsertFolderStats('workspace', wsFiles.length, wsChunks.length);
+
     for (const folder of userFolders) {
       const folderFiles = allFiles.filter(f => f.sourceFolder === folder);
       const folderChunks = allChunks.filter(c => c.sourceFolder === folder);
-      this.folderStats.set(folder, {
-        path: folder,
-        fileCount: folderFiles.length,
-        chunkCount: folderChunks.length,
-        lastIndexed: Date.now(),
-      });
+      this.dbService.upsertFolderStats(folder, folderFiles.length, folderChunks.length);
     }
   }
 
@@ -468,9 +470,11 @@ export class RAGService {
     this.indexing = true;
 
     try {
-      this.chunks = this.chunks.filter((c) => c.sourceFolder !== folderPath);
+      // Remove existing chunks for this folder
+      this.dbService.deleteChunksByFolder(folderPath);
+
       const files = this.collectFiles(folderPath, folderPath, false);
-      console.log(`[RAG] Indexing folder ${folderPath}: ${files.length} files`);
+      log.info(`Indexing folder ${folderPath}: ${files.length} files`);
 
       this.onProgress?.({
         phase: 'chunking', filesProcessed: 0, filesTotal: files.length,
@@ -508,45 +512,43 @@ export class RAGService {
       }
 
       if (newChunks.length > 0) {
+        // Store chunks in SQLite
+        this.dbService.upsertChunks(newChunks);
+
+        // Generate and store embeddings
         if (!this.embeddingService.hasOpenAI()) {
-          const allTexts = this.chunks.map((c) => c.content).concat(texts);
-          this.embeddingService.buildIDF(allTexts);
+          this.embeddingService.buildIDF(texts);
         }
 
         const embeddings = await this.embeddingService.embedBatch(texts);
-        for (let i = 0; i < newChunks.length; i++) {
-          newChunks[i].embedding = embeddings[i];
-        }
-
-        this.chunks.push(...newChunks);
+        const embeddingEntries = newChunks.map((chunk, i) => ({
+          chunkId: chunk.id,
+          embedding: embeddings[i],
+        }));
+        this.dbService.upsertChunkEmbeddings(embeddingEntries);
       }
 
-      this.folderStats.set(folderPath, {
-        path: folderPath,
-        fileCount: files.length,
-        chunkCount: newChunks.length,
-        lastIndexed: Date.now(),
-      });
+      // Update folder stats
+      this.dbService.upsertFolderStats(folderPath, files.length, newChunks.length);
 
       this.indexed = true;
-      this.saveIndex();
-      console.log(`[RAG] Folder indexed: ${newChunks.length} new chunks`);
+      log.info(`Folder indexed: ${newChunks.length} new chunks`);
     } catch (err) {
-      console.error(`[RAG] Failed to index folder ${folderPath}:`, err);
+      log.error(`Failed to index folder ${folderPath}:`, err);
     } finally {
       this.indexing = false;
     }
   }
 
   /**
-   * Incremental reindex  only reindex changed files.
+   * Incremental reindex — only reindex changed files.
    */
   async incrementalReindex(changedPaths: string[]): Promise<void> {
     if (this.indexing || changedPaths.length === 0) return;
     this.indexing = true;
 
     try {
-      console.log(`[RAG] Incremental reindex: ${changedPaths.length} files changed`);
+      log.info(`Incremental reindex: ${changedPaths.length} files changed`);
 
       for (const filePath of changedPaths) {
         const ext = path.extname(filePath).toLowerCase();
@@ -555,22 +557,17 @@ export class RAGService {
 
         // Remove old chunks for this file
         const normalizedPath = path.resolve(filePath);
-        this.chunks = this.chunks.filter((c) => {
-          const chunkAbsolute = c.sourceFolder
-            ? path.resolve(c.sourceFolder === 'workspace' ? this.workspacePath : c.sourceFolder, c.filePath)
-            : path.resolve(this.workspacePath, c.filePath);
-          return chunkAbsolute !== normalizedPath;
-        });
+        const sourceFolder = this.findSourceFolder(normalizedPath);
+        if (!sourceFolder) continue;
+
+        const basePath = sourceFolder === 'workspace' ? this.workspacePath : sourceFolder;
+        const relativePath = path.relative(basePath, normalizedPath);
+
+        // Delete old chunks for this file from SQLite
+        this.dbService.deleteChunksByFile(relativePath);
 
         // Re-chunk if file still exists
         if (fs.existsSync(filePath)) {
-          const sourceFolder = this.findSourceFolder(filePath);
-          if (!sourceFolder) continue;
-
-          const basePath = sourceFolder === 'workspace' ? this.workspacePath : sourceFolder;
-          const relativePath = path.relative(basePath, filePath);
-
-          const ext = path.extname(filePath).toLowerCase();
           let newChunks: RAGChunk[];
           if (BINARY_DOCUMENT_EXTENSIONS.has(ext)) {
             newChunks = await this.chunkBinaryDocumentAsync(filePath, relativePath, sourceFolder);
@@ -579,19 +576,22 @@ export class RAGService {
           }
 
           if (newChunks.length > 0) {
+            // Store chunks
+            this.dbService.upsertChunks(newChunks);
+
+            // Generate and store embeddings
             const texts = newChunks.map((c) => c.content);
             const embeddings = await this.embeddingService.embedBatch(texts);
-            for (let i = 0; i < newChunks.length; i++) {
-              newChunks[i].embedding = embeddings[i];
-            }
-            this.chunks.push(...newChunks);
+            const embeddingEntries = newChunks.map((chunk, i) => ({
+              chunkId: chunk.id,
+              embedding: embeddings[i],
+            }));
+            this.dbService.upsertChunkEmbeddings(embeddingEntries);
           }
         }
       }
-
-      this.saveIndex();
     } catch (err) {
-      console.error('[RAG] Incremental reindex failed:', err);
+      log.error('Incremental reindex failed:', err);
     } finally {
       this.indexing = false;
     }
@@ -600,36 +600,41 @@ export class RAGService {
   // --- Search ---
 
   /**
-   * Semantic search  find most relevant chunks for a query.
+   * Hybrid search — combines vector KNN (sqlite-vec) + FTS5 keyword search.
+   * Falls back to FTS5-only if no vec0, or vector-only if query is very short.
    */
-  async search(query: string, topK: number = 5, minScore: number = 0.3): Promise<RAGSearchResult[]> {
-    if (!this.indexed || this.chunks.length === 0) {
+  async search(query: string, topK: number = 5, minScore: number = 0.0): Promise<RAGSearchResult[]> {
+    if (!this.indexed || this.dbService.getRAGChunkCount() === 0) {
       await this.reindex();
       if (!this.indexed) {
         throw new Error('RAG service not indexed: reindex failed');
       }
     }
 
-    // Restore embeddings from cache if loaded from disk (no embeddings in index file)
-    this.restoreEmbeddingsFromCache();
-
     const queryEmbedding = await this.embeddingService.embed(query);
+    const hybridResults = this.dbService.hybridSearch(queryEmbedding, query, topK);
 
-    const scored: RAGSearchResult[] = [];
-    for (const chunk of this.chunks) {
-      if (!chunk.embedding) continue;
-      const score = this.embeddingService.cosineSimilarity(queryEmbedding, chunk.embedding);
-      if (score >= minScore) {
-        scored.push({ chunk, score });
-      }
-    }
-
-    scored.sort((a, b) => b.score - a.score);
-    return scored.slice(0, topK);
+    // Convert HybridSearchResult to RAGSearchResult for backward compatibility
+    return hybridResults
+      .filter(r => r.combinedScore >= minScore)
+      .map(r => ({
+        chunk: {
+          id: r.chunkId,
+          filePath: r.filePath,
+          fileName: r.fileName,
+          section: r.section,
+          content: r.content,
+          charCount: r.charCount,
+          sourceFolder: r.sourceFolder,
+          fileType: r.fileType,
+          mtime: r.mtime,
+        },
+        score: r.combinedScore,
+      }));
   }
 
   /**
-   * Build RAG context for AI  inject relevant memory into system prompt.
+   * Build RAG context for AI — inject relevant memory into system prompt.
    */
   async buildRAGContext(query: string, maxTokens: number = 2000): Promise<string> {
     const results = await this.search(query, 8);
@@ -643,7 +648,7 @@ export class RAGService {
         ? path.basename(chunk.sourceFolder)
         : 'memory';
       const typeLabel = chunk.fileType ? `[${chunk.fileType}]` : '';
-      const chunkText = `### [${source}] ${typeLabel} ${chunk.fileName} > ${chunk.section}\n${chunk.content}\n(score: ${score.toFixed(2)})\n`;
+      const chunkText = `### [${source}] ${typeLabel} ${chunk.fileName} > ${chunk.section}\n${chunk.content}\n(score: ${score.toFixed(4)})\n`;
       const approxTokens = chunkText.length / 4;
 
       if (currentTokens + approxTokens > maxTokens) break;
@@ -664,14 +669,17 @@ export class RAGService {
     indexed: boolean;
     embeddingType: 'openai' | 'tfidf';
     folders: IndexedFolderInfo[];
+    vectorSearchAvailable: boolean;
   } {
-    const files = new Set(this.chunks.map((c) => `${c.sourceFolder || 'workspace'}|${c.filePath}`));
+    const folders = this.getFolderStats();
+    const totalFiles = folders.reduce((sum, f) => sum + f.fileCount, 0);
     return {
-      totalChunks: this.chunks.length,
-      totalFiles: files.size,
+      totalChunks: this.dbService.getRAGChunkCount(),
+      totalFiles,
       indexed: this.indexed,
       embeddingType: this.embeddingService.hasOpenAI() ? 'openai' : 'tfidf',
-      folders: this.getFolderStats(),
+      folders,
+      vectorSearchAvailable: this.dbService.hasVectorSearch(),
     };
   }
 
@@ -1374,96 +1382,50 @@ export class RAGService {
     return null;
   }
 
-  // --- Index Persistence ---
+  // --- Legacy Index Migration ---
 
-  private loadIndex(): boolean {
+  /**
+   * Migrate legacy index.json to SQLite (one-time operation).
+   * Reads chunks from JSON, inserts into rag_chunks table,
+   * then renames the old file to .migrated.
+   */
+  private migrateLegacyIndex(): void {
     try {
-      if (fs.existsSync(this.indexPath)) {
-        const data = JSON.parse(fs.readFileSync(this.indexPath, 'utf8'));
-        if (Array.isArray(data.chunks)) {
-          this.chunks = data.chunks;
-          this.indexed = true;
-          this.embeddingsRestored = false; // embeddings stripped from index file, will restore from cache
-          if (data.folderStats) {
-            this.folderStats = new Map(Object.entries(data.folderStats));
+      if (!fs.existsSync(this.legacyIndexPath)) return;
+
+      // Don't migrate if SQLite already has data
+      if (this.dbService.getRAGChunkCount() > 0) {
+        log.info('SQLite already has RAG data, skipping legacy migration');
+        // Rename legacy file to avoid re-checking
+        try { fs.renameSync(this.legacyIndexPath, this.legacyIndexPath + '.migrated'); } catch {}
+        return;
+      }
+
+      log.info('Migrating legacy index.json to SQLite...');
+      const data = JSON.parse(fs.readFileSync(this.legacyIndexPath, 'utf8'));
+
+      if (Array.isArray(data.chunks) && data.chunks.length > 0) {
+        const chunks: RAGChunk[] = data.chunks;
+        this.dbService.upsertChunks(chunks);
+        log.info(`Migrated ${chunks.length} chunks from legacy index.json`);
+
+        // Migrate folder stats if present
+        if (data.folderStats) {
+          for (const [key, stats] of Object.entries(data.folderStats) as [string, any][]) {
+            this.dbService.upsertFolderStats(
+              stats.path || key,
+              stats.fileCount || 0,
+              stats.chunkCount || 0,
+            );
           }
-          console.log(`[RAG] Loaded index: ${this.chunks.length} chunks (embeddings will be restored from cache)`);
-          return true;
-        }
-      }
-    } catch {
-      /* corrupt index, will rebuild */
-    }
-    return false;
-  }
-
-  /**
-   * Restore embeddings from EmbeddingService cache.
-   * Called lazily before search — runs once after index load.
-   */
-  private restoreEmbeddingsFromCache(): void {
-    if (this.embeddingsRestored) return;
-    this.embeddingsRestored = true;
-
-    let restored = 0;
-    let missing = 0;
-
-    for (const chunk of this.chunks) {
-      if (!chunk.embedding) {
-        const cached = this.embeddingService.getCachedEmbedding(chunk.content);
-        if (cached) {
-          chunk.embedding = cached;
-          restored++;
-        } else {
-          missing++;
-        }
-      }
-    }
-
-    console.log(`[RAG] Restored ${restored} embeddings from cache, ${missing} missing`);
-    if (missing > 0) {
-      console.log('[RAG] Missing embeddings will be skipped in search. Run reindex to regenerate.');
-    }
-  }
-
-  /**
-   * Save index to disk.
-   * Strips embeddings from chunks to keep index file small (~100MB vs ~2GB).
-   * Embeddings live in EmbeddingService cache and are restored on load.
-   * Uses buffered streaming write for large indexes.
-   */
-  private saveIndex(): void {
-    try {
-      const dir = path.dirname(this.indexPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      const tmpPath = this.indexPath + '.tmp';
-      const fd = fs.openSync(tmpPath, 'w');
-      const FLUSH_SIZE = 1024 * 1024; // 1MB buffer
-      let buffer = '{"timestamp":' + Date.now() + ',"chunks":[';
-
-      for (let i = 0; i < this.chunks.length; i++) {
-        if (i > 0) buffer += ',';
-        // Strip embedding from saved data — kept only in embedding cache
-        const { embedding, ...rest } = this.chunks[i];
-        buffer += JSON.stringify(rest);
-        if (buffer.length >= FLUSH_SIZE) {
-          fs.writeSync(fd, buffer);
-          buffer = '';
         }
       }
 
-      buffer += '],"folderStats":' + JSON.stringify(Object.fromEntries(this.folderStats)) + '}';
-      fs.writeSync(fd, buffer);
-      fs.closeSync(fd);
-
-      // Atomic rename
-      if (fs.existsSync(this.indexPath)) fs.unlinkSync(this.indexPath);
-      fs.renameSync(tmpPath, this.indexPath);
+      // Rename legacy file
+      try { fs.renameSync(this.legacyIndexPath, this.legacyIndexPath + '.migrated'); } catch {}
+      log.info('Legacy index migration complete');
     } catch (err) {
-      console.error('[RAG] Failed to save index:', err);
+      log.warn('Legacy index migration failed (will rebuild on next reindex):', err);
     }
   }
 }

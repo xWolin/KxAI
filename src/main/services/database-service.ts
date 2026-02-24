@@ -3,21 +3,28 @@
  *
  * Replaces JSON session files with a proper SQLite database using better-sqlite3.
  * Provides: conversation storage, FTS5 full-text search, retention policies, WAL mode.
+ * v2: RAG chunk storage, embedding cache (BLOB), vector search via sqlite-vec (vec0).
  *
  * Markdown memory files (SOUL.md, USER.md, MEMORY.md, HEARTBEAT.md) remain file-based.
  */
 
 import Database from 'better-sqlite3';
+import * as sqliteVec from 'sqlite-vec';
 import * as path from 'path';
 import * as fs from 'fs';
 import { app } from 'electron';
 import { createLogger } from './logger';
 import type { ConversationMessage } from '../../shared/types/ai';
+import type { RAGChunk } from '../../shared/types/rag';
 
 const log = createLogger('DatabaseService');
 
 // ─── Schema version for migrations ───
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
+
+// ─── Embedding dimensions ───
+const EMBEDDING_DIM_OPENAI = 1536; // text-embedding-3-small
+const EMBEDDING_DIM_TFIDF = 256;   // TF-IDF fallback
 
 // ─── Retention defaults ───
 const DEFAULT_ARCHIVE_DAYS = 30;
@@ -50,10 +57,50 @@ export interface SearchResult {
   snippet: string;
 }
 
+// ─── RAG types ───
+
+export interface RAGChunkRow {
+  id: string;
+  file_path: string;
+  file_name: string;
+  section: string;
+  content: string;
+  char_count: number;
+  source_folder: string;
+  file_type: string;
+  mtime: number;
+  created_at: string;
+}
+
+export interface EmbeddingCacheRow {
+  content_hash: string;
+  embedding: Buffer;
+  dimension: number;
+  model: string;
+  last_used: number;
+}
+
+export interface HybridSearchResult {
+  chunkId: string;
+  filePath: string;
+  fileName: string;
+  section: string;
+  content: string;
+  charCount: number;
+  sourceFolder: string;
+  fileType: string;
+  mtime: number;
+  vectorScore: number;   // 0-1 (converted from distance)
+  keywordScore: number;  // 0-1 (from FTS5 rank)
+  combinedScore: number; // weighted fusion
+}
+
 export class DatabaseService {
   private db: Database.Database | null = null;
   private dbPath: string;
   private stmtCache: Map<string, Database.Statement> = new Map();
+  private vec0Loaded = false;
+  private embeddingDim: number = EMBEDDING_DIM_OPENAI;
 
   constructor() {
     const userDataPath = app.getPath('userData');
@@ -78,6 +125,16 @@ export class DatabaseService {
     this.db.pragma('cache_size = -64000'); // 64MB cache
     this.db.pragma('foreign_keys = ON');
     this.db.pragma('temp_store = MEMORY');
+
+    // Load sqlite-vec extension for vector search
+    try {
+      sqliteVec.load(this.db);
+      this.vec0Loaded = true;
+      log.info('sqlite-vec extension loaded');
+    } catch (err) {
+      log.error('Failed to load sqlite-vec extension:', err);
+      this.vec0Loaded = false;
+    }
 
     this.runMigrations();
     this.prepareStatements();
@@ -120,8 +177,12 @@ export class DatabaseService {
       this.migrateV1();
     }
 
+    if (version < 2) {
+      this.migrateV2();
+    }
+
     // Future migrations go here:
-    // if (version < 2) this.migrateV2();
+    // if (version < 3) this.migrateV3();
   }
 
   private migrateV1(): void {
@@ -189,6 +250,102 @@ export class DatabaseService {
     `);
 
     log.info('Migration v1 complete');
+  }
+
+  private migrateV2(): void {
+    if (!this.db) return;
+
+    log.info('Running migration v2: RAG tables + embedding cache + sqlite-vec');
+
+    // ─── RAG chunks table ───
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS rag_chunks (
+        id TEXT PRIMARY KEY,
+        file_path TEXT NOT NULL,
+        file_name TEXT NOT NULL,
+        section TEXT NOT NULL DEFAULT '',
+        content TEXT NOT NULL,
+        char_count INTEGER NOT NULL DEFAULT 0,
+        source_folder TEXT NOT NULL DEFAULT 'workspace',
+        file_type TEXT NOT NULL DEFAULT '',
+        mtime INTEGER NOT NULL DEFAULT 0,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_rag_chunks_file ON rag_chunks(file_path);
+      CREATE INDEX IF NOT EXISTS idx_rag_chunks_folder ON rag_chunks(source_folder);
+      CREATE INDEX IF NOT EXISTS idx_rag_chunks_type ON rag_chunks(file_type);
+
+      -- FTS5 for keyword search on chunk content
+      CREATE VIRTUAL TABLE IF NOT EXISTS rag_chunks_fts USING fts5(
+        content,
+        section,
+        file_name,
+        content='rag_chunks',
+        content_rowid='rowid',
+        tokenize='unicode61 remove_diacritics 2'
+      );
+
+      -- Triggers to keep FTS in sync
+      CREATE TRIGGER IF NOT EXISTS rag_fts_ai AFTER INSERT ON rag_chunks BEGIN
+        INSERT INTO rag_chunks_fts(rowid, content, section, file_name)
+        VALUES (new.rowid, new.content, new.section, new.file_name);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS rag_fts_ad AFTER DELETE ON rag_chunks BEGIN
+        INSERT INTO rag_chunks_fts(rag_chunks_fts, rowid, content, section, file_name)
+        VALUES('delete', old.rowid, old.content, old.section, old.file_name);
+      END;
+
+      CREATE TRIGGER IF NOT EXISTS rag_fts_au AFTER UPDATE ON rag_chunks BEGIN
+        INSERT INTO rag_chunks_fts(rag_chunks_fts, rowid, content, section, file_name)
+        VALUES('delete', old.rowid, old.content, old.section, old.file_name);
+        INSERT INTO rag_chunks_fts(rowid, content, section, file_name)
+        VALUES (new.rowid, new.content, new.section, new.file_name);
+      END;
+
+      -- Embedding cache: replaces JSON file (embedding-cache.json)
+      CREATE TABLE IF NOT EXISTS embedding_cache (
+        content_hash TEXT PRIMARY KEY,
+        embedding BLOB NOT NULL,
+        dimension INTEGER NOT NULL,
+        model TEXT NOT NULL DEFAULT 'text-embedding-3-small',
+        last_used INTEGER NOT NULL DEFAULT (unixepoch()),
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_embedding_cache_used ON embedding_cache(last_used);
+
+      -- RAG folder tracking
+      CREATE TABLE IF NOT EXISTS rag_folders (
+        folder_path TEXT PRIMARY KEY,
+        file_count INTEGER NOT NULL DEFAULT 0,
+        chunk_count INTEGER NOT NULL DEFAULT 0,
+        last_indexed INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+
+    // ─── sqlite-vec virtual table for vector search ───
+    if (this.vec0Loaded) {
+      try {
+        // vec0 table with cosine distance metric for semantic search
+        this.db.exec(`
+          CREATE VIRTUAL TABLE IF NOT EXISTS rag_embeddings USING vec0(
+            chunk_id TEXT PRIMARY KEY,
+            embedding float[${EMBEDDING_DIM_OPENAI}] distance_metric=cosine
+          );
+        `);
+        log.info('Created rag_embeddings vec0 table (cosine, float[1536])');
+      } catch (err) {
+        log.error('Failed to create vec0 table:', err);
+      }
+    } else {
+      log.warn('sqlite-vec not loaded — vector search will use fallback linear scan');
+    }
+
+    // Record schema version
+    this.db.exec(`INSERT INTO schema_version (version) VALUES (2);`);
+    log.info('Migration v2 complete');
   }
 
   // ─── Prepared Statements ───
@@ -673,5 +830,597 @@ export class DatabaseService {
    */
   isReady(): boolean {
     return this.db !== null && this.db.open;
+  }
+
+  /**
+   * Check if sqlite-vec extension is loaded (vec0 available).
+   */
+  hasVectorSearch(): boolean {
+    return this.vec0Loaded;
+  }
+
+  /**
+   * Get the raw better-sqlite3 database handle (for advanced queries).
+   */
+  getDb(): Database.Database | null {
+    return this.db;
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // ─── RAG Chunk Operations ───
+  // ═══════════════════════════════════════════════════════
+
+  /**
+   * Insert or replace a single RAG chunk (metadata only, no embedding).
+   */
+  upsertChunk(chunk: RAGChunk): void {
+    if (!this.db) return;
+
+    try {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO rag_chunks (id, file_path, file_name, section, content, char_count, source_folder, file_type, mtime)
+        VALUES (@id, @file_path, @file_name, @section, @content, @char_count, @source_folder, @file_type, @mtime)
+      `).run({
+        id: chunk.id,
+        file_path: chunk.filePath,
+        file_name: chunk.fileName,
+        section: chunk.section,
+        content: chunk.content,
+        char_count: chunk.charCount,
+        source_folder: chunk.sourceFolder ?? 'workspace',
+        file_type: chunk.fileType ?? '',
+        mtime: chunk.mtime ?? 0,
+      });
+    } catch (err) {
+      log.error(`Failed to upsert chunk ${chunk.id}:`, err);
+    }
+  }
+
+  /**
+   * Bulk insert RAG chunks in a single transaction (much faster).
+   */
+  upsertChunks(chunks: RAGChunk[]): void {
+    if (!this.db || chunks.length === 0) return;
+
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO rag_chunks (id, file_path, file_name, section, content, char_count, source_folder, file_type, mtime)
+      VALUES (@id, @file_path, @file_name, @section, @content, @char_count, @source_folder, @file_type, @mtime)
+    `);
+
+    const transaction = this.db.transaction((chs: RAGChunk[]) => {
+      for (const chunk of chs) {
+        stmt.run({
+          id: chunk.id,
+          file_path: chunk.filePath,
+          file_name: chunk.fileName,
+          section: chunk.section,
+          content: chunk.content,
+          char_count: chunk.charCount,
+          source_folder: chunk.sourceFolder ?? 'workspace',
+          file_type: chunk.fileType ?? '',
+          mtime: chunk.mtime ?? 0,
+        });
+      }
+    });
+
+    try {
+      transaction(chunks);
+      log.info(`Upserted ${chunks.length} RAG chunks`);
+    } catch (err) {
+      log.error('Failed to upsert chunks batch:', err);
+    }
+  }
+
+  /**
+   * Store vector embedding for a chunk in vec0 table.
+   */
+  upsertChunkEmbedding(chunkId: string, embedding: number[]): void {
+    if (!this.db || !this.vec0Loaded) return;
+
+    try {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO rag_embeddings (chunk_id, embedding)
+        VALUES (?, ?)
+      `).run(chunkId, new Float32Array(embedding));
+    } catch (err) {
+      log.error(`Failed to upsert embedding for chunk ${chunkId}:`, err);
+    }
+  }
+
+  /**
+   * Bulk insert chunk embeddings in a transaction.
+   */
+  upsertChunkEmbeddings(entries: Array<{ chunkId: string; embedding: number[] }>): void {
+    if (!this.db || !this.vec0Loaded || entries.length === 0) return;
+
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO rag_embeddings (chunk_id, embedding)
+      VALUES (?, ?)
+    `);
+
+    const transaction = this.db.transaction((items: typeof entries) => {
+      for (const { chunkId, embedding } of items) {
+        stmt.run(chunkId, new Float32Array(embedding));
+      }
+    });
+
+    try {
+      transaction(entries);
+      log.info(`Upserted ${entries.length} chunk embeddings`);
+    } catch (err) {
+      log.error('Failed to upsert chunk embeddings batch:', err);
+    }
+  }
+
+  /**
+   * KNN vector search — finds nearest chunks using sqlite-vec (cosine distance).
+   * Returns chunk IDs and distances.
+   */
+  vectorSearch(queryEmbedding: number[], topK: number = 10): Array<{ chunkId: string; distance: number }> {
+    if (!this.db || !this.vec0Loaded) return [];
+
+    try {
+      const rows = this.db.prepare(`
+        SELECT chunk_id, distance
+        FROM rag_embeddings
+        WHERE embedding MATCH ?
+          AND k = ?
+        ORDER BY distance
+      `).all(new Float32Array(queryEmbedding), topK) as Array<{ chunk_id: string; distance: number }>;
+
+      return rows.map(r => ({ chunkId: r.chunk_id, distance: r.distance }));
+    } catch (err) {
+      log.error('Vector search failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * FTS5 keyword search on RAG chunks.
+   * Returns chunk rowids and rank scores.
+   */
+  keywordSearchChunks(query: string, limit: number = 20): Array<{ chunkId: string; rank: number }> {
+    if (!this.db || !query.trim()) return [];
+
+    try {
+      const sanitized = query.replace(/['"*()]/g, ' ').trim();
+      if (!sanitized) return [];
+
+      const rows = this.db.prepare(`
+        SELECT rc.id as chunk_id, fts.rank
+        FROM rag_chunks_fts fts
+        JOIN rag_chunks rc ON rc.rowid = fts.rowid
+        WHERE rag_chunks_fts MATCH ?
+        ORDER BY fts.rank
+        LIMIT ?
+      `).all(sanitized, limit) as Array<{ chunk_id: string; rank: number }>;
+
+      return rows.map(r => ({ chunkId: r.chunk_id, rank: r.rank }));
+    } catch (err) {
+      log.error('FTS chunk search failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Hybrid search — combines vector KNN + FTS5 keyword search with Reciprocal Rank Fusion.
+   * This is the primary search method for RAG v2.
+   *
+   * @param queryEmbedding - Vector embedding of the query
+   * @param queryText - Raw text query for keyword matching
+   * @param topK - Number of results to return
+   * @param vectorWeight - Weight for vector results (0-1), keyword weight = 1 - vectorWeight
+   */
+  hybridSearch(
+    queryEmbedding: number[],
+    queryText: string,
+    topK: number = 10,
+    vectorWeight: number = 0.7,
+  ): HybridSearchResult[] {
+    if (!this.db) return [];
+
+    // ─── Vector search ───
+    const vectorResults = this.vec0Loaded
+      ? this.vectorSearch(queryEmbedding, topK * 2) // fetch more for fusion
+      : [];
+
+    // ─── Keyword search ───
+    const keywordResults = this.keywordSearchChunks(queryText, topK * 2);
+
+    // ─── Reciprocal Rank Fusion ───
+    const RRF_K = 60; // standard RRF constant
+    const fusionScores = new Map<string, { vectorRank: number; keywordRank: number }>();
+
+    // Assign ranks from vector results
+    vectorResults.forEach((r, idx) => {
+      fusionScores.set(r.chunkId, { vectorRank: idx + 1, keywordRank: 0 });
+    });
+
+    // Assign ranks from keyword results
+    keywordResults.forEach((r, idx) => {
+      const existing = fusionScores.get(r.chunkId);
+      if (existing) {
+        existing.keywordRank = idx + 1;
+      } else {
+        fusionScores.set(r.chunkId, { vectorRank: 0, keywordRank: idx + 1 });
+      }
+    });
+
+    // Calculate RRF scores
+    const scored: Array<{ chunkId: string; score: number; vectorScore: number; keywordScore: number }> = [];
+    for (const [chunkId, ranks] of fusionScores) {
+      const vScore = ranks.vectorRank > 0 ? 1 / (RRF_K + ranks.vectorRank) : 0;
+      const kScore = ranks.keywordRank > 0 ? 1 / (RRF_K + ranks.keywordRank) : 0;
+      const combined = vectorWeight * vScore + (1 - vectorWeight) * kScore;
+      scored.push({
+        chunkId,
+        score: combined,
+        vectorScore: vScore * (RRF_K + 1), // normalize to ~0-1 range
+        keywordScore: kScore * (RRF_K + 1),
+      });
+    }
+
+    scored.sort((a, b) => b.score - a.score);
+    const topIds = scored.slice(0, topK);
+
+    if (topIds.length === 0) return [];
+
+    // ─── Fetch full chunk data ───
+    const placeholders = topIds.map(() => '?').join(',');
+    const chunkRows = this.db.prepare(`
+      SELECT * FROM rag_chunks WHERE id IN (${placeholders})
+    `).all(...topIds.map(s => s.chunkId)) as RAGChunkRow[];
+
+    const chunkMap = new Map(chunkRows.map(r => [r.id, r]));
+
+    return topIds
+      .map(s => {
+        const row = chunkMap.get(s.chunkId);
+        if (!row) return null;
+        return {
+          chunkId: row.id,
+          filePath: row.file_path,
+          fileName: row.file_name,
+          section: row.section,
+          content: row.content,
+          charCount: row.char_count,
+          sourceFolder: row.source_folder,
+          fileType: row.file_type,
+          mtime: row.mtime,
+          vectorScore: s.vectorScore,
+          keywordScore: s.keywordScore,
+          combinedScore: s.score,
+        };
+      })
+      .filter((r): r is HybridSearchResult => r !== null);
+  }
+
+  /**
+   * Get a chunk by ID.
+   */
+  getChunk(id: string): RAGChunkRow | null {
+    if (!this.db) return null;
+    try {
+      return this.db.prepare('SELECT * FROM rag_chunks WHERE id = ?').get(id) as RAGChunkRow | null;
+    } catch (err) {
+      log.error(`Failed to get chunk ${id}:`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Get all chunks for a specific file path.
+   */
+  getChunksByFile(filePath: string): RAGChunkRow[] {
+    if (!this.db) return [];
+    try {
+      return this.db.prepare('SELECT * FROM rag_chunks WHERE file_path = ?').all(filePath) as RAGChunkRow[];
+    } catch (err) {
+      log.error(`Failed to get chunks for file ${filePath}:`, err);
+      return [];
+    }
+  }
+
+  /**
+   * Delete all chunks for a source folder.
+   */
+  deleteChunksByFolder(sourceFolder: string): number {
+    if (!this.db) return 0;
+    try {
+      // Get chunk IDs before deleting (for vec0 cleanup)
+      const ids = this.db.prepare(
+        'SELECT id FROM rag_chunks WHERE source_folder = ?'
+      ).all(sourceFolder) as Array<{ id: string }>;
+
+      const result = this.db.prepare(
+        'DELETE FROM rag_chunks WHERE source_folder = ?'
+      ).run(sourceFolder);
+
+      // Delete from vec0 table
+      if (this.vec0Loaded && ids.length > 0) {
+        const delStmt = this.db.prepare('DELETE FROM rag_embeddings WHERE chunk_id = ?');
+        const tx = this.db.transaction((chunkIds: string[]) => {
+          for (const id of chunkIds) {
+            delStmt.run(id);
+          }
+        });
+        tx(ids.map(r => r.id));
+      }
+
+      return result.changes;
+    } catch (err) {
+      log.error(`Failed to delete chunks for folder ${sourceFolder}:`, err);
+      return 0;
+    }
+  }
+
+  /**
+   * Delete all chunks for a specific file.
+   */
+  deleteChunksByFile(filePath: string): number {
+    if (!this.db) return 0;
+    try {
+      const ids = this.db.prepare(
+        'SELECT id FROM rag_chunks WHERE file_path = ?'
+      ).all(filePath) as Array<{ id: string }>;
+
+      const result = this.db.prepare(
+        'DELETE FROM rag_chunks WHERE file_path = ?'
+      ).run(filePath);
+
+      if (this.vec0Loaded && ids.length > 0) {
+        const delStmt = this.db.prepare('DELETE FROM rag_embeddings WHERE chunk_id = ?');
+        const tx = this.db.transaction((chunkIds: string[]) => {
+          for (const id of chunkIds) {
+            delStmt.run(id);
+          }
+        });
+        tx(ids.map(r => r.id));
+      }
+
+      return result.changes;
+    } catch (err) {
+      log.error(`Failed to delete chunks for file ${filePath}:`, err);
+      return 0;
+    }
+  }
+
+  /**
+   * Clear ALL RAG data (chunks + embeddings + folders).
+   */
+  clearRAGData(): void {
+    if (!this.db) return;
+    try {
+      this.db.exec('DELETE FROM rag_chunks');
+      if (this.vec0Loaded) {
+        this.db.exec('DELETE FROM rag_embeddings');
+      }
+      this.db.exec('DELETE FROM rag_folders');
+      log.info('All RAG data cleared');
+    } catch (err) {
+      log.error('Failed to clear RAG data:', err);
+    }
+  }
+
+  /**
+   * Get RAG chunk count.
+   */
+  getRAGChunkCount(): number {
+    if (!this.db) return 0;
+    try {
+      const row = this.db.prepare('SELECT COUNT(*) as count FROM rag_chunks').get() as { count: number };
+      return row.count;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Get RAG stats per source folder.
+   */
+  getRAGFolderStats(): Array<{ folder_path: string; file_count: number; chunk_count: number; last_indexed: number }> {
+    if (!this.db) return [];
+    try {
+      return this.db.prepare('SELECT * FROM rag_folders').all() as Array<{
+        folder_path: string; file_count: number; chunk_count: number; last_indexed: number;
+      }>;
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Update folder stats after indexing.
+   */
+  upsertFolderStats(folderPath: string, fileCount: number, chunkCount: number): void {
+    if (!this.db) return;
+    try {
+      this.db.prepare(`
+        INSERT OR REPLACE INTO rag_folders (folder_path, file_count, chunk_count, last_indexed)
+        VALUES (?, ?, ?, unixepoch())
+      `).run(folderPath, fileCount, chunkCount);
+    } catch (err) {
+      log.error(`Failed to update folder stats for ${folderPath}:`, err);
+    }
+  }
+
+  /**
+   * Delete folder stats entry.
+   */
+  deleteFolderStats(folderPath: string): void {
+    if (!this.db) return;
+    try {
+      this.db.prepare('DELETE FROM rag_folders WHERE folder_path = ?').run(folderPath);
+    } catch (err) {
+      log.error(`Failed to delete folder stats for ${folderPath}:`, err);
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // ─── Embedding Cache Operations ───
+  // ═══════════════════════════════════════════════════════
+
+  /**
+   * Get a cached embedding by content hash.
+   */
+  getCachedEmbedding(contentHash: string): number[] | null {
+    if (!this.db) return null;
+    try {
+      const row = this.db.prepare(`
+        SELECT embedding, dimension FROM embedding_cache WHERE content_hash = ?
+      `).get(contentHash) as { embedding: Buffer; dimension: number } | undefined;
+
+      if (!row) return null;
+
+      // Update last_used timestamp (fire-and-forget)
+      this.db.prepare('UPDATE embedding_cache SET last_used = unixepoch() WHERE content_hash = ?').run(contentHash);
+
+      // Convert BLOB back to number[]
+      const float32 = new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.dimension);
+      return Array.from(float32);
+    } catch (err) {
+      log.error(`Failed to get cached embedding for ${contentHash}:`, err);
+      return null;
+    }
+  }
+
+  /**
+   * Store an embedding in the cache.
+   */
+  setCachedEmbedding(contentHash: string, embedding: number[], model: string): void {
+    if (!this.db) return;
+    try {
+      const blob = Buffer.from(new Float32Array(embedding).buffer);
+      this.db.prepare(`
+        INSERT OR REPLACE INTO embedding_cache (content_hash, embedding, dimension, model, last_used)
+        VALUES (?, ?, ?, ?, unixepoch())
+      `).run(contentHash, blob, embedding.length, model);
+    } catch (err) {
+      log.error(`Failed to cache embedding for ${contentHash}:`, err);
+    }
+  }
+
+  /**
+   * Bulk insert embeddings into cache (single transaction).
+   */
+  setCachedEmbeddings(entries: Array<{ hash: string; embedding: number[]; model: string }>): void {
+    if (!this.db || entries.length === 0) return;
+
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO embedding_cache (content_hash, embedding, dimension, model, last_used)
+      VALUES (?, ?, ?, ?, unixepoch())
+    `);
+
+    const transaction = this.db.transaction((items: typeof entries) => {
+      for (const { hash, embedding, model } of items) {
+        const blob = Buffer.from(new Float32Array(embedding).buffer);
+        stmt.run(hash, blob, embedding.length, model);
+      }
+    });
+
+    try {
+      transaction(entries);
+    } catch (err) {
+      log.error('Failed to bulk cache embeddings:', err);
+    }
+  }
+
+  /**
+   * Get embedding cache size.
+   */
+  getEmbeddingCacheSize(): number {
+    if (!this.db) return 0;
+    try {
+      const row = this.db.prepare('SELECT COUNT(*) as count FROM embedding_cache').get() as { count: number };
+      return row.count;
+    } catch {
+      return 0;
+    }
+  }
+
+  /**
+   * Evict old embeddings from cache (LRU by last_used).
+   * Keeps at most maxEntries entries.
+   */
+  evictEmbeddingCache(maxEntries: number = 200000): number {
+    if (!this.db) return 0;
+    try {
+      const count = this.getEmbeddingCacheSize();
+      if (count <= maxEntries) return 0;
+
+      const toDelete = count - maxEntries;
+      const result = this.db.prepare(`
+        DELETE FROM embedding_cache WHERE content_hash IN (
+          SELECT content_hash FROM embedding_cache ORDER BY last_used ASC LIMIT ?
+        )
+      `).run(toDelete);
+
+      log.info(`Evicted ${result.changes} old embeddings from cache (kept ${maxEntries})`);
+      return result.changes;
+    } catch (err) {
+      log.error('Failed to evict embedding cache:', err);
+      return 0;
+    }
+  }
+
+  /**
+   * Clear embedding cache for a specific model (or all if model is null).
+   */
+  clearEmbeddingCache(model?: string): void {
+    if (!this.db) return;
+    try {
+      if (model) {
+        this.db.prepare('DELETE FROM embedding_cache WHERE model = ?').run(model);
+      } else {
+        this.db.exec('DELETE FROM embedding_cache');
+      }
+      log.info(`Embedding cache cleared${model ? ` for model ${model}` : ''}`);
+    } catch (err) {
+      log.error('Failed to clear embedding cache:', err);
+    }
+  }
+
+  /**
+   * Import embeddings from old JSON cache file into SQLite.
+   * Used for migration from EmbeddingService's embedding-cache.json.
+   */
+  importEmbeddingCache(cachePath: string, model: string): number {
+    if (!this.db || !fs.existsSync(cachePath)) return 0;
+
+    try {
+      const raw = fs.readFileSync(cachePath, 'utf8');
+      const data = JSON.parse(raw) as Record<string, number[]>;
+      const entries = Object.entries(data);
+
+      if (entries.length === 0) return 0;
+
+      log.info(`Importing ${entries.length} embeddings from JSON cache...`);
+
+      const stmt = this.db.prepare(`
+        INSERT OR IGNORE INTO embedding_cache (content_hash, embedding, dimension, model, last_used)
+        VALUES (?, ?, ?, ?, unixepoch())
+      `);
+
+      const BATCH_SIZE = 5000;
+      let imported = 0;
+
+      for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+        const batch = entries.slice(i, i + BATCH_SIZE);
+        const tx = this.db.transaction((items: [string, number[]][]) => {
+          for (const [hash, embedding] of items) {
+            const blob = Buffer.from(new Float32Array(embedding).buffer);
+            stmt.run(hash, blob, embedding.length, model);
+            imported++;
+          }
+        });
+        tx(batch);
+      }
+
+      log.info(`Imported ${imported} embeddings from JSON cache`);
+      return imported;
+    } catch (err) {
+      log.error('Failed to import embedding cache:', err);
+      return 0;
+    }
   }
 }

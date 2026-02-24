@@ -19,9 +19,9 @@ export class MemoryService {
   private db: DatabaseService;
   private useSQLite: boolean = true;
 
-  constructor(config: ConfigService, db?: DatabaseService) {
+  constructor(config: ConfigService, db: DatabaseService) {
     this.config = config;
-    this.db = db ?? new DatabaseService();
+    this.db = db;
     const userDataPath = app.getPath('userData');
     this.workspacePath = path.join(userDataPath, 'workspace');
   }
@@ -40,11 +40,17 @@ export class MemoryService {
       }
     }
 
-    // Initialize SQLite database
+    // Initialize SQLite database — already opened by ServiceContainer,
+    // but we check if it's ready and import legacy sessions
     try {
-      this.db.initialize();
-      this.useSQLite = true;
-      log.info('SQLite database initialized');
+      if (this.db.isReady()) {
+        this.useSQLite = true;
+        log.info('SQLite database ready');
+      } else {
+        this.db.initialize();
+        this.useSQLite = true;
+        log.info('SQLite database initialized');
+      }
 
       // Migrate old JSON sessions if they exist
       const imported = this.db.importJsonSessions(this.workspacePath);

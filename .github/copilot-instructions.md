@@ -52,7 +52,7 @@ src/
 │       ├── cdp-client.ts        # Native CDP client (WebSocket) — replaces playwright-core (Faza 1.1 ✅)
 │       ├── browser-service.ts  # CDP browser automation — native CDP (Faza 1.2 ✅)
 │       ├── automation-service.ts # Desktop automation (mouse/keyboard via OS APIs)
-│       ├── database-service.ts # SQLite storage (better-sqlite3, WAL, FTS5) (Faza 2.3 ✅)
+│       ├── database-service.ts # SQLite storage (better-sqlite3, WAL, FTS5, sqlite-vec) (Faza 2.3+2.4 ✅)
 │       ├── rag-service.ts      # RAG pipeline (chunking + embedding + search)
 │       ├── embedding-service.ts # OpenAI embeddings + TF-IDF fallback
 │       ├── context-manager.ts  # Inteligentne okno kontekstowe (token budget)
@@ -92,7 +92,7 @@ src/
 - **Path aliases**: `@shared/*` → `src/shared/*`, `@main/*` → `src/main/*`, `@renderer/*` → `src/renderer/*`
 - **IPC**: Kanały IPC definiowane jako stałe w `src/shared/ipc-schema.ts` (Ch/Ev/ChSend). Każdy nowy handler dodaj w `ipc.ts` używając stałych, expose w `preload.ts`, typuj w `types.ts`
 - **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
-- **Styling**: Globalne CSS w `global.css`, BEM-like naming (`.component__element--modifier`), CSS custom properties (design tokens)
+- **Styling**: CSS Modules per-component (`*.module.css`), `cn()` utility, design tokens w `global.css` `:root`. Import: `import s from './Comp.module.css'`
 - **AI models**: OpenAI używa `max_completion_tokens` (nie `max_tokens`); GPT-5+ używa roli `developer` zamiast `system`
 - **Tool calling**: Native function calling (OpenAI tools API / Anthropic tool_use) domyślnie włączone (`config.useNativeFunctionCalling`). Fallback na ```tool bloki gdy wyłączone.
 - **Cron suggestions**: AI outputuje ```cron\n{JSON}\n``` bloki, agent-loop parsuje i proponuje użytkownikowi
@@ -287,18 +287,13 @@ src/
 - [x] Retention policy: auto-archive sessions >30 dni, delete >90 dni ✅
 - [x] Auto-import starych JSON sessions do SQLite ✅
 
-### Krok 2.4 — RAG v2 — SQLite vec + hybrid search
-> **Problem**: Obecny RAG trzyma embeddingi w pamięci (JSON cache) — nie skaluje.
+### Krok 2.4 — RAG v2 — SQLite vec + hybrid search ✅
+> **Zaimplementowano**: `sqlite-vec` (v0.1.7-alpha.2) załadowany do better-sqlite3. Schema v2 w `database-service.ts` z tabelami: `rag_chunks` (content+metadata), `rag_chunks_fts` (FTS5 unicode61), `rag_embeddings` (vec0 float[1536] cosine distance), `embedding_cache` (BLOB LRU 200K entries), `rag_folders` (stats). Hybrid search via Reciprocal Rank Fusion (RRF, k=60, vectorWeight=0.7). `embedding-service.ts` — SQLite persistent cache + hot cache (Map, 10K entries). `rag-service.ts` — in-memory chunks[] + index.json zastąpione SQLite storage. Legacy migration (JSON → SQLite) z auto-cleanup.
 
-- [ ] Zamień in-memory embedding storage na SQLite vec extension:
-  ```sql
-  CREATE VIRTUAL TABLE vec_chunks USING vec0(
-    embedding float[1536]   -- OpenAI text-embedding-3-small dimension
-  );
-  ```
-- [ ] Hybrid search: vector similarity + FTS5 keyword search → re-ranking
-- [ ] Incremental indexing z `mtime` tracking (już jest!) ale persystowany w SQLite
-- [ ] Streaming chunking — nie ładuj całego pliku do RAM, streamuj i chunkuj
+- [x] Zamień in-memory embedding storage na SQLite vec extension ✅ (vec0 virtual table z cosine distance)
+- [x] Hybrid search: vector similarity + FTS5 keyword search → RRF re-ranking ✅
+- [x] Incremental indexing z `mtime` tracking persystowany w SQLite ✅ (rag_folders table)
+- [ ] Streaming chunking — nie ładuj całego pliku do RAM, streamuj i chunkuj (przyszła iteracja)
 
 ### Krok 2.5 — Multi-provider AI abstraction
 - [ ] Stwórz `AIProvider` interface:
@@ -387,13 +382,14 @@ src/
 
 ## Faza 4: Frontend Redesign (Tydzień 7-9)
 
-### Krok 4.1 — UI Framework upgrade
-- [ ] Dodaj CSS-in-JS lub CSS Modules zamiast monolitycznego `global.css`:
-  - Opcja A: `CSS Modules` (zero runtime overhead, natural for React)
-  - Opcja B: `Tailwind CSS` (rapid prototyping, design system)
-  - **Rekomendacja**: CSS Modules + design tokens
-- [ ] Design system — stałe kolory, spacing, typografia jako CSS custom properties
-- [ ] Dark/Light theme via CSS custom properties (jest partial support, dociągnij)
+### Krok 4.1 — UI Framework upgrade ✅
+> **Zaimplementowano**: CSS Modules z `localsConvention: 'camelCase'` w Vite. 8 komponentów wyodrębnionych z monolitycznego `global.css` (2846→181 linii): FloatingWidget, ErrorBoundary, ProactiveNotification, ChatPanel, OnboardingWizard, SettingsPanel, CronPanel, CoachingOverlay. Utility `cn()` do łączenia klas. TypeScript declarations (`css-modules.d.ts`). Design tokens zachowane w `:root` global.css.
+
+- [x] CSS Modules zamiast monolitycznego `global.css` ✅ (8 plików `*.module.css`)
+- [x] `cn()` utility (`src/renderer/utils/cn.ts`) do warunkowego łączenia klas ✅
+- [x] `composes:` CSS Modules feature dla wariantów (np. `.btnActive { composes: btn; }`) ✅
+- [x] Design tokens (CSS custom properties) zachowane w global.css `:root` ✅
+- [ ] Dark/Light theme via CSS custom properties (przyszła iteracja)
 
 ### Krok 4.2 — Component library
 - [ ] Wyodrębnij reusable components:
@@ -599,7 +595,7 @@ src/
 | 1 | Native Function Calling | 2.1 | 🔴 Critical | M | P0 | ✅ Done |
 | 2 | Browser CDP Bypass | 1.1-1.3 | 🔴 Critical | L | P0 | ✅ Done |
 | 3 | Shared types + path aliases | 0.1 | 🟡 High | S | P0 | ✅ Done |
-| 4 | SQLite memory + RAG | 2.3-2.4 | 🟡 High | L | P1 | 2.3 ✅ / 2.4 ⬜ |
+| 4 | SQLite memory + RAG | 2.3-2.4 | 🟡 High | L | P1 | ✅ Done |
 | 5 | Agent Loop modularization | 2.6 | 🟡 High | L | P1 | ✅ Done |
 | 6 | Unit tests (safety-critical) | 5.1 | 🟡 High | M | P1 | ✅ Done (172) |
 | 7 | Async file operations | 3.3 | 🟢 Medium | M | P2 | ✅ Done (7 serwisów) |
@@ -607,7 +603,7 @@ src/
 | 9 | Graceful shutdown | 3.4 | 🟢 Medium | S | P2 | ✅ Done |
 | 10 | IPC typesafe bridge | 3.1 | 🟢 Medium | M | P2 | ✅ Done |
 | 11 | Service container | 3.2 | 🟢 Medium | M | P2 | ✅ Done |
-| 12 | Frontend CSS Modules | 4.1 | 🟢 Medium | M | P2 | ⬜ Next |
+| 12 | Frontend CSS Modules | 4.1 | 🟢 Medium | M | P2 | ✅ Done (8 modułów) |
 | 13 | Ollama local LLM | 2.5/6.5 | 🟡 High | M | P4 | ⬜ Odsunięty |
 | 14 | Structured Outputs | 2.2 | 🟢 Medium | S | P3 | ⬜ |
 | 15 | Knowledge Graph | 6.3 | 🟡 High | XL | P3 | ⬜ |

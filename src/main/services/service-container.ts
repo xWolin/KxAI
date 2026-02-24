@@ -15,6 +15,7 @@
 import { createLogger } from './logger';
 import { ConfigService } from './config';
 import { SecurityService } from './security';
+import { DatabaseService } from './database-service';
 import { MemoryService } from './memory';
 import { AIService } from './ai-service';
 import { ScreenCaptureService } from './screen-capture';
@@ -43,6 +44,7 @@ const log = createLogger('Container');
 export interface ServiceMap {
   config: ConfigService;
   security: SecurityService;
+  database: DatabaseService;
   memory: MemoryService;
   ai: AIService;
   screenCapture: ScreenCaptureService;
@@ -134,17 +136,22 @@ export class ServiceContainer {
     // ── Phase 1: Core (no deps) ──
     const config = new ConfigService();
     const security = new SecurityService();
+    const database = new DatabaseService();
     this.set('config', config);
     this.set('security', security);
+    this.set('database', database);
+
+    // Initialize database early (needed by memory, embedding, RAG)
+    database.initialize();
 
     // ── Phase 2: Services depending on core ──
-    const memory = new MemoryService(config);
+    const memory = new MemoryService(config, database);
     const ai = new AIService(config, security);
     const screenCapture = new ScreenCaptureService();
     const cron = new CronService();
     const tools = new ToolsService();
     const workflow = new WorkflowService();
-    const embedding = new EmbeddingService(security, config);
+    const embedding = new EmbeddingService(security, config, database);
     const automation = new AutomationService();
     const browser = new BrowserService();
     const plugins = new PluginService();
@@ -175,7 +182,7 @@ export class ServiceContainer {
     await embedding.initialize();
 
     // ── Phase 4: Services depending on async-initialized services ──
-    const rag = new RAGService(embedding, config);
+    const rag = new RAGService(embedding, config, database);
     await rag.initialize();
     this.set('rag', rag);
 
@@ -300,6 +307,7 @@ export class ServiceContainer {
 
     // ── Phase 6: Close database (must be last) ──
     this.trySync('memory', (s) => s.shutdown());
+    this.trySync('database', (s) => s.close());
 
     log.info(`Graceful shutdown completed in ${Date.now() - t0}ms`);
   }

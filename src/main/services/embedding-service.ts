@@ -4,56 +4,59 @@ import * as path from 'path';
 import { app } from 'electron';
 import { SecurityService } from './security';
 import { ConfigService } from './config';
+import { DatabaseService } from './database-service';
+import { createLogger } from './logger';
+
+const log = createLogger('EmbeddingService');
 
 /**
  * EmbeddingService — generuje embeddingi tekstu.
  * Używa OpenAI text-embedding-3-small (lub innego modelu z configu).
  * Klucz API czytany z 'openai-embeddings' (dedykowany) lub fallback na 'openai' (główny).
  * Fallback: prosty TF-IDF jeśli brak klucza.
+ *
+ * v2: Cache embeddingów w SQLite (via DatabaseService) zamiast JSON file.
+ *     In-memory LRU Map jako hot cache, SQLite jako persistent store.
  */
 export class EmbeddingService {
   private security: SecurityService;
   private config: ConfigService;
+  private dbService: DatabaseService;
   private openaiClient: any = null;
   private embeddingModel: string = 'text-embedding-3-small';
-  private cache: Map<string, number[]> = new Map();
-  private cachePath: string;
-  private cacheModelPath: string; // tracks which model generated the cache
+  private hotCache: Map<string, number[]> = new Map(); // in-memory hot cache
+  private static readonly MAX_HOT_CACHE = 10000; // evict from memory when exceeded
+  private static readonly MAX_DB_CACHE = 200000;  // evict from SQLite when exceeded
   private initialized = false;
-  private savePending = false;
-  private saveTimer: NodeJS.Timeout | null = null;
-  private static readonly MAX_CACHE_ENTRIES = 200000; // LRU eviction threshold
+
+  // Legacy cache paths (for migration)
+  private legacyCachePath: string;
+  private legacyCacheModelPath: string;
 
   // TF-IDF fallback
   private idfMap: Map<string, number> = new Map();
   private vocabSize = 0;
 
-  constructor(security: SecurityService, config: ConfigService) {
+  constructor(security: SecurityService, config: ConfigService, dbService: DatabaseService) {
     this.security = security;
     this.config = config;
+    this.dbService = dbService;
     const userDataPath = app.getPath('userData');
-    this.cachePath = path.join(userDataPath, 'workspace', 'rag', 'embedding-cache.json');
-    this.cacheModelPath = path.join(userDataPath, 'workspace', 'rag', 'embedding-cache-model.txt');
+    this.legacyCachePath = path.join(userDataPath, 'workspace', 'rag', 'embedding-cache.json');
+    this.legacyCacheModelPath = path.join(userDataPath, 'workspace', 'rag', 'embedding-cache-model.txt');
   }
 
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
-    // Ensure rag directory exists
-    const ragDir = path.dirname(this.cachePath);
-    if (!fs.existsSync(ragDir)) {
-      fs.mkdirSync(ragDir, { recursive: true });
-    }
-
-    // Read embedding model from config BEFORE cache validation
+    // Read embedding model from config
     const cfgModel = this.config.get('embeddingModel') as string | undefined;
     if (cfgModel) {
       this.embeddingModel = cfgModel;
     }
 
-    // Load cache — validate model consistency against configured model
-    this.loadCache();
-    this.validateCacheModel();
+    // Migrate legacy JSON cache to SQLite (one-time operation)
+    this.migrateLegacyCache();
 
     // Try to initialize OpenAI client for embeddings
     // Priority: dedicated 'openai-embeddings' key > main 'openai' key
@@ -64,11 +67,12 @@ export class EmbeddingService {
         const OpenAI = require('openai').default;
         this.openaiClient = new OpenAI({ apiKey: embeddingKey });
       } catch (err) {
-        console.warn('EmbeddingService: Failed to init OpenAI client:', err);
+        log.warn('Failed to init OpenAI client:', err);
       }
     }
 
     this.initialized = true;
+    log.info(`Initialized (model: ${this.embeddingModel}, openai: ${!!this.openaiClient}, cache: ${this.dbService.getEmbeddingCacheSize()} entries)`);
   }
 
   /**
@@ -85,8 +89,18 @@ export class EmbeddingService {
     await this.initialize();
 
     const hash = this.hashContent(text);
-    const cached = this.cache.get(hash);
-    if (cached) return cached;
+
+    // Check hot cache first (in-memory)
+    const hotCached = this.hotCache.get(hash);
+    if (hotCached) return hotCached;
+
+    // Check SQLite cache
+    const dbCached = this.dbService.getCachedEmbedding(hash);
+    if (dbCached) {
+      this.hotCache.set(hash, dbCached);
+      this.evictHotCacheIfNeeded();
+      return dbCached;
+    }
 
     let embedding: number[];
 
@@ -94,10 +108,10 @@ export class EmbeddingService {
       try {
         embedding = await this.embedViaOpenAI(text);
       } catch (err: any) {
-        console.warn('EmbeddingService: OpenAI embedding failed, falling back to TF-IDF:', err?.message || err);
+        log.warn('OpenAI embedding failed, falling back to TF-IDF:', err?.message || err);
         // Permanently disable OpenAI on quota/auth errors to avoid repeated failures
         if (err?.code === 'insufficient_quota' || err?.status === 401 || err?.status === 429) {
-          console.warn('EmbeddingService: Disabling OpenAI embeddings due to quota/auth error. Using TF-IDF fallback.');
+          log.warn('Disabling OpenAI embeddings due to quota/auth error. Using TF-IDF fallback.');
           this.openaiClient = null;
         }
         embedding = this.tfidfEmbed(text);
@@ -106,8 +120,11 @@ export class EmbeddingService {
       embedding = this.tfidfEmbed(text);
     }
 
-    this.cache.set(hash, embedding);
-    this.saveCache();
+    // Store in both caches
+    this.hotCache.set(hash, embedding);
+    this.evictHotCacheIfNeeded();
+    this.dbService.setCachedEmbedding(hash, embedding, this.embeddingModel);
+
     return embedding;
   }
 
@@ -120,26 +137,42 @@ export class EmbeddingService {
     const results: number[][] = [];
     const uncachedTexts: string[] = [];
     const uncachedIndexes: number[] = [];
+    const uncachedHashes: string[] = [];
 
-    // Check cache first
+    // Check hot cache + SQLite cache first
     for (let i = 0; i < texts.length; i++) {
       const hash = this.hashContent(texts[i]);
-      const cached = this.cache.get(hash);
-      if (cached) {
-        results[i] = cached;
-      } else {
-        uncachedTexts.push(texts[i]);
-        uncachedIndexes.push(i);
+
+      // Hot cache
+      const hotCached = this.hotCache.get(hash);
+      if (hotCached) {
+        results[i] = hotCached;
+        continue;
       }
+
+      // SQLite cache
+      const dbCached = this.dbService.getCachedEmbedding(hash);
+      if (dbCached) {
+        results[i] = dbCached;
+        this.hotCache.set(hash, dbCached);
+        continue;
+      }
+
+      uncachedTexts.push(texts[i]);
+      uncachedIndexes.push(i);
+      uncachedHashes.push(hash);
     }
 
     if (uncachedTexts.length === 0) return results;
+
+    // Batch for SQLite bulk insert after generating
+    const newEmbeddings: Array<{ hash: string; embedding: number[]; model: string }> = [];
 
     if (this.openaiClient) {
       // Batch via OpenAI (max 2048 per request)
       for (let start = 0; start < uncachedTexts.length; start += 2048) {
         const batch = uncachedTexts.slice(start, start + 2048)
-          .map(t => t.slice(0, 8000)); // token limit safety — same as embedViaOpenAI
+          .map(t => t.slice(0, 8000)); // token limit safety
         try {
           const response = await this.openaiClient.embeddings.create({
             model: this.embeddingModel,
@@ -147,23 +180,26 @@ export class EmbeddingService {
           });
           for (let j = 0; j < response.data.length; j++) {
             const idx = uncachedIndexes[start + j];
+            const hash = uncachedHashes[start + j];
             const embedding = response.data[j].embedding;
             results[idx] = embedding;
-            this.cache.set(this.hashContent(batch[j]), embedding);
+            this.hotCache.set(hash, embedding);
+            newEmbeddings.push({ hash, embedding, model: this.embeddingModel });
           }
         } catch (err: any) {
-          console.error('EmbeddingService: Batch embedding failed:', err?.message || err);
-          // Permanently disable OpenAI on quota/auth errors
+          log.error('Batch embedding failed:', err?.message || err);
           if (err?.code === 'insufficient_quota' || err?.status === 401 || err?.status === 429) {
-            console.warn('EmbeddingService: Disabling OpenAI embeddings due to quota/auth error. Using TF-IDF fallback.');
+            log.warn('Disabling OpenAI embeddings due to quota/auth error. Using TF-IDF fallback.');
             this.openaiClient = null;
           }
-          // Fallback to TF-IDF for failed batch — also cache results
+          // Fallback to TF-IDF for failed batch
           for (let j = 0; j < batch.length; j++) {
             const idx = uncachedIndexes[start + j];
+            const hash = uncachedHashes[start + j];
             const embedding = this.tfidfEmbed(batch[j]);
             results[idx] = embedding;
-            this.cache.set(this.hashContent(batch[j]), embedding);
+            this.hotCache.set(hash, embedding);
+            newEmbeddings.push({ hash, embedding, model: 'tfidf' });
           }
         }
       }
@@ -171,12 +207,20 @@ export class EmbeddingService {
       // TF-IDF fallback
       for (let i = 0; i < uncachedTexts.length; i++) {
         const idx = uncachedIndexes[i];
-        results[idx] = this.tfidfEmbed(uncachedTexts[i]);
-        this.cache.set(this.hashContent(uncachedTexts[i]), results[idx]);
+        const hash = uncachedHashes[i];
+        const embedding = this.tfidfEmbed(uncachedTexts[i]);
+        results[idx] = embedding;
+        this.hotCache.set(hash, embedding);
+        newEmbeddings.push({ hash, embedding, model: 'tfidf' });
       }
     }
 
-    this.saveCache();
+    // Bulk insert new embeddings into SQLite cache
+    if (newEmbeddings.length > 0) {
+      this.dbService.setCachedEmbeddings(newEmbeddings);
+    }
+
+    this.evictHotCacheIfNeeded();
     return results;
   }
 
@@ -300,134 +344,83 @@ export class EmbeddingService {
 
   /**
    * Look up a cached embedding without triggering API calls.
-   * Used by RAGService to restore embeddings from cache on index load.
+   * Checks hot cache first, then SQLite.
    */
   getCachedEmbedding(text: string): number[] | undefined {
     const hash = this.hashContent(text);
-    return this.cache.get(hash);
+    const hot = this.hotCache.get(hash);
+    if (hot) return hot;
+
+    const db = this.dbService.getCachedEmbedding(hash);
+    if (db) {
+      this.hotCache.set(hash, db);
+      return db;
+    }
+    return undefined;
   }
 
   /**
-   * Validates that cache was generated by the same embedding model.
-   * If model changed, clears cache to avoid dimension mismatch.
+   * Migrate legacy JSON embedding cache to SQLite.
+   * Runs once — deletes JSON file after successful import.
    */
-  private validateCacheModel(): void {
+  private migrateLegacyCache(): void {
     try {
-      if (fs.existsSync(this.cacheModelPath)) {
-        const savedModel = fs.readFileSync(this.cacheModelPath, 'utf8').trim();
+      if (!fs.existsSync(this.legacyCachePath)) return;
+
+      // Check model consistency — if model changed, don't import old cache
+      if (fs.existsSync(this.legacyCacheModelPath)) {
+        const savedModel = fs.readFileSync(this.legacyCacheModelPath, 'utf8').trim();
         if (savedModel !== this.embeddingModel) {
-          console.warn(`EmbeddingService: Model changed (${savedModel} → ${this.embeddingModel}), clearing cache`);
-          this.cache.clear();
-          if (fs.existsSync(this.cachePath)) fs.unlinkSync(this.cachePath);
+          log.warn(`Legacy cache model (${savedModel}) differs from current (${this.embeddingModel}), skipping import`);
+          // Clean up legacy files
+          try { fs.unlinkSync(this.legacyCachePath); } catch {}
+          try { fs.unlinkSync(this.legacyCacheModelPath); } catch {}
+          return;
         }
       }
-      // Save current model
-      const dir = path.dirname(this.cacheModelPath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(this.cacheModelPath, this.embeddingModel, 'utf8');
-    } catch (err) {
-      console.warn('EmbeddingService: validateCacheModel error:', err);
-    }
-  }
 
-  private loadCache(): void {
-    try {
-      if (fs.existsSync(this.cachePath)) {
-        const raw = fs.readFileSync(this.cachePath, 'utf8');
-        const data = JSON.parse(raw);
-        this.cache = new Map(Object.entries(data));
-        console.log(`EmbeddingService: Loaded ${this.cache.size} cached embeddings`);
+      const imported = this.dbService.importEmbeddingCache(this.legacyCachePath, this.embeddingModel);
+      if (imported > 0) {
+        log.info(`Migrated ${imported} embeddings from JSON to SQLite`);
+        // Remove legacy files after successful migration
+        try { fs.unlinkSync(this.legacyCachePath); } catch {}
+        try { fs.unlinkSync(this.legacyCacheModelPath); } catch {}
+        // Also remove .tmp files if exist
+        try {
+          const tmpPath = this.legacyCachePath + '.tmp';
+          if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+        } catch {}
       }
     } catch (err) {
-      console.error('EmbeddingService: Failed to load cache, starting fresh:', err);
-      this.cache = new Map();
-      // Delete corrupted cache file
-      try { if (fs.existsSync(this.cachePath)) fs.unlinkSync(this.cachePath); } catch {}
+      log.warn('Legacy cache migration error:', err);
     }
   }
 
   /**
-   * Debounced save — schedules a write 5s after last call to avoid blocking UI.
+   * Evict from hot cache if it exceeds the limit.
+   * Removes the oldest 20% of entries (FIFO via Map insertion order).
    */
-  saveCache(): void {
-    this.savePending = true;
-    if (this.saveTimer) clearTimeout(this.saveTimer);
-    this.saveTimer = setTimeout(() => {
-      this._saveCacheToDisk();
-    }, 5000);
+  private evictHotCacheIfNeeded(): void {
+    if (this.hotCache.size <= EmbeddingService.MAX_HOT_CACHE) return;
+    const toRemove = Math.floor(this.hotCache.size * 0.2);
+    const keys = Array.from(this.hotCache.keys());
+    for (let i = 0; i < toRemove; i++) {
+      this.hotCache.delete(keys[i]);
+    }
   }
 
   /**
-   * Immediate save — for shutdown. Clears pending timer.
+   * Flush: evict SQLite cache if needed. No-op for hot cache (volatile).
    */
   flushCache(): void {
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
-    if (this.savePending) {
-      this._saveCacheToDisk();
-    }
+    this.dbService.evictEmbeddingCache(EmbeddingService.MAX_DB_CACHE);
   }
 
   /**
-   * Streaming JSON write to avoid RangeError: Invalid string length
-   * with large caches. Writes entry-by-entry using fs.writeSync.
-   * Uses atomic rename (.tmp → final) to prevent data loss on crash.
-   * Applies LRU eviction if cache exceeds MAX_CACHE_ENTRIES.
-   */
-  private _saveCacheToDisk(): void {
-    this.savePending = false;
-    try {
-      const dir = path.dirname(this.cachePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-
-      // LRU eviction — keep newest entries
-      if (this.cache.size > EmbeddingService.MAX_CACHE_ENTRIES) {
-        const excess = this.cache.size - EmbeddingService.MAX_CACHE_ENTRIES;
-        const keys = Array.from(this.cache.keys());
-        for (let i = 0; i < excess; i++) {
-          this.cache.delete(keys[i]);
-        }
-        console.log(`EmbeddingService: Evicted ${excess} old cache entries (kept ${this.cache.size})`);
-      }
-
-      // Streaming write — entry by entry to avoid single giant string
-      const tmpPath = this.cachePath + '.tmp';
-      const fd = fs.openSync(tmpPath, 'w');
-      let first = true;
-      fs.writeSync(fd, '{');
-      for (const [key, value] of this.cache) {
-        if (!first) fs.writeSync(fd, ',');
-        first = false;
-        fs.writeSync(fd, JSON.stringify(key) + ':' + JSON.stringify(value));
-      }
-      fs.writeSync(fd, '}');
-      fs.closeSync(fd);
-
-      // Atomic rename
-      if (fs.existsSync(this.cachePath)) fs.unlinkSync(this.cachePath);
-      fs.renameSync(tmpPath, this.cachePath);
-      console.log(`EmbeddingService: Saved ${this.cache.size} embeddings to cache`);
-    } catch (err) {
-      console.error('EmbeddingService: Failed to save cache:', err);
-    }
-  }
-
-  /**
-   * Clear embedding cache (useful when memory files change significantly).
+   * Clear all embedding caches (hot + SQLite).
    */
   clearCache(): void {
-    this.cache.clear();
-    if (this.saveTimer) {
-      clearTimeout(this.saveTimer);
-      this.saveTimer = null;
-    }
-    this.savePending = false;
-    if (fs.existsSync(this.cachePath)) {
-      fs.unlinkSync(this.cachePath);
-    }
+    this.hotCache.clear();
+    this.dbService.clearEmbeddingCache();
   }
 }
