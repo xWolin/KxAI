@@ -39,7 +39,14 @@ src/
 │       ├── cron-service.ts     # Cron jobs CRUD, scheduling, persistence
 │       ├── tools-service.ts    # Extensible tools framework (30+ built-in)
 │       ├── workflow-service.ts # Activity logging, pattern detection, time awareness
-│       ├── agent-loop.ts       # Orchestrator: tool calling, heartbeat, cron execution
+│       ├── agent-loop.ts       # Orchestrator: delegates to extracted modules (Faza 2.6 ✅)
+│       ├── tool-executor.ts    # Tool calling + parallel execution (Faza 2.6 ✅)
+│       ├── response-processor.ts # Response parsing + cron/memory extraction (Faza 2.6 ✅)
+│       ├── context-builder.ts  # System prompt assembly (Faza 2.6 ✅)
+│       ├── heartbeat-engine.ts # Autonomous mode (Faza 2.6 ✅)
+│       ├── take-control-engine.ts # Desktop automation mode (Faza 2.6 ✅)
+│       ├── cron-executor.ts    # Cron job runner (Faza 2.6 ✅)
+│       ├── tool-loop-detector.ts # Loop detection (hash, ping-pong, spiraling)
 │       ├── cdp-client.ts        # Native CDP client (WebSocket) — replaces playwright-core (Faza 1.1 ✅)
 │       ├── browser-service.ts  # CDP browser automation — native CDP (Faza 1.2 ✅)
 │       ├── automation-service.ts # Desktop automation (mouse/keyboard via OS APIs)
@@ -52,12 +59,14 @@ src/
 │       ├── meeting-coach.ts    # Real-time meeting coaching (Deepgram)
 │       ├── plugin-service.ts   # Dynamic plugin loading
 │       ├── security-guard.ts   # Security layer (SSRF, injection, rate limiting)
-│       ├── prompt-service.ts   # Markdown-based prompt management
+│       ├── prompt-service.ts   # Markdown-based prompt management (async API — Faza 3.3 ✅)
 │       ├── intent-detector.ts  # User intent recognition (regex-based)
 │       ├── tts-service.ts      # TTS (ElevenLabs / OpenAI / Web Speech)
 │       ├── transcription-service.ts # Deepgram STT
 │       ├── dashboard-server.ts # Localhost dashboard (Express + WebSocket)
-│       └── config.ts          # Configuration persistence
+│       ├── retry-handler.ts    # Exponential backoff retry logic
+│       ├── diagnostic-service.ts # System diagnostics
+│       └── config.ts          # Configuration persistence (async save — Faza 3.3 ✅)
 ├── renderer/               # React frontend
 │   ├── App.tsx             # Routing (widget/chat/settings/cron/onboarding/meeting)
 │   ├── types.ts            # KxAIBridge interface + renderer-only types
@@ -68,7 +77,8 @@ src/
 │   │   ├── SettingsPanel.tsx       # Konfiguracja (API keys, model, persona)
 │   │   ├── OnboardingWizard.tsx    # Onboarding flow
 │   │   ├── ProactiveNotification.tsx # Proactive message popup
-│   │   └── CoachingOverlay.tsx     # Meeting coach overlay
+│   │   ├── CoachingOverlay.tsx     # Meeting coach overlay
+│   │   └── ErrorBoundary.tsx       # React error boundary per-view (Faza 3.5 ✅)
 │   └── styles/
 │       └── global.css      # Wszystkie style (futuristic dark theme)
 ```
@@ -135,35 +145,35 @@ GitHub Actions workflow (`.github/workflows/build.yml`) buduje na 3 platformach:
 - **Problem**: Korzysta z dedykowanego profilu — nie widzi cookies/sesji użytkownika
 - **Rozwiązanie**: Faza 1 ✅ — Native CDP client (`cdp-client.ts`) + BrowserService przepisany na natywny CDP. `playwright-core` usunięty z dependencies.
 
-### P2: Tool calling — niestandardowy format (```tool bloki)
+### P2: Tool calling — niestandardowy format (```tool bloki) ✅ ROZWIĄZANO
 - **Problem**: Zamiast native function calling API (OpenAI/Anthropic), AI musi generować markdown code blocks
 - **Problem**: Łatwy do złamania, wymaga custom parsingu, nie działa z parallel tool calls
-- **Rozwiązanie**: Patrz Faza 2, krok 1
+- **Rozwiązanie**: Faza 2.1 ✅ — Native function calling z `tool-schema-converter.ts`. Parallel tool calls. Fallback na ```tool bloki zachowany.
 
 ### P3: Monolityczny ipc.ts (970 linii) i preload.ts (292 linie)
 - **Problem**: Każda nowa funkcja to zmiany w 3 plikach (ipc + preload + types)
 - **Problem**: Brak walidacji parametrów IPC, brak typesafe bridge
 - **Rozwiązanie**: Patrz Faza 3, krok 2
 
-### P4: Brak testów
+### P4: Brak testów ✅ CZĘŚCIOWO ROZWIĄZANO
 - **Problem**: Zero testów — unit, integration, e2e
-- **Rozwiązanie**: Patrz Faza 5
+- **Rozwiązanie**: Faza 5.1 ✅ — Vitest setup, 172 testy unit (IntentDetector, SecurityGuard, ContextManager, PromptService). Integration/E2E do zrobienia.
 
 ### P5: Frontend — jeden plik CSS (global.css), brak component library
 - **Problem**: Skalowanie UI jest trudne, brak design system
 - **Rozwiązanie**: Patrz Faza 4
 
-### P6: Brak error boundaries i crash reporting
+### P6: Brak error boundaries i crash reporting ✅ CZĘŚCIOWO ROZWIĄZANO
 - **Problem**: Uncaught error = biały ekran, brak telemetrii
-- **Rozwiązanie**: Patrz Faza 3, krok 5
+- **Rozwiązanie**: Faza 3.5 ✅ — React ErrorBoundary per-view, `KxAIError` structured error class, `process.on('uncaughtException/unhandledRejection')` w main.ts. Sentry/crash reporting opcjonalnie później.
 
-### P7: Synchronous fs operations blokujące main process
+### P7: Synchronous fs operations blokujące main process ✅ CZĘŚCIOWO ROZWIĄZANO
 - **Problem**: `fs.readFileSync`, `fs.writeFileSync` w wielu serwisach blokują event loop
-- **Rozwiązanie**: Patrz Faza 3, krok 3
+- **Rozwiązanie**: Faza 3.3 ✅ — 7 najczęściej wywoływanych serwisów skonwertowanych na `fs/promises` (config, prompt-service, memory, security, security-guard, workflow-service, cron-service). Ciężkie serwisy (RAG, embedding, browser) odsunięte do worker threads (Faza 7.2).
 
-### P8: Memory service — flat file based, nie skaluje się
+### P8: Memory service — flat file based, nie skaluje się ✅ ROZWIĄZANO
 - **Problem**: JSON session files, brak search, brak retention policy
-- **Rozwiązanie**: Patrz Faza 2, krok 3
+- **Rozwiązanie**: Faza 2.3 ✅ — SQLite-backed z better-sqlite3, WAL mode, FTS5, retention policy (30d archive, 90d delete), auto-migracja starych JSON sesji.
 
 ---
 
@@ -302,23 +312,13 @@ src/
 - [ ] Hot-swap providerów bez restartu
 - [ ] Cost tracking per provider per session
 
-### Krok 2.6 — Agent Loop v2 — Event-driven architecture
-> **Problem**: Obecny agent-loop to 2056-linijkowy monolit.
+### Krok 2.6 — Agent Loop v2 — Modularization ✅
+> **Zaimplementowano**: Agent loop rozbity na 6 wyodrębnionych modułów w `src/main/services/`. Orchestrator (`agent-loop.ts`) deleguje do: `tool-executor.ts`, `response-processor.ts`, `context-builder.ts`, `heartbeat-engine.ts`, `take-control-engine.ts`, `cron-executor.ts`. Moduły mają własne odpowiedzialności, łatwo testowalne.
 
-- [ ] Rozbij na modularną architekturę event-driven:
-  ```
-  agent/
-  ├── orchestrator.ts          # Event bus + lifecycle
-  ├── tool-executor.ts         # Tool calling + parallel execution
-  ├── context-builder.ts       # System prompt assembly
-  ├── heartbeat-engine.ts      # Autonomous mode
-  ├── take-control-engine.ts   # Desktop automation mode
-  ├── cron-executor.ts         # Cron job runner
-  └── memory-manager.ts        # Context compaction + flush
-  ```
-- [ ] EventEmitter-based communication między modułami
+- [x] Rozbij na modularną architekturę ✅ (6 modułów wyodrębnionych)
+- [ ] EventEmitter-based communication między modułami (przyszła iteracja)
 - [ ] Cancellation via `AbortController` (zamiast custom `cancelProcessing` flag)
-- [ ] Parallel tool execution gdy AI requestuje multiple tools
+- [x] Parallel tool execution gdy AI requestuje multiple tools ✅ (via native FC)
 
 ---
 
@@ -359,37 +359,29 @@ src/
 - [ ] Lifecycle hooks: `onInit()`, `onReady()`, `onShutdown()`
 - [ ] Eliminuje 100+ linii manual wiring w main.ts
 
-### Krok 3.3 — Async-first file operations
-- [ ] Zastąp wszystkie `fs.readFileSync`/`fs.writeFileSync` asynchronicznymi odpowiednikami
-- [ ] Dla krytycznych ścieżek (config load on startup) użyj `fs.readFileSync` z komentarzem
-- [ ] Dodaj file operation queue z debouncing (config save, session save)
+### Krok 3.3 — Async-first file operations ✅
+> **Zaimplementowano**: 7 najczęściej wywoływanych serwisów skonwertowanych z `fs.*Sync` na `fs/promises`. Fire-and-forget pattern (`void save()`) dla nie-krytycznych operacji, `await` dla krytycznych. 18 callerów prompt-service zaktualizowanych. Testy przepisane na async mocki.
+
+- [x] Skonwertuj 7 serwisów: config, prompt-service, memory, security, security-guard, workflow-service, cron-service ✅
+- [x] Fire-and-forget pattern dla nie-krytycznych zapisów ✅
+- [x] Atomic writes w cron-service (write + rename) ✅
+- [ ] Ciężkie serwisy (RAG, embedding, browser) → worker threads (Faza 7.2)
 - [ ] `electron-log` z async file rotation
 
-### Krok 3.4 — Graceful shutdown
-- [ ] Zamknij wszystkie zasoby poprawnie:
-  - SQLite connections (WAL checkpoint)
-  - CDP WebSocket connections
-  - Dashboard HTTP server
-  - Deepgram WebSocket
-  - Pending cron jobs
-  - Running sub-agents
-  - File watchers (RAG)
-- [ ] `app.on('before-quit')` → sequential cleanup z timeout
+### Krok 3.4 — Graceful shutdown ✅
+> **Zaimplementowano**: 6-fazowy sequential shutdown w `app.on('will-quit')` z 5s timeout wrapper. Fazy: 1) Stop processing (agentLoop, screenMonitor, cron), 2) Close network (meetingCoach, transcription, browser, dashboard), 3) Stop watchers (RAG, plugins), 4) Cleanup temp (TTS), 5) Flush caches (embedding), 6) Close DB (memory/SQLite). Promise.race z timeout.
 
-### Krok 3.5 — Error handling & crash reporting
-- [ ] React Error Boundaries (per-component, nie globalny)
-- [ ] Main process: `process.on('uncaughtException')`, `process.on('unhandledRejection')`
-- [ ] Structured error types:
-  ```typescript
-  class KxAIError extends Error {
-    constructor(
-      message: string,
-      public code: ErrorCode,
-      public recoverable: boolean,
-      public context?: Record<string, unknown>
-    ) { super(message); }
-  }
-  ```
+- [x] Sequential cleanup z 6 fazami ✅
+- [x] 5s timeout wrapper (prevent hanging) ✅
+- [x] 11 serwisów zamykanych (było 4) ✅
+- [x] Logging każdego kroku ✅
+
+### Krok 3.5 — Error handling & crash reporting ✅
+> **Zaimplementowano**: `KxAIError` class w `shared/types/errors.ts` z ~30 `ErrorCode` enum values, severity levels, JSON serialization. `ErrorBoundary.tsx` — React error boundary per-view (Onboarding, Chat, Cron, Meeting, Settings) z fallback UI i "Spróbuj ponownie" button. CSS styles matching dark theme.
+
+- [x] React Error Boundaries (per-view w App.tsx) ✅
+- [x] Main process: `process.on('uncaughtException')`, `process.on('unhandledRejection')` ✅ (Quick Wins)
+- [x] Structured error types (`KxAIError`, `ErrorCode`, `ErrorSeverity`) ✅
 - [ ] Optional: Sentry/crash reporting (opt-in w settings)
 
 ### Krok 3.6 — Configuration v2
@@ -614,26 +606,27 @@ src/
 
 ## Kolejność implementacji (prioritized backlog)
 
-| # | Zadanie | Faza | Impact | Effort | Priorytet |
-|---|---------|------|--------|--------|-----------|
-| 1 | Native Function Calling | 2.1 | 🔴 Critical | M | P0 |
-| 2 | Browser CDP Bypass ✅ | 1.1-1.3 | 🔴 Critical | L | P0 ✅ |
-| 3 | Shared types + path aliases | 0.1 | 🟡 High | S | P0 |
-| 4 | SQLite memory ✅ + RAG | 2.3-2.4 | 🟡 High | L | P1 (2.3 ✅) |
-| 5 | Agent Loop modularization | 2.6 | 🟡 High | L | P1 |
-| 6 | Unit tests (safety-critical) | 5.1 | 🟡 High | M | P1 ✅ |
-| 7 | Async file operations | 3.3 | 🟢 Medium | M | P2 |
-| 8 | IPC typesafe bridge | 3.1 | 🟢 Medium | M | P2 |
-| 9 | Service container | 3.2 | 🟢 Medium | M | P2 |
-| 10 | Frontend CSS Modules | 4.1 | 🟢 Medium | M | P2 |
-| 11 | Ollama local LLM | 2.5/6.5 | 🟡 High | M | P2 |
-| 12 | Error boundaries | 3.5 | 🟢 Medium | S | P2 |
-| 13 | Structured Outputs | 2.2 | 🟢 Medium | S | P3 |
-| 14 | Knowledge Graph | 6.3 | 🟡 High | XL | P3 |
-| 15 | Workflow Automator | 6.2 | 🟡 High | XL | P3 |
-| 16 | Auto-updater | 7.1 | 🟢 Medium | S | P3 |
-| 17 | i18n | 7.4 | 🟢 Medium | M | P4 |
-| 18 | Clipboard Pipeline | 6.1 | 🟢 Medium | M | P4 |
+| # | Zadanie | Faza | Impact | Effort | Priorytet | Status |
+|---|---------|------|--------|--------|-----------|--------|
+| 1 | Native Function Calling | 2.1 | 🔴 Critical | M | P0 | ✅ Done |
+| 2 | Browser CDP Bypass | 1.1-1.3 | 🔴 Critical | L | P0 | ✅ Done |
+| 3 | Shared types + path aliases | 0.1 | 🟡 High | S | P0 | ✅ Done |
+| 4 | SQLite memory + RAG | 2.3-2.4 | 🟡 High | L | P1 | 2.3 ✅ / 2.4 ⬜ |
+| 5 | Agent Loop modularization | 2.6 | 🟡 High | L | P1 | ✅ Done |
+| 6 | Unit tests (safety-critical) | 5.1 | 🟡 High | M | P1 | ✅ Done (172) |
+| 7 | Async file operations | 3.3 | 🟢 Medium | M | P2 | ✅ Done (7 serwisów) |
+| 8 | Error boundaries | 3.5 | 🟢 Medium | S | P2 | ✅ Done |
+| 9 | Graceful shutdown | 3.4 | 🟢 Medium | S | P2 | ✅ Done |
+| 10 | IPC typesafe bridge | 3.1 | 🟢 Medium | M | P2 | ⬜ Next |
+| 11 | Service container | 3.2 | 🟢 Medium | M | P2 | ⬜ |
+| 12 | Frontend CSS Modules | 4.1 | 🟢 Medium | M | P2 | ⬜ |
+| 13 | Ollama local LLM | 2.5/6.5 | 🟡 High | M | P4 | ⬜ Odsunięty |
+| 14 | Structured Outputs | 2.2 | 🟢 Medium | S | P3 | ⬜ |
+| 15 | Knowledge Graph | 6.3 | 🟡 High | XL | P3 | ⬜ |
+| 16 | Workflow Automator | 6.2 | 🟡 High | XL | P3 | ⬜ |
+| 17 | Auto-updater | 7.1 | 🟢 Medium | S | P3 | ⬜ |
+| 18 | i18n | 7.4 | 🟢 Medium | M | P4 | ⬜ |
+| 19 | Clipboard Pipeline | 6.1 | 🟢 Medium | M | P4 | ⬜ |
 
 **Effort legend**: S = <1 dzień, M = 2-4 dni, L = 1-2 tygodnie, XL = 2+ tygodnie
 
