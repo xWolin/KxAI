@@ -37,6 +37,7 @@ import { MeetingCoachService } from './meeting-coach';
 import { DashboardServer } from './dashboard-server';
 import { DiagnosticService } from './diagnostic-service';
 import { UpdaterService } from './updater-service';
+import { McpClientService } from './mcp-client-service';
 
 const log = createLogger('Container');
 
@@ -67,6 +68,7 @@ export interface ServiceMap {
   dashboard: DashboardServer;
   diagnostic: DiagnosticService;
   updater: UpdaterService;
+  mcpClient: McpClientService;
 }
 
 export type ServiceKey = keyof ServiceMap;
@@ -96,6 +98,7 @@ export interface IPCServices {
   meetingCoachService?: MeetingCoachService;
   dashboardServer?: DashboardServer;
   updaterService: UpdaterService;
+  mcpClientService: McpClientService;
 }
 
 export class ServiceContainer {
@@ -164,6 +167,7 @@ export class ServiceContainer {
     const screenMonitor = new ScreenMonitorService();
     const transcription = new TranscriptionService(security);
     const updater = new UpdaterService();
+    const mcpClient = new McpClientService();
 
     this.set('memory', memory);
     this.set('ai', ai);
@@ -181,6 +185,7 @@ export class ServiceContainer {
     this.set('screenMonitor', screenMonitor);
     this.set('transcription', transcription);
     this.set('updater', updater);
+    this.set('mcpClient', mcpClient);
 
     // ── Phase 3: Async initialization ──
     await memory.initialize();
@@ -202,6 +207,9 @@ export class ServiceContainer {
       rag,
       plugins,
     });
+
+    // MCP Client wiring
+    mcpClient.setDependencies({ toolsService: tools, configService: config });
 
     // Agent loop — central orchestrator
     const agentLoop = new AgentLoop(ai, tools, cron, workflow, memory, config);
@@ -228,6 +236,7 @@ export class ServiceContainer {
       rag,
       workflow,
       systemMonitor,
+      mcpClient,
     });
     this.set('dashboard', dashboard);
 
@@ -272,6 +281,9 @@ export class ServiceContainer {
       },
     );
 
+    // Initialize MCP Client (auto-connects configured servers)
+    await mcpClient.initialize();
+
     // Start cron jobs
     cron.startAll();
 
@@ -296,6 +308,7 @@ export class ServiceContainer {
     this.trySync('updater', (s) => s.destroy());
 
     // ── Phase 2: Close network connections ──
+    await this.tryAsync('mcpClient', (s) => s.shutdown());
     await this.tryAsync('meetingCoach', (s) => s.stopMeeting());
     await this.tryAsync('transcription', (s) => s.stopAll());
     await this.tryAsync('browser', (s) => s.close());
@@ -344,6 +357,7 @@ export class ServiceContainer {
       meetingCoachService: this.has('meetingCoach') ? this.get('meetingCoach') : undefined,
       dashboardServer: this.has('dashboard') ? this.get('dashboard') : undefined,
       updaterService: this.get('updater'),
+      mcpClientService: this.get('mcpClient'),
     };
   }
 

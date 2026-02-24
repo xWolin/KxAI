@@ -1486,6 +1486,29 @@ export class ToolsService {
     this.toolRegistry.set(definition.name, handler);
   }
 
+  /**
+   * Unregister a tool by name — removes from definitions and registry.
+   * Used by MCP Client Service when disconnecting servers.
+   */
+  unregister(name: string): boolean {
+    const idx = this.definitions.findIndex((d) => d.name === name);
+    if (idx !== -1) this.definitions.splice(idx, 1);
+    return this.toolRegistry.delete(name) || idx !== -1;
+  }
+
+  /**
+   * Unregister all tools matching a name prefix.
+   * @returns number of tools removed
+   */
+  unregisterByPrefix(prefix: string): number {
+    const toRemove = this.definitions.filter((d) => d.name.startsWith(prefix));
+    for (const def of toRemove) {
+      this.toolRegistry.delete(def.name);
+    }
+    this.definitions = this.definitions.filter((d) => !d.name.startsWith(prefix));
+    return toRemove.length;
+  }
+
   async execute(name: string, params: any): Promise<ToolResult> {
     const handler = this.toolRegistry.get(name);
     if (!handler) {

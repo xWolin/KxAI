@@ -53,6 +53,17 @@ export type { PluginInfo } from './plugins';
 // Automation
 export type { AutomationStatus } from './automation';
 
+// MCP
+export type {
+  McpTransportType,
+  McpServerConfig,
+  McpConnectionStatus,
+  McpToolInfo,
+  McpServerStatus,
+  McpHubStatus,
+  McpRegistryEntry,
+} from './mcp';
+
 // Errors
 export { KxAIError, ErrorCode } from './errors';
 export type { ErrorSeverity } from './errors';

@@ -117,6 +117,7 @@
     .graph-node--cron { background: var(--surface); border-color: var(--warning); box-shadow: 0 0 12px rgba(255,230,0,0.15); }
     .graph-node--rag { background: var(--surface); border-color: var(--purple); box-shadow: 0 0 12px rgba(179,71,255,0.2); }
     .graph-node--system { background: var(--surface); border-color: var(--pink); box-shadow: 0 0 12px rgba(255,0,170,0.2); }
+    .graph-node--mcp { background: var(--surface); border-color: #ff8800; box-shadow: 0 0 12px rgba(255,136,0,0.25); }
     .graph-label { position: absolute; top: 65px; font-size: 10px; color: var(--text-dim); white-space: nowrap; text-align: center; width: 80px; left: -10px; }
     svg.graph-lines { position: absolute; inset: 0; pointer-events: none; }
     svg.graph-lines line { stroke: rgba(255,255,255,0.06); stroke-width: 1; opacity: 0.5; }
@@ -146,6 +147,9 @@
     <div class="sidebar__section">Zarządzanie</div>
     <div class="sidebar__item" data-page="tools">
       <span class="sidebar__icon">🔧</span> Narzędzia
+    </div>
+    <div class="sidebar__item" data-page="mcp">
+      <span class="sidebar__icon">🔌</span> MCP Hub
     </div>
     <div class="sidebar__item" data-page="cron">
       <span class="sidebar__icon">⏰</span> Cron Jobs
@@ -279,6 +283,7 @@
       case 'overview': return renderOverview(main);
       case 'graph': return renderGraph(main);
       case 'tools': return renderTools(main);
+      case 'mcp': return renderMcpHub(main);
       case 'cron': return renderCron(main);
       case 'rag': return renderRag(main);
       case 'system': return renderSystem(main);
@@ -355,17 +360,18 @@
 
   function renderGraph(el) {
     Promise.all([
-      api('/api/subagents'), api('/api/rag'), api('/api/cron')
+      api('/api/subagents'), api('/api/rag'), api('/api/cron'), api('/api/mcp')
     ]).then(function(results) {
-      var subagents = results[0], rag = results[1], cron = results[2];
+      var subagents = results[0], rag = results[1], cron = results[2], mcp = results[3];
       var activeSubagents = subagents && subagents.active ? subagents.active : [];
       var cronJobs = (cron || []).filter(function(j) { return j.enabled; }).slice(0, 5);
       var ragFolders = rag && rag.folders ? rag.folders : [];
+      var mcpServers = mcp && mcp.servers ? mcp.servers.filter(function(s) { return s.status === 'connected'; }) : [];
 
       var cx = 350, cy = 180;
       var nodes = [{ id:'agent', label:'Agent', emoji:'🤖', cls:'agent', x:cx, y:cy }];
       var lines = [];
-      var totalItems = activeSubagents.length + cronJobs.length + 3; // +tools, +rag, +system
+      var totalItems = activeSubagents.length + cronJobs.length + mcpServers.length + 3;
       var angleStep = (2 * Math.PI) / Math.max(4, totalItems);
       var idx = 0;
 
@@ -393,6 +399,13 @@
       nodes.push({ id:'sys', label:'System', emoji:'💻', cls:'system', x:cx+140*Math.cos(a3), y:cy+120*Math.sin(a3) });
       lines.push({ from:'agent', to:'sys', active:false });
 
+      mcpServers.forEach(function(ms, i) {
+        var a = angleStep * idx++; var nx = cx + 140*Math.cos(a); var ny = cy + 120*Math.sin(a);
+        var icon = ms.icon || '🔌';
+        nodes.push({ id:'mcp-'+i, label:(ms.name||'MCP').slice(0,15), emoji:icon, cls:'mcp', x:nx, y:ny });
+        lines.push({ from:'agent', to:'mcp-'+i, active:true });
+      });
+
       var svgLines = lines.map(function(l) {
         var fromN = nodes.find(function(n) { return n.id===l.from; });
         var toN = nodes.find(function(n) { return n.id===l.to; });
@@ -416,6 +429,96 @@
         '</div>';
     });
   }
+
+  function renderMcpHub(el) {
+    Promise.all([api('/api/mcp'), api('/api/mcp/registry')]).then(function(results) {
+      var hub = results[0] || { servers: [], totalTools: 0, connectedCount: 0 };
+      var registry = results[1] || [];
+
+      var statusColors = { connected: 'var(--accent2)', connecting: 'var(--warning)', error: 'var(--danger)', disconnected: 'var(--text-muted)' };
+      var statusLabels = { connected: 'Połączony', connecting: 'Łączenie...', error: 'Błąd', disconnected: 'Rozłączony' };
+
+      // Connected servers section
+      var serversHtml = '';
+      if (hub.servers.length > 0) {
+        hub.servers.forEach(function(s) {
+          var color = statusColors[s.status] || 'var(--text-muted)';
+          var label = statusLabels[s.status] || s.status;
+          var toolList = s.tools && s.tools.length > 0 ? s.tools.map(function(t) { return t.name; }).join(', ') : 'brak';
+          serversHtml += '<div class="tool-card" style="border-left:3px solid ' + color + '">' +
+            '<div style="flex:1">' +
+              '<div class="tool-card__name">' + (s.icon || '🔌') + ' ' + escapeHtml(s.name) + '</div>' +
+              '<div class="tool-card__cat" style="margin-top:4px">' +
+                '<span style="color:' + color + '">' + label + '</span>' +
+                (s.tools ? ' · ' + s.tools.length + ' tools' : '') +
+                (s.callCount ? ' · ' + s.callCount + ' calls' : '') +
+              '</div>' +
+              (s.tools && s.tools.length > 0 ? '<div class="tool-card__cat" style="margin-top:2px;font-size:10px">🔧 ' + escapeHtml(toolList) + '</div>' : '') +
+              (s.error ? '<div style="color:var(--danger);font-size:11px;margin-top:2px">' + escapeHtml(s.error) + '</div>' : '') +
+            '</div>' +
+            '<div style="display:flex;gap:6px">' +
+              (s.status === 'connected' ?
+                '<button class="btn btn--small" onclick="mcpAction(\'disconnect\',\'' + s.id + '\')">Rozłącz</button>' :
+                '<button class="btn btn--small btn--accent" onclick="mcpAction(\'connect\',\'' + s.id + '\')">Połącz</button>') +
+              '<button class="btn btn--small" onclick="mcpAction(\'remove\',\'' + s.id + '\')" style="color:var(--danger)">✕</button>' +
+            '</div>' +
+          '</div>';
+        });
+      } else {
+        serversHtml = '<div style="color:var(--text-dim);padding:12px;font-size:13px">Brak skonfigurowanych serwerów MCP. Dodaj serwer z rejestru poniżej.</div>';
+      }
+
+      // Registry section
+      var registryHtml = '';
+      registry.forEach(function(r) {
+        var isAdded = hub.servers.some(function(s) { return s.name === r.name; });
+        registryHtml += '<div class="tool-card">' +
+          '<div style="flex:1">' +
+            '<div class="tool-card__name">' + (r.icon || '🔌') + ' ' + escapeHtml(r.name) +
+              (r.category ? ' <span class="badge badge--blue">' + escapeHtml(r.category) + '</span>' : '') +
+            '</div>' +
+            '<div class="tool-card__cat" style="margin-top:4px">' + escapeHtml(r.description || '') + '</div>' +
+            (r.requiresSetup ? '<div style="color:var(--warning);font-size:10px;margin-top:2px">⚠️ Wymaga konfiguracji (API key / env vars)</div>' : '') +
+          '</div>' +
+          '<div style="display:flex;gap:6px;align-items:center">' +
+            (r.docsUrl ? '<a href="' + r.docsUrl + '" target="_blank" class="btn btn--small">📖 Docs</a>' : '') +
+            (isAdded ?
+              '<span style="color:var(--accent2);font-size:12px">✓ Dodany</span>' :
+              '<button class="btn btn--small btn--accent" onclick="mcpAddFromRegistry(\'' + r.id + '\')">+ Dodaj</button>') +
+          '</div>' +
+        '</div>';
+      });
+
+      el.innerHTML =
+        '<div class="card">' +
+          '<div class="card__title"><span class="icon">🔌</span> MCP Hub' +
+            '<span style="margin-left:auto;font-size:12px;color:var(--text-dim)">' +
+              hub.connectedCount + ' połączonych · ' + hub.totalTools + ' narzędzi' +
+            '</span>' +
+          '</div>' +
+          serversHtml +
+        '</div>' +
+        '<div class="card" style="margin-top:16px">' +
+          '<div class="card__title"><span class="icon">📦</span> Rejestr serwerów MCP (' + registry.length + ')</div>' +
+          '<div style="color:var(--text-dim);font-size:12px;margin-bottom:12px">Popularne serwery MCP — kliknij "Dodaj" aby podłączyć do agenta.</div>' +
+          registryHtml +
+        '</div>';
+    });
+  }
+
+  // MCP actions (called from inline onclick)
+  window.mcpAction = function(action, id) {
+    var endpoint = '/api/mcp/' + action;
+    fetch(API + endpoint, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({id:id}) })
+      .then(function() { loadPage('mcp'); })
+      .catch(function(e) { alert('Błąd: ' + e.message); });
+  };
+
+  window.mcpAddFromRegistry = function(registryId) {
+    fetch(API + '/api/mcp/add-from-registry', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({registryId:registryId}) })
+      .then(function() { loadPage('mcp'); })
+      .catch(function(e) { alert('Błąd: ' + e.message); });
+  };
 
   function renderTools(el) {
     api('/api/tools').then(function(tools) {

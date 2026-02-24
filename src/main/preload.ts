@@ -300,4 +300,20 @@ contextBridge.exposeInMainWorld('kxai', {
     ipcRenderer.on(Ev.UPDATE_STATE, handler);
     return () => { ipcRenderer.removeListener(Ev.UPDATE_STATE, handler); };
   },
+
+  // MCP Hub
+  mcpListServers: () => ipcRenderer.invoke(Ch.MCP_LIST_SERVERS),
+  mcpAddServer: (config: any) => ipcRenderer.invoke(Ch.MCP_ADD_SERVER, config),
+  mcpRemoveServer: (id: string) => ipcRenderer.invoke(Ch.MCP_REMOVE_SERVER, id),
+  mcpConnect: (id: string) => ipcRenderer.invoke(Ch.MCP_CONNECT, id),
+  mcpDisconnect: (id: string) => ipcRenderer.invoke(Ch.MCP_DISCONNECT, id),
+  mcpReconnect: (id: string) => ipcRenderer.invoke(Ch.MCP_RECONNECT, id),
+  mcpGetStatus: () => ipcRenderer.invoke(Ch.MCP_GET_STATUS),
+  mcpGetRegistry: () => ipcRenderer.invoke(Ch.MCP_GET_REGISTRY),
+  mcpCallTool: (serverId: string, toolName: string, args: any) => ipcRenderer.invoke(Ch.MCP_CALL_TOOL, serverId, toolName, args),
+  onMcpStatus: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(Ev.MCP_STATUS, handler);
+    return () => { ipcRenderer.removeListener(Ev.MCP_STATUS, handler); };
+  },
 });

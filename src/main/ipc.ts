@@ -23,6 +23,7 @@ import { ScreenMonitorService } from './services/screen-monitor';
 import { MeetingCoachService } from './services/meeting-coach';
 import { DashboardServer } from './services/dashboard-server';
 import { UpdaterService } from './services/updater-service';
+import { McpClientService } from './services/mcp-client-service';
 
 interface Services {
   configService: ConfigService;
@@ -45,6 +46,7 @@ interface Services {
   meetingCoachService?: MeetingCoachService;
   dashboardServer?: DashboardServer;
   updaterService: UpdaterService;
+  mcpClientService: McpClientService;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
@@ -994,5 +996,52 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   ipcMain.handle(Ch.UPDATE_GET_STATE, () => {
     return updaterService.getState();
+  });
+
+  // ─── MCP Hub ───
+
+  const mcpClient = services.mcpClientService;
+
+  // Set mainWindow for status push
+  mcpClient.setDependencies({ mainWindow });
+
+  ipcMain.handle(Ch.MCP_LIST_SERVERS, () => {
+    return mcpClient.listServers();
+  });
+
+  ipcMain.handle(Ch.MCP_ADD_SERVER, async (_event, config: any) => {
+    return mcpClient.addServer(config);
+  });
+
+  ipcMain.handle(Ch.MCP_REMOVE_SERVER, async (_event, id: string) => {
+    await mcpClient.removeServer(id);
+    return { success: true };
+  });
+
+  ipcMain.handle(Ch.MCP_CONNECT, async (_event, id: string) => {
+    await mcpClient.connect(id);
+    return { success: true };
+  });
+
+  ipcMain.handle(Ch.MCP_DISCONNECT, async (_event, id: string) => {
+    await mcpClient.disconnect(id);
+    return { success: true };
+  });
+
+  ipcMain.handle(Ch.MCP_RECONNECT, async (_event, id: string) => {
+    await mcpClient.reconnect(id);
+    return { success: true };
+  });
+
+  ipcMain.handle(Ch.MCP_GET_STATUS, () => {
+    return mcpClient.getStatus();
+  });
+
+  ipcMain.handle(Ch.MCP_GET_REGISTRY, () => {
+    return mcpClient.getRegistry();
+  });
+
+  ipcMain.handle(Ch.MCP_CALL_TOOL, async (_event, serverId: string, toolName: string, args: any) => {
+    return mcpClient.callTool(serverId, toolName, args);
   });
 }

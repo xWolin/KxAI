@@ -161,6 +161,17 @@ export const Ch = {
   UPDATE_DOWNLOAD: 'update:download',
   UPDATE_INSTALL: 'update:install',
   UPDATE_GET_STATE: 'update:get-state',
+
+  // MCP Client
+  MCP_LIST_SERVERS: 'mcp:list-servers',
+  MCP_ADD_SERVER: 'mcp:add-server',
+  MCP_REMOVE_SERVER: 'mcp:remove-server',
+  MCP_CONNECT: 'mcp:connect',
+  MCP_DISCONNECT: 'mcp:disconnect',
+  MCP_RECONNECT: 'mcp:reconnect',
+  MCP_GET_STATUS: 'mcp:get-status',
+  MCP_GET_REGISTRY: 'mcp:get-registry',
+  MCP_CALL_TOOL: 'mcp:call-tool',
 } as const;
 
 // ─── Send Channels (renderer → main, fire-and-forget) ───
@@ -192,6 +203,7 @@ export const Ev = {
   MEETING_BRIEFING_UPDATED: 'meeting:briefing-updated',
   SUBAGENT_PROGRESS: 'subagent:progress',
   UPDATE_STATE: 'update:state',
+  MCP_STATUS: 'mcp:status',
   NAVIGATE: 'navigate',
 } as const;
 

@@ -182,6 +182,18 @@ export interface KxAIBridge {
   updateInstall: () => Promise<{ success: boolean }>;
   updateGetState: () => Promise<UpdateState>;
   onUpdateState: (callback: (state: UpdateState) => void) => (() => void);
+
+  // MCP Hub
+  mcpListServers: () => Promise<import('@shared/types').McpServerConfig[]>;
+  mcpAddServer: (config: Omit<import('@shared/types').McpServerConfig, 'id'>) => Promise<import('@shared/types').McpServerConfig>;
+  mcpRemoveServer: (id: string) => Promise<{ success: boolean }>;
+  mcpConnect: (id: string) => Promise<{ success: boolean }>;
+  mcpDisconnect: (id: string) => Promise<{ success: boolean }>;
+  mcpReconnect: (id: string) => Promise<{ success: boolean }>;
+  mcpGetStatus: () => Promise<import('@shared/types').McpHubStatus>;
+  mcpGetRegistry: () => Promise<import('@shared/types').McpRegistryEntry[]>;
+  mcpCallTool: (serverId: string, toolName: string, args: any) => Promise<import('@shared/types').ToolResult>;
+  onMcpStatus: (callback: (status: import('@shared/types').McpHubStatus) => void) => (() => void);
 }
 
 // ──────────────── Updates ────────────────

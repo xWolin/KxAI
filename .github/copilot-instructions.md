@@ -25,6 +25,7 @@ src/
 │   │   ├── meeting.ts      # MeetingStateInfo, MeetingCoachConfig, ...
 │   │   ├── plugins.ts      # PluginInfo
 │   │   ├── automation.ts   # AutomationStatus
+│   │   ├── mcp.ts          # McpServerConfig, McpHubStatus, McpRegistryEntry
 │   │   └── index.ts        # Barrel re-export
 │   └── constants.ts        # Stałe (limity, domyślne wartości)
 │   └── ipc-schema.ts        # IPC channel/event constants (Ch, Ev, ChSend) (Faza 3.1 ✅)
@@ -72,6 +73,7 @@ src/
 │       ├── retry-handler.ts    # Exponential backoff retry logic
 │       ├── diagnostic-service.ts # System diagnostics
 │       ├── updater-service.ts  # Auto-updater via electron-updater + GitHub Releases (Faza 7.1 ✅)
+│       ├── mcp-client-service.ts # MCP Client — connects to external MCP servers (Faza 8.1 ✅)
 │       └── config.ts          # Configuration persistence (async save — Faza 3.3 ✅)
 ├── renderer/               # React frontend
 │   ├── App.tsx             # Routing (widget/chat/settings/cron/onboarding/meeting)
@@ -595,6 +597,51 @@ src/
 
 ---
 
+## Faza 8: Integration Hub — MCP Client (Tydzień 16-18)
+
+> **Innowacja**: Zamiast budować każdą integrację od zera, KxAI łączy się z zewnętrznymi serwerami MCP (Model Context Protocol).
+> Jedna implementacja daje dostęp do 2000+ istniejących serwerów — kalendarze, Gmail, Slack, Notion, GitHub, bazy danych, i więcej.
+
+### Krok 8.1 — MCP Client Service ✅
+> **Zaimplementowano**: `mcp-client-service.ts` (~350 LOC) z `@modelcontextprotocol/sdk`. 3 typy transportu (Streamable HTTP, SSE, stdio). Auto-discover tools via `client.listTools()`. Auto-register w ToolsService z prefiksem `mcp_{server}_{tool}`. Curated registry 12 popularnych serwerów. Dashboard MCP Hub z grafem + rejestrem serwerów.
+
+- [x] `@modelcontextprotocol/sdk` zainstalowany ✅
+- [x] Shared types (`McpServerConfig`, `McpServerStatus`, `McpHubStatus`, `McpRegistryEntry`) ✅
+- [x] 3 transporty: StreamableHTTP (z SSE fallback), SSE, stdio ✅
+- [x] Auto-discover + auto-register tools w ToolsService ✅
+- [x] `ToolsService.unregister()` + `unregisterByPrefix()` — dynamic tool removal ✅
+- [x] IPC: 9 kanałów Ch.MCP_* + 1 event Ev.MCP_STATUS ✅
+- [x] ServiceContainer wiring (init Phase 5, shutdown Phase 2) ✅
+- [x] Dashboard: MCP Hub page + serwery w grafie agenta (`.graph-node--mcp`) ✅
+- [x] Curated registry: 12 serwerów (CalDAV, GitHub, Slack, Notion, Brave Search, etc.) ✅
+- [ ] Env vars UI — konfiguracja API keys/env per serwer (Settings panel)
+- [ ] Auto-reconnect z exponential backoff
+- [ ] MCP server health monitoring (ping interval)
+
+### Krok 8.2 — Google Calendar via CalDAV MCP
+- [ ] Integracja z `caldav-mcp` — CRUD eventów, recurrence, reminders
+- [ ] UI w Settings do konfiguracji CalDAV URL + credentials
+- [ ] Agent może: tworzyć eventy, sprawdzać kalendarz, przypominać o spotkaniach
+- [ ] Proaktywne: "Za 15 min masz spotkanie z Jackiem"
+
+### Krok 8.3 — Gmail / Email via MCP
+- [ ] Integracja z MCP server do email (IMAP lub Gmail API)
+- [ ] Agent może: czytać emaile, wysyłać odpowiedzi, szukać w skrzynce
+- [ ] Proaktywne: "Masz 3 nowe emaile od klienta X"
+
+### Krok 8.4 — Reminder Engine
+- [ ] Agent zapamiętuje reminders w cron jobs
+- [ ] "Przypomnij mi jutro o 9:00 żeby wysłać raport"
+- [ ] Integration z kalendarzem — auto-tworzenie eventów z reminderów
+
+### Krok 8.5 — MCP Server Discovery
+- [ ] Dynamiczny fetch rejestru z glama.ai/mcp/servers lub GitHub awesome-mcp-servers
+- [ ] Search + filter w dashboard UI
+- [ ] One-click install z auto-detect wymaganych env vars
+- [ ] Community rating / popularity sorting
+
+---
+
 ## Kolejność implementacji (prioritized backlog)
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet | Status |
@@ -616,8 +663,12 @@ src/
 | 15 | Knowledge Graph | 6.3 | 🟡 High | XL | P3 | ⬜ |
 | 16 | Workflow Automator | 6.2 | 🟡 High | XL | P3 | ⬜ |
 | 17 | Auto-updater | 7.1 | 🟢 Medium | S | P3 | ✅ Done |
-| 18 | i18n | 7.4 | 🟢 Medium | M | P4 | ⬜ |
-| 19 | Clipboard Pipeline | 6.1 | 🟢 Medium | M | P4 | ⬜ |
+| 18 | MCP Client Service | 8.1 | 🟡 High | M | P2 | ✅ Done |
+| 19 | i18n | 7.4 | 🟢 Medium | M | P4 | ⬜ |
+| 20 | Clipboard Pipeline | 6.1 | 🟢 Medium | M | P4 | ⬜ |
+| 21 | Google Calendar (CalDAV MCP) | 8.2 | 🟡 High | S | P3 | ⬜ |
+| 22 | Reminder Engine | 8.4 | 🟡 High | M | P3 | ⬜ |
+| 23 | MCP Server Discovery | 8.5 | 🟢 Medium | M | P4 | ⬜ |
 
 **Effort legend**: S = <1 dzień, M = 2-4 dni, L = 1-2 tygodnie, XL = 2+ tygodnie
 

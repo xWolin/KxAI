@@ -13,7 +13,8 @@ export type ToolCategory =
   | 'rag'
   | 'coding'
   | 'agent'
-  | 'observation';
+  | 'observation'
+  | 'mcp';
 
 export interface ToolDefinition {
   name: string;

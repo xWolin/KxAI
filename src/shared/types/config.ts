@@ -41,6 +41,9 @@ export interface KxAIConfig {
   /** Use native function calling (OpenAI tools API / Anthropic tool_use) instead of ```tool blocks. Default: true */
   useNativeFunctionCalling?: boolean;
 
+  /** MCP server configurations */
+  mcpServers?: import('./mcp').McpServerConfig[];
+
   [key: string]: any;
 }
 
