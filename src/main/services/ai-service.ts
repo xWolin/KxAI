@@ -5,6 +5,7 @@ import { ScreenshotData } from './screen-capture';
 import { ContextManager } from './context-manager';
 import { RetryHandler, createAIRetryHandler } from './retry-handler';
 import { PromptService } from './prompt-service';
+import type { StructuredContext } from './context-builder';
 import {
   toOpenAITools,
   toAnthropicTools,
@@ -312,11 +313,17 @@ export class AIService {
         .filter((m) => m.role !== 'system' && m.role !== 'developer')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
+      // Anthropic Prompt Caching — cache system prompt if large enough (~1024 tokens)
+      const usePromptCaching = systemContext.length > 3500;
+      const systemParam: any = usePromptCaching
+        ? [{ type: 'text', text: systemContext, cache_control: { type: 'ephemeral' as const } }]
+        : systemContext;
+
       responseText = await this.retryHandler.execute('anthropic-chat', async () => {
         const response = await this.anthropicClient.messages.create({
           model,
           max_tokens: 4096,
-          system: systemContext,
+          system: systemParam,
           messages: anthropicMessages,
         });
         return response.content[0]?.type === 'text' ? response.content[0].text : '';
@@ -494,10 +501,16 @@ export class AIService {
         .filter((m) => m.role !== 'system' && m.role !== 'developer')
         .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
+      // Anthropic Prompt Caching — cache system prompt if large enough
+      const usePromptCaching = systemContext.length > 3500;
+      const systemParam: any = usePromptCaching
+        ? [{ type: 'text', text: systemContext, cache_control: { type: 'ephemeral' as const } }]
+        : systemContext;
+
       const stream = this.anthropicClient.messages.stream({
         model,
         max_tokens: 4096,
-        system: systemContext,
+        system: systemParam,
         messages: anthropicMessages,
       });
 
@@ -539,16 +552,22 @@ export class AIService {
     tools: ToolDefinition[],
     extraContext?: string,
     onTextChunk?: (chunk: string) => void,
-    systemContextOverride?: string,
+    systemContextOverride?: string | StructuredContext,
   ): Promise<NativeToolStreamResult> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
     const model = this.config.get('aiModel') || 'gpt-5';
 
-    const systemContext = systemContextOverride
-      ?? (this.memoryService
-        ? await this.memoryService.buildSystemContext()
-        : 'You are KxAI, a helpful personal AI assistant.');
+    // Resolve system context — accept both string and StructuredContext
+    const structuredCtx = typeof systemContextOverride === 'object' && systemContextOverride !== null
+      ? systemContextOverride as StructuredContext
+      : null;
+    const systemContext = structuredCtx
+      ? structuredCtx.full
+      : (systemContextOverride as string | undefined)
+        ?? (this.memoryService
+          ? await this.memoryService.buildSystemContext()
+          : 'You are KxAI, a helpful personal AI assistant.');
 
     // Build optimized history via ContextManager
     const fullHistory = this.memoryService
@@ -722,10 +741,18 @@ export class AIService {
         .filter((m: any) => m.role !== 'system' && m.role !== 'developer')
         .map((m: any) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
+      // Anthropic Prompt Caching — mark system prompt with cache_control
+      // for 90% cheaper system prompt processing on subsequent turns.
+      // Minimum cacheable size: ~1024 tokens (~3500 chars)
+      const usePromptCaching = systemContent.length > 3500;
+      const systemParam: any = usePromptCaching
+        ? [{ type: 'text', text: systemContent, cache_control: { type: 'ephemeral' as const } }]
+        : systemContent;
+
       const stream = this.anthropicClient.messages.stream({
         model,
         max_tokens: 4096,
-        system: systemContent,
+        system: systemParam,
         messages: anthropicMessages,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
       });

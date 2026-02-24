@@ -19,6 +19,7 @@ import { SubAgentManager, SubAgentResult, SubAgentInfo } from './sub-agent';
 import { ToolExecutor } from './tool-executor';
 import { ResponseProcessor } from './response-processor';
 import { ContextBuilder } from './context-builder';
+import type { ContextHint, StructuredContext } from './context-builder';
 import { HeartbeatEngine } from './heartbeat-engine';
 import { TakeControlEngine } from './take-control-engine';
 import { CronExecutor } from './cron-executor';
@@ -73,8 +74,6 @@ export class AgentLoop {
   private takeControlAbort = false;
   private pendingCronSuggestions: Array<Omit<CronJob, 'id' | 'createdAt' | 'runCount'>> = [];
   private pendingTakeControlTask: string | null = null;
-  private memoryFlushDone = false;        // Track if flush was done this compaction cycle
-  private totalSessionTokens = 0;         // Approximate token usage in current session
   private isProcessing = false;           // Mutex: prevents heartbeat during user message processing
   private cancelProcessing = false;       // Flag to cancel current processing
   private isAfk = false;                  // AFK state from screen monitor
@@ -105,8 +104,6 @@ export class AgentLoop {
    * This re-enables memory flush for the next compaction cycle.
    */
   resetSessionState(): void {
-    this.memoryFlushDone = false;
-    this.totalSessionTokens = 0;
     this.observationHistory = [];
     this.contextBuilder.resetSessionState();
     this.heartbeatEngine.resetSessionState();
@@ -375,8 +372,8 @@ export class AgentLoop {
    * Uses RAG to enrich context with relevant memory fragments.
    */
   async processWithTools(userMessage: string, extraContext?: string, options?: { skipHistory?: boolean }): Promise<string> {
-    // Build enhanced system context
-    const enhancedCtx = await this.buildEnhancedContext();
+    // Build enhanced system context (delegated to ContextBuilder)
+    const enhancedCtx = await this.contextBuilder.buildEnhancedContext({ mode: 'chat', userMessage });
 
     // Inject RAG context if available (gracefully degrade on failure)
     let ragContext = '';
@@ -513,7 +510,7 @@ export class AgentLoop {
             const visionResponse = await this.ai.sendMessageWithVision(
               userMessage,
               capture.dataUrl,
-              await this.buildEnhancedContext(),
+              await this.contextBuilder.buildEnhancedContext({ mode: 'vision', userMessage }),
               'high'
             );
             onChunk?.(visionResponse);
@@ -526,7 +523,7 @@ export class AgentLoop {
             }
 
             // Track token usage
-            this.totalSessionTokens += Math.ceil((userMessage.length + visionResponse.length) / 3.5);
+            this.contextBuilder.addTokens(Math.ceil((userMessage.length + visionResponse.length) / 3.5));
             return visionResponse;
           }
         } catch (err) {
@@ -537,13 +534,15 @@ export class AgentLoop {
     }
 
     // Memory flush — if we're approaching context limit, save memories first
-    await this.maybeRunMemoryFlush();
+    await this.contextBuilder.maybeRunMemoryFlush(
+      async (response) => { await this.responseProcessor.processMemoryUpdates(response); }
+    );
 
     // Context compaction — summarize old messages when context is filling up
-    await this.maybeCompactContext();
+    await this.contextBuilder.maybeCompactContext();
 
-    // Build enhanced system context with tools, cron, take_control, bootstrap, etc.
-    const enhancedCtx = await this.buildEnhancedContext();
+    // Build enhanced system context with conditional module loading
+    const structuredCtx = await this.contextBuilder.buildStructuredContext({ mode: 'chat', userMessage });
 
     // Inject RAG context (gracefully degrade if embedding/RAG fails)
     let ragContext = '';
@@ -561,7 +560,7 @@ export class AgentLoop {
     // instead of the legacy ```tool code block approach.
     const useNativeFC = this.config.get('useNativeFunctionCalling') ?? true;
     if (useNativeFC) {
-      return this._streamWithNativeToolsFlow(userMessage, fullContext, enhancedCtx, onChunk);
+      return this._streamWithNativeToolsFlow(userMessage, fullContext, structuredCtx, onChunk);
     }
 
     // ─── Legacy tool block parsing path (fallback) ───
@@ -587,7 +586,7 @@ export class AgentLoop {
       await this.ai.streamMessage(userMessage, fullContext || undefined, (chunk) => {
         fullResponse += chunk;
         onChunk?.(chunk);
-      }, enhancedCtx, { skipHistory: true });
+      }, structuredCtx.full, { skipHistory: true });
     } catch (aiErr: any) {
       console.error('AgentLoop: Initial streamMessage failed:', aiErr);
       const errMsg = `\n\n❌ Błąd AI: ${aiErr.message || aiErr}\n`;
@@ -731,7 +730,7 @@ export class AgentLoop {
     }
 
     // Track token usage for memory flush threshold
-    this.totalSessionTokens += Math.ceil((userMessage.length + fullResponse.length) / 3.5);
+    this.contextBuilder.addTokens(Math.ceil((userMessage.length + fullResponse.length) / 3.5));
 
     return fullResponse;
   }
@@ -750,7 +749,7 @@ export class AgentLoop {
   private async _streamWithNativeToolsFlow(
     userMessage: string,
     fullContext: string,
-    enhancedCtx: string,
+    structuredCtx: StructuredContext,
     onChunk?: (chunk: string) => void,
   ): Promise<string> {
     // Save user message to history BEFORE calling AI.
@@ -768,7 +767,7 @@ export class AgentLoop {
     let result: NativeToolStreamResult;
     let fullResponse = '';
 
-    // Initial call with tools
+    // Initial call with tools — pass structured context for prompt caching
     try {
       result = await this.ai.streamMessageWithNativeTools(
         userMessage,
@@ -778,7 +777,7 @@ export class AgentLoop {
           fullResponse += chunk;
           onChunk?.(chunk);
         },
-        enhancedCtx,
+        structuredCtx,
       );
     } catch (aiErr: any) {
       console.error('AgentLoop: Initial streamMessageWithNativeTools failed:', aiErr);
@@ -924,7 +923,7 @@ export class AgentLoop {
     }
 
     // Track token usage for memory flush threshold
-    this.totalSessionTokens += Math.ceil((userMessage.length + fullResponse.length) / 3.5);
+    this.contextBuilder.addTokens(Math.ceil((userMessage.length + fullResponse.length) / 3.5));
 
     return fullResponse;
   }
@@ -1383,103 +1382,6 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
     return false;
   }
 
-  /**
-   * Memory Flush — save durable memories before context window compaction.
-   * Triggers a silent AI turn that writes important info to memory/YYYY-MM-DD.md.
-   * Runs once per session when token usage exceeds 70% of estimated context budget.
-   */
-  private async maybeRunMemoryFlush(): Promise<void> {
-    if (this.memoryFlushDone) return;
-
-    // Estimate context budget (conservative: 30% of model window × 3.5 chars/token)
-    const history = this.memory.getConversationHistory();
-    const historyTokens = history.reduce((sum, m) => sum + Math.ceil(m.content.length / 3.5), 0);
-
-    // Flush threshold: when conversation history exceeds ~60000 tokens
-    // (nowoczesne modele mają 200k+ tokenów, flush dopiero gdy jest co zapisywać)
-    const FLUSH_THRESHOLD = 60000;
-    if (historyTokens < FLUSH_THRESHOLD) return;
-
-    // Atomically mark as done to prevent concurrent flushes
-    this.memoryFlushDone = true;
-
-    try {
-      const response = await this.ai.sendMessage(
-        '[MEMORY FLUSH — Pre-kompakcja]\n\n' +
-        'Sesja zbliża się do limitu kontekstu. Zapisz trwałe wspomnienia do pamięci.\n' +
-        'Użyj bloków ```update_memory aby zapisać ważne informacje z tej rozmowy:\n' +
-        '- Nowe fakty o użytkowniku\n' +
-        '- Ważne decyzje\n' +
-        '- Kontekst który powinien przetrwać reset kontekstu\n\n' +
-        'Jeśli nie ma nic do zapisania, odpowiedz "NO_REPLY".'
-      );
-
-      // Process any memory updates from flush
-      if (response.trim() !== 'NO_REPLY') {
-        await this.responseProcessor.processMemoryUpdates(response);
-      }
-    } catch (err) {
-      console.error('Memory flush error:', err);
-      // Reset flag on failure so next cycle retries
-      this.memoryFlushDone = false;
-    }
-  }
-
-  /**
-   * Context Compaction — AI-powered summarization of old messages.
-   * When context exceeds threshold, ask AI to summarize older messages,
-   * then replace them with the summary. Keeps recent messages intact.
-   *
-   * Inspired by OpenClaw's context compaction system.
-   */
-  private async maybeCompactContext(): Promise<void> {
-    const history = this.memory.getConversationHistory();
-    const historyTokens = history.reduce((sum, m) => sum + Math.ceil(m.content.length / 3.5), 0);
-
-    // Only compact when we have enough messages and tokens
-    // Nowoczesne modele (200k+) mogą pomieścić długie rozmowy — kompaktuj dopiero gdy naprawdę trzeba
-    const COMPACT_THRESHOLD = 80000; // tokens — ~40% typowego okna 200k modelu
-    const MIN_MESSAGES = 40;
-    const KEEP_RECENT = 20; // always keep last N messages
-
-    if (historyTokens < COMPACT_THRESHOLD || history.length < MIN_MESSAGES) return;
-
-    const messagesToSummarize = history.slice(0, -KEEP_RECENT);
-    if (messagesToSummarize.length < 5) return;
-
-    console.log(`[ContextCompaction] Summarizing ${messagesToSummarize.length} messages (${historyTokens} tokens total)`);
-
-    try {
-      // Ask AI to create a concise summary of the older conversation
-      const conversationText = messagesToSummarize
-        .map(m => `${m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : 'System'}: ${m.content.slice(0, 2000)}`)
-        .join('\n---\n');
-
-      const summary = await this.ai.sendMessage(
-        `[CONTEXT COMPACTION]\n\n` +
-        `Podsumuj tę rozmowę w 500-1500 słów. Zachowaj WSZYSTKIE istotne detale:\n` +
-        `- Kluczowe decyzje i ustalenia\n` +
-        `- Wyniki narzędzi i ich kontekst\n` +
-        `- Preferencje wyrażone przez użytkownika\n` +
-        `- Aktualne zadania w toku\n` +
-        `- Komendy i wyniki narzędzi\n` +
-        `- Pliki nad którymi pracowano\n\n` +
-        `Rozmowa do podsumowania:\n${conversationText.slice(0, 50000)}`,
-        undefined,
-        undefined,
-        { skipHistory: true }
-      );
-
-      // Replace old messages with a single summary message
-      if (summary && summary.length > 50) {
-        this.memory.compactHistory(KEEP_RECENT, `[Podsumowanie wcześniejszej rozmowy]\n${summary}`);
-        console.log(`[ContextCompaction] Compacted ${messagesToSummarize.length} messages → summary (${summary.length} chars)`);
-      }
-    } catch (err) {
-      console.error('[ContextCompaction] Error:', err);
-    }
-  }
-
   // ─── Background Exec ───
 
   /**
@@ -1591,146 +1493,6 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       return task;
     }
     return this.takeControlEngine.consumePendingTakeControl();
-  }
-
-  /**
-   * Build enhanced system context with tools + time + workflow + RAG stats.
-   */
-  async buildEnhancedContext(): Promise<string> {
-    const baseCtx = await this.memory.buildSystemContext();
-    const timeCtx = this.workflow.buildTimeContext();
-
-    // When native function calling is active, tools are passed via API parameters.
-    // We still include tool usage guidelines (decision matrix, error handling)
-    // but skip the tool list and ```tool format instructions.
-    const useNativeFC = this.config.get('useNativeFunctionCalling') ?? true;
-    const toolsPrompt = useNativeFC ? '' : this.tools.getToolsPrompt(['automation']);
-
-    // Bootstrap ritual — inject BOOTSTRAP.md into context for first conversation
-    let bootstrapCtx = '';
-    if (await this.memory.isBootstrapPending()) {
-      const bootstrapMd = await this.memory.get('BOOTSTRAP.md');
-      if (bootstrapMd) {
-        bootstrapCtx = `\n## 🚀 BOOTSTRAP — Pierwsze Uruchomienie\n${bootstrapMd}\n\nWAŻNE: To jest twoje PIERWSZE uruchomienie. Postępuj zgodnie z BOOTSTRAP.md.\nKiedy skończysz rytuał, odpowiedz "BOOTSTRAP_COMPLETE" na końcu wiadomości.\n`;
-      }
-    }
-
-    const cronJobs = this.cron.getJobs();
-    let cronCtx = '';
-    if (cronJobs.length > 0) {
-      const lines = cronJobs.map((j) =>
-        `- [${j.enabled ? '✓' : '✗'}] "${j.name}" — ${j.schedule} — ${j.action.slice(0, 80)}`
-      );
-      cronCtx = `\n## Cron Jobs\n${lines.join('\n')}\n`;
-    }
-
-    const ragStats = this.rag ? this.rag.getStats() : null;
-    const ragCtx = ragStats ? `\n## RAG Status\nZaindeksowane: ${ragStats.totalChunks} chunków z ${ragStats.totalFiles} plików | Embeddingi: ${ragStats.embeddingType === 'openai' ? 'OpenAI' : 'TF-IDF fallback'}\n` : '';
-
-    const automationCtx = this.automation
-      ? `\n## Desktop Automation\nMasz możliwość przejęcia sterowania pulpitem użytkownika (myszka + klawiatura) w trybie autonomicznym.\nAby to zrobić, MUSISZ użyć bloku \`\`\`take_control (patrz instrukcje niżej).\nNIE próbuj sterować komputerem za pomocą narzędzi (mouse_click, keyboard_type itp.) w normalnym czacie — one działają TYLKO w trybie take_control.\n`
-      : '';
-
-    // Load instructions from markdown files instead of inline strings
-    // Order matters: identity → reasoning → guardrails → capabilities → tools
-    const agentsCapabilities = await this.promptService.load('AGENTS.md');
-    const reasoningPrompt = await this.promptService.load('REASONING.md');
-    const guardrailsPrompt = await this.promptService.load('GUARDRAILS.md');
-    const resourcefulPrompt = await this.promptService.load('RESOURCEFUL.md');
-    const toolsInstructions = await this.promptService.load('TOOLS.md');
-
-    // System health warnings
-    let systemCtx = '';
-    try {
-      const warnings = await this.systemMonitor.getWarnings();
-      if (warnings.length > 0) {
-        systemCtx = `\n## ⚠️ System Warnings\n${warnings.join('\n')}\n`;
-      }
-      const statusSummary = await this.systemMonitor.getStatusSummary();
-      systemCtx += `\n## System Status\n${statusSummary}\n`;
-    } catch { /* non-critical */ }
-
-    // Screen monitor context (what the agent sees on screen)
-    const monitorCtx = this.screenMonitor?.isRunning()
-      ? this.screenMonitor.buildMonitorContext()
-      : '';
-
-    // Sub-agent context — show active sub-agents
-    const subAgentCtx = this.subAgentManager.buildSubAgentContext();
-
-    // Background tasks context
-    const bgTasks = this.getBackgroundTasks();
-    let bgCtx = '';
-    if (bgTasks.length > 0) {
-      const lines = bgTasks.map(t =>
-        `- [${t.id}] "${t.task.slice(0, 80)}" — od ${Math.round(t.elapsed / 1000)}s`
-      );
-      bgCtx = `\n## ⏳ Zadania w tle\n${lines.join('\n')}\n`;
-    }
-
-    // Active hours info
-    let activeHoursCtx = '';
-    if (this.activeHours) {
-      activeHoursCtx = `\n## ⏰ Godziny aktywności\nHeartbeat aktywny: ${this.activeHours.start}:00-${this.activeHours.end}:00\n`;
-    }
-
-    // Dynamic memory & cron nudge — reminds agent during regular chat too
-    let memoryCronNudge = '';
-    try {
-      const memContent = await this.memory.get('MEMORY.md') || '';
-      const memIsEmpty = memContent.includes('(Uzupełnia się automatycznie') || memContent.includes('(Bieżące obserwacje') || memContent.trim().length < 200;
-      const hasCrons = cronJobs.length > 0;
-
-      const nudges: string[] = [];
-      if (memIsEmpty) {
-        nudges.push('⚠️ MEMORY.md jest PUSTY! Zapisuj obserwacje o użytkowniku po każdej rozmowie za pomocą bloków ```update_memory.');
-      }
-      if (!hasCrons) {
-        nudges.push('⚠️ Nie masz żadnych cron jobów! Zasugeruj przydatne zadania cykliczne (poranny briefing, przypomnienie o przerwie, podsumowanie dnia) za pomocą bloków ```cron.');
-      }
-      if (nudges.length > 0) {
-        memoryCronNudge = '\n## 🔔 Przypomnienie\n' + nudges.join('\n') + '\n';
-      }
-    } catch { /* non-critical */ }
-
-    // Build system prompt with structured priority:
-    // 1. Identity & memory (who am I, who is the user)
-    // 2. Reasoning & guardrails (how to think, what limits)
-    // 3. Capabilities & resourcefulness (what I can do)
-    // 4. Dynamic context (time, cron, RAG, screen, tasks)
-    // 5. Tools (how to call tools — last because longest)
-    return [
-      // === TIER 1: Identity ===
-      baseCtx,
-      '\n',
-      // === TIER 2: Reasoning & Safety ===
-      reasoningPrompt,
-      '\n',
-      guardrailsPrompt,
-      '\n',
-      // === TIER 3: Capabilities ===
-      agentsCapabilities,
-      '\n',
-      resourcefulPrompt,
-      '\n',
-      // === TIER 4: Dynamic Context ===
-      timeCtx,
-      bootstrapCtx,
-      cronCtx,
-      ragCtx,
-      automationCtx,
-      monitorCtx,
-      subAgentCtx,
-      bgCtx,
-      activeHoursCtx,
-      systemCtx,
-      memoryCronNudge,
-      '\n',
-      // === TIER 5: Tools (detailed, longest section) ===
-      toolsPrompt,
-      '\n',
-      toolsInstructions,
-    ].join('\n');
   }
 
   // ─── Take Control Mode ───
