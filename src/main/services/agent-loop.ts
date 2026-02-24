@@ -15,6 +15,17 @@ import { ToolLoopDetector, LoopCheckResult } from './tool-loop-detector';
 import { IntentDetector } from './intent-detector';
 import { SubAgentManager, SubAgentResult, SubAgentInfo } from './sub-agent';
 
+// ─── Extracted Modules (Phase 2.6) ───
+import { ToolExecutor } from './tool-executor';
+import { ResponseProcessor } from './response-processor';
+import { ContextBuilder } from './context-builder';
+import { HeartbeatEngine } from './heartbeat-engine';
+import { TakeControlEngine } from './take-control-engine';
+import { CronExecutor } from './cron-executor';
+import { createLogger } from './logger';
+
+const log = createLogger('AgentLoop');
+
 /**
  * Agent status for UI feedback.
  */
@@ -47,6 +58,16 @@ export class AgentLoop {
   private promptService: PromptService;
   private intentDetector: IntentDetector;
   private subAgentManager: SubAgentManager;
+
+  // ─── Extracted Modules (Phase 2.6) ───
+  private toolExecutor: ToolExecutor;
+  private responseProcessor: ResponseProcessor;
+  private contextBuilder: ContextBuilder;
+  private heartbeatEngine: HeartbeatEngine;
+  private takeControlEngine: TakeControlEngine;
+  private cronExecutor: CronExecutor;
+
+  // ─── Legacy state (will migrate to modules incrementally) ───
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private takeControlActive = false;
   private takeControlAbort = false;
@@ -87,6 +108,8 @@ export class AgentLoop {
     this.memoryFlushDone = false;
     this.totalSessionTokens = 0;
     this.observationHistory = [];
+    this.contextBuilder.resetSessionState();
+    this.heartbeatEngine.resetSessionState();
   }
 
   /**
@@ -116,6 +139,35 @@ export class AgentLoop {
     this.intentDetector = new IntentDetector();
     this.subAgentManager = new SubAgentManager(ai, tools);
 
+    // ─── Initialize extracted modules ───
+    this.toolExecutor = new ToolExecutor(tools, ai);
+    this.responseProcessor = new ResponseProcessor(memory, cron);
+    this.contextBuilder = new ContextBuilder({
+      memory, workflow, config, cron, tools, ai,
+      systemMonitor: this.systemMonitor,
+      promptService: this.promptService,
+      subAgentManager: this.subAgentManager,
+    });
+    this.contextBuilder.setBackgroundTasksProvider(() => this.getBackgroundTasks());
+
+    this.heartbeatEngine = new HeartbeatEngine({
+      ai, memory, workflow, cron, tools,
+      promptService: this.promptService,
+      responseProcessor: this.responseProcessor,
+    });
+    this.heartbeatEngine.setProcessingCheck(() => this.isProcessing);
+    this.heartbeatEngine.onAgentStatus = (status) => this.emitStatus(status);
+
+    this.takeControlEngine = new TakeControlEngine(
+      ai, tools, memory, this.promptService, this.intentDetector,
+    );
+    this.takeControlEngine.onAgentStatus = (status) => this.emitStatus(status);
+
+    this.cronExecutor = new CronExecutor(
+      workflow,
+      (msg, extra, opts) => this.processWithTools(msg, extra, opts),
+    );
+
     // Sub-agent completion → notify UI
     this.subAgentManager.setCompletionCallback((result) => {
       this.onSubAgentResult?.(result);
@@ -130,7 +182,7 @@ export class AgentLoop {
 
     // Wire cron executor to agent
     this.cron.setExecutor(async (job: CronJob) => {
-      return this.executeCronJob(job);
+      return this.cronExecutor.executeCronJob(job);
     });
 
     // Register agent-level tools (sub-agents, background exec, screenshot)
@@ -210,18 +262,24 @@ export class AgentLoop {
    */
   setRAGService(rag: RAGService): void {
     this.rag = rag;
+    this.contextBuilder.setRAGService(rag);
   }
 
   setAutomationService(automation: AutomationService): void {
     this.automation = automation;
+    this.contextBuilder.setAutomationEnabled(true);
+    this.takeControlEngine.setAutomationService(automation);
   }
 
   setScreenCaptureService(screenCapture: ScreenCaptureService): void {
     this.screenCapture = screenCapture;
+    this.takeControlEngine.setScreenCaptureService(screenCapture);
   }
 
   setScreenMonitorService(monitor: import('./screen-monitor').ScreenMonitorService): void {
     this.screenMonitor = monitor;
+    this.contextBuilder.setScreenMonitor(monitor);
+    this.heartbeatEngine.setScreenMonitor(monitor);
   }
 
   /**
@@ -229,6 +287,7 @@ export class AgentLoop {
    */
   setHeartbeatCallback(cb: (message: string) => void): void {
     this.onHeartbeatResult = cb;
+    this.heartbeatEngine.setResultCallback(cb);
   }
 
   /**
@@ -255,6 +314,10 @@ export class AgentLoop {
     } else {
       this.activeHours = null;
     }
+    this.heartbeatEngine.setActiveHours(start, end);
+    this.contextBuilder.setActiveHours(
+      start !== null && end !== null ? { start, end } : null
+    );
   }
 
   /**
@@ -278,11 +341,12 @@ export class AgentLoop {
     if (isAfk && !this.isAfk) {
       this.afkSince = Date.now();
       this.afkTasksDone.clear();
-      console.log('[AgentLoop] User went AFK');
+      log.info('User went AFK');
     } else if (!isAfk && this.isAfk) {
-      console.log(`[AgentLoop] User returned from AFK (was away ${Math.round((Date.now() - this.afkSince) / 60000)}min)`);
+      log.info(`User returned from AFK (was away ${Math.round((Date.now() - this.afkSince) / 60000)}min)`);
     }
     this.isAfk = isAfk;
+    this.heartbeatEngine.setAfkState(isAfk);
   }
 
   /**
@@ -882,49 +946,21 @@ export class AgentLoop {
 
   /**
    * Log screen analysis result as workflow activity.
+   * Delegates to HeartbeatEngine.
    */
   logScreenActivity(context: string, message: string): void {
-    // Extract category from context
-    let category = 'general';
-    const lower = context.toLowerCase();
-    if (lower.includes('kod') || lower.includes('code') || lower.includes('vscode') || lower.includes('ide')) {
-      category = 'coding';
-    } else if (lower.includes('chat') || lower.includes('messenger') || lower.includes('whatsapp') || lower.includes('slack') || lower.includes('teams')) {
-      category = 'communication';
-    } else if (lower.includes('browser') || lower.includes('chrome') || lower.includes('firefox') || lower.includes('edge')) {
-      category = 'browsing';
-    } else if (lower.includes('document') || lower.includes('word') || lower.includes('excel') || lower.includes('pdf')) {
-      category = 'documents';
-    } else if (lower.includes('terminal') || lower.includes('powershell') || lower.includes('cmd')) {
-      category = 'terminal';
-    }
-
-    this.workflow.logActivity(
-      message.slice(0, 200),
-      context.slice(0, 200),
-      category
-    );
+    this.heartbeatEngine.logScreenActivity(context, message);
   }
 
   /**
-   * Start heartbeat — periodic check-in where agent reflects and may take action.
+   * Start heartbeat — delegates to HeartbeatEngine.
    */
   startHeartbeat(intervalMs: number = 15 * 60 * 1000): void {
-    this.stopHeartbeat();
-    this.heartbeatTimer = setInterval(async () => {
-      try {
-        await this.heartbeat();
-      } catch (error) {
-        console.error('Heartbeat error:', error);
-      }
-    }, intervalMs);
+    this.heartbeatEngine.startHeartbeat(intervalMs);
   }
 
   stopHeartbeat(): void {
-    if (this.heartbeatTimer) {
-      clearInterval(this.heartbeatTimer);
-      this.heartbeatTimer = null;
-    }
+    this.heartbeatEngine.stopHeartbeat();
   }
 
   /**
@@ -1585,11 +1621,16 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
 
   /**
    * Get and clear pending take-control request.
+   * Checks both legacy state and TakeControlEngine.
    */
   consumePendingTakeControl(): string | null {
+    // Legacy state first
     const task = this.pendingTakeControlTask;
-    this.pendingTakeControlTask = null;
-    return task;
+    if (task) {
+      this.pendingTakeControlTask = null;
+      return task;
+    }
+    return this.takeControlEngine.consumePendingTakeControl();
   }
 
   /**
@@ -2227,34 +2268,49 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
    */
   stopTakeControl(): void {
     this.takeControlAbort = true;
+    this.takeControlEngine.stopTakeControl();
   }
 
   isTakeControlActive(): boolean {
-    return this.takeControlActive;
+    return this.takeControlActive || this.takeControlEngine.isTakeControlActive();
   }
 
   /**
    * Get pending cron suggestions awaiting user approval.
+   * Combines legacy and ResponseProcessor suggestions.
    */
   getPendingCronSuggestions(): Array<Omit<CronJob, 'id' | 'createdAt' | 'runCount'>> {
-    return [...this.pendingCronSuggestions];
+    return [
+      ...this.pendingCronSuggestions,
+      ...this.responseProcessor.getPendingCronSuggestions(),
+    ];
   }
 
   /**
    * Approve a pending cron suggestion by index.
    */
   approveCronSuggestion(index: number): CronJob | null {
-    if (index < 0 || index >= this.pendingCronSuggestions.length) return null;
-    const suggestion = this.pendingCronSuggestions.splice(index, 1)[0];
-    return this.cron.addJob(suggestion);
+    // Try legacy first
+    if (index < this.pendingCronSuggestions.length) {
+      if (index < 0) return null;
+      const suggestion = this.pendingCronSuggestions.splice(index, 1)[0];
+      return this.cron.addJob(suggestion);
+    }
+    // Then responseProcessor
+    const rpIndex = index - this.pendingCronSuggestions.length;
+    return this.responseProcessor.approveCronSuggestion(rpIndex);
   }
 
   /**
    * Reject (dismiss) a pending cron suggestion by index.
    */
   rejectCronSuggestion(index: number): boolean {
-    if (index < 0 || index >= this.pendingCronSuggestions.length) return false;
-    this.pendingCronSuggestions.splice(index, 1);
-    return true;
+    if (index < this.pendingCronSuggestions.length) {
+      if (index < 0) return false;
+      this.pendingCronSuggestions.splice(index, 1);
+      return true;
+    }
+    const rpIndex = index - this.pendingCronSuggestions.length;
+    return this.responseProcessor.rejectCronSuggestion(rpIndex);
   }
 }
