@@ -312,8 +312,7 @@ src/
     supportedFeatures: Set<'function-calling' | 'vision' | 'streaming' | 'structured-output'>;
   }
   ```
-- [ ] Implementacje: `OpenAIProvider`, `AnthropicProvider`, `OllamaProvider` (local!)
-- [ ] **Ollama support** — agent działa offline z lokalnymi modelami (llama, mistral, phi)
+- [ ] Implementacje: `OpenAIProvider`, `AnthropicProvider`
 - [ ] Hot-swap providerów bez restartu
 - [ ] Cost tracking per provider per session
 
@@ -532,13 +531,8 @@ src/
   - "Pracujesz nad bug #342 od 3h — może spojrzysz na problem z innej strony?"
 - [ ] **Learning Loop**: agent uczy się kiedy user appreciates sugestie vs. ignoruje
 
-### Krok 6.5 — Local LLM Support (Ollama)
-- [ ] Integracja z Ollama — agent działa bez internetu:
-  - Auto-detect Ollama na localhost:11434
-  - Model selection (llama 3.3, mistral, phi-4, qwen)
-  - Fallback chain: OpenAI → Anthropic → Ollama → offline mode
-- [ ] Hybrid mode: Ollama do szybkich/prywatnych zapytań, cloud do złożonych
-- [ ] Embeddingi lokalne (nomic-embed-text) — RAG bez OpenAI API key
+### ~~Krok 6.5 — Local LLM Support (Ollama)~~ ❌ USUNIĘTY
+> **Decyzja**: Usunięty z planu. Lokalne modele LLM wymagają GPU z min. 8-16 GB VRAM — większość użytkowników nie ma takiego sprzętu. Koszt implementacji nie uzasadnia wąskiej grupy odbiorców. Cloud-only (OpenAI + Anthropic) to właściwa strategia dla desktop agenta.
 
 ### Krok 6.6 — File Intelligence
 - [ ] Agent "rozumie" pliki na komputerze:
@@ -647,33 +641,61 @@ src/
 
 ## Kolejność implementacji (prioritized backlog)
 
+> **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
+> Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
+
 | # | Zadanie | Faza | Impact | Effort | Priorytet | Status |
 |---|---------|------|--------|--------|-----------|--------|
-| 1 | Native Function Calling | 2.1 | 🔴 Critical | M | P0 | ✅ Done |
-| 2 | Browser CDP Bypass | 1.1-1.3 | 🔴 Critical | L | P0 | ✅ Done |
-| 3 | Shared types + path aliases | 0.1 | 🟡 High | S | P0 | ✅ Done |
-| 4 | SQLite memory + RAG | 2.3-2.4 | 🟡 High | L | P1 | ✅ Done |
-| 5 | Agent Loop modularization | 2.6 | 🟡 High | L | P1 | ✅ Done |
-| 6 | Unit tests (safety-critical) | 5.1 | 🟡 High | M | P1 | ✅ Done (172) |
-| 7 | Async file operations | 3.3 | 🟢 Medium | M | P2 | ✅ Done (7 serwisów) |
-| 8 | Error boundaries | 3.5 | 🟢 Medium | S | P2 | ✅ Done |
-| 9 | Graceful shutdown | 3.4 | 🟢 Medium | S | P2 | ✅ Done |
-| 10 | IPC typesafe bridge | 3.1 | 🟢 Medium | M | P2 | ✅ Done |
-| 11 | Service container | 3.2 | 🟢 Medium | M | P2 | ✅ Done |
-| 12 | Frontend CSS Modules | 4.1 | 🟢 Medium | M | P2 | ✅ Done (8 modułów) |
-| 13 | Ollama local LLM | 2.5/6.5 | 🟡 High | M | P4 | ⬜ Odsunięty |
-| 14 | Structured Outputs | 2.2 | 🟢 Medium | S | P3 | ✅ Done |
-| 15 | Knowledge Graph | 6.3 | 🟡 High | XL | P3 | ⬜ |
-| 16 | Workflow Automator | 6.2 | 🟡 High | XL | P3 | ⬜ |
-| 17 | Auto-updater | 7.1 | 🟢 Medium | S | P3 | ✅ Done |
-| 18 | MCP Client Service | 8.1 | 🟡 High | M | P2 | ✅ Done |
-| 19 | i18n | 7.4 | 🟢 Medium | M | P4 | ⬜ |
-| 20 | Clipboard Pipeline | 6.1 | 🟢 Medium | M | P4 | ⬜ |
-| 21 | Google Calendar (CalDAV MCP) | 8.2 | 🟡 High | S | P3 | ⬜ |
-| 22 | Reminder Engine | 8.4 | 🟡 High | M | P3 | ✅ Done |
-| 23 | MCP Server Discovery | 8.5 | 🟢 Medium | M | P4 | ⬜ |
+| 1 | Native Function Calling | 2.1 | 🔴 Critical | 1 sesja | P0 | ✅ Done |
+| 2 | Browser CDP Bypass | 1.1-1.3 | 🔴 Critical | 2 sesje | P0 | ✅ Done |
+| 3 | Shared types + path aliases | 0.1 | 🟡 High | 1 sesja | P0 | ✅ Done |
+| 4 | SQLite memory + RAG | 2.3-2.4 | 🟡 High | 2 sesje | P1 | ✅ Done |
+| 5 | Agent Loop modularization | 2.6 | 🟡 High | 2 sesje | P1 | ✅ Done |
+| 6 | Unit tests (safety-critical) | 5.1 | 🟡 High | 1 sesja | P1 | ✅ Done (172) |
+| 7 | Async file operations | 3.3 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
+| 8 | Error boundaries | 3.5 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
+| 9 | Graceful shutdown | 3.4 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
+| 10 | IPC typesafe bridge | 3.1 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
+| 11 | Service container | 3.2 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
+| 12 | Frontend CSS Modules | 4.1 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
+| 13 | Structured Outputs | 2.2 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
+| 14 | Auto-updater | 7.1 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
+| 15 | MCP Client Service | 8.1 | 🟡 High | 1 sesja | P2 | ✅ Done |
+| 16 | Reminder Engine | 8.4 | 🟡 High | 1 sesja | P3 | ✅ Done |
+| 17 | OpenClaw 2.0 context upgrade | — | 🟡 High | 1 sesja | P1 | ✅ Done |
+| 18 | CI quality gate | 5.4 | 🟢 Medium | 1 sesja | P2 | ✅ Done (partial) |
+| — | — **REMAINING** — | — | — | — | — | — |
+| 19 | Multi-provider AI abstraction | 2.5 | 🟡 High | 1-2 sesje | P2 | ⬜ |
+| 20 | Configuration v2 (electron-store + reactive) | 3.6 | 🟡 High | 1 sesja | P2 | ⬜ |
+| 21 | AbortController cancellation | 2.6 | 🟢 Medium | 1 sesja | P2 | ⬜ |
+| 22 | IPC runtime validation (zod) | 3.1 | 🟢 Medium | 1 sesja | P3 | ⬜ |
+| 23 | ToolLoopDetector tests | 5.1 | 🟡 High | 1 sesja | P2 | ⬜ |
+| 24 | Integration tests | 5.2 | 🟡 High | 2 sesje | P3 | ⬜ |
+| 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 | ⬜ |
+| 26 | CI coverage gate + semantic release | 5.4 | 🟢 Medium | 1 sesja | P3 | ⬜ |
+| 27 | lint-staged + husky | 0.2 | 🟢 Medium | 1 sesja | P3 | ⬜ |
+| 28 | Component library (ui/) | 4.2 | 🟡 High | 2 sesje | P3 | ⬜ |
+| 29 | State management (zustand) | 4.3 | 🟡 High | 1 sesja | P3 | ⬜ |
+| 30 | Dashboard SPA refactor | 4.4 | 🟢 Medium | 1-2 sesje | P4 | ⬜ |
+| 31 | Rich interactions (D&D, highlight, shortcuts) | 4.5 | 🟢 Medium | 2 sesje | P4 | ⬜ |
+| 32 | Smart Clipboard Pipeline | 6.1 | 🟢 Medium | 1-2 sesje | P4 | ⬜ |
+| 33 | Workflow Automator (Macro Recorder) | 6.2 | 🟡 High | 3-4 sesje | P4 | ⬜ |
+| 34 | Knowledge Graph | 6.3 | 🟡 High | 3-4 sesje | P4 | ⬜ |
+| 35 | Proactive Intelligence Engine | 6.4 | 🟡 High | 3-4 sesje | P4 | ⬜ |
+| 36 | File Intelligence (PDF, DOCX, audio) | 6.6 | 🟢 Medium | 1-2 sesje | P3 | ⬜ |
+| 37 | Google Calendar (CalDAV MCP) | 8.2 | 🟡 High | 1 sesja | P3 | ⬜ |
+| 38 | Gmail / Email via MCP | 8.3 | 🟢 Medium | 1 sesja | P3 | ⬜ |
+| 39 | MCP Server Discovery | 8.5 | 🟢 Medium | 1 sesja | P4 | ⬜ |
+| 40 | Performance (lazy load, workers) | 7.2 | 🟢 Medium | 1-2 sesje | P3 | ⬜ |
+| 41 | Accessibility | 7.3 | 🟢 Medium | 1 sesja | P4 | ⬜ |
+| 42 | i18n (PL + EN) | 7.4 | 🟢 Medium | 1 sesja | P4 | ⬜ |
+| 43 | Privacy & compliance (GDPR) | 7.5 | 🟢 Medium | 1 sesja | P3 | ⬜ |
+| 44 | Code signing + distribution | 7.6 | 🟢 Medium | 1 sesja | P4 | ⬜ |
+| 45 | CDP anti-detection | 1.4 | 🟢 Medium | 1 sesja | P4 | ⬜ |
+| 46 | CDP streaming observation | 1.5 | 🟢 Medium | 1 sesja | P4 | ⬜ |
+| 47 | CDP network interception | 1.2 | 🟢 Medium | 1 sesja | P4 | ⬜ |
 
-**Effort legend**: S = <1 dzień, M = 2-4 dni, L = 1-2 tygodnie, XL = 2+ tygodnie
+**Effort legend**: 1 sesja = 1 konwersacja z AI agentem (~1-3h). Historycznie: ~1 major feature/refactor per sesja.
 
 ---
 
