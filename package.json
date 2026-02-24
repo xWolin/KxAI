@@ -26,6 +26,9 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.main.json",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "start": "electron ."
   },
   "dependencies": {
@@ -65,6 +68,7 @@
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.56.1",
     "vite": "^6.0.0",
+    "vitest": "^4.0.18",
     "wait-on": "^9.0.4"
   },
   "build": {

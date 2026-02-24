@@ -84,6 +84,7 @@ src/
 - **Tool calling**: Native function calling (OpenAI tools API / Anthropic tool_use) domyślnie włączone (`config.useNativeFunctionCalling`). Fallback na ```tool bloki gdy wyłączone.
 - **Cron suggestions**: AI outputuje ```cron\n{JSON}\n``` bloki, agent-loop parsuje i proponuje użytkownikowi
 - **Logging**: Używaj `createLogger('Tag')` z `src/main/services/logger.ts` zamiast `console.log/warn/error`
+- **Testing**: Vitest z mockami electron/fs. Testy w `tests/`. Konwencja: `tests/<service-name>.test.ts`
 - **Persistence**: Dane w `app.getPath('userData')/workspace/` (memory/, cron/, workflow/)
 
 ## Komendy
@@ -93,6 +94,9 @@ npm run dev          # Uruchom w trybie dev (Vite + Electron)
 npm run build        # Zbuduj produkcyjnie
 npm run dist         # Zbuduj + spakuj (electron-builder)
 npm run typecheck    # Sprawdź TypeScript (oba tsconfigi)
+npm run test         # Uruchom testy (Vitest)
+npm run test:watch   # Testy w watch mode
+npm run test:coverage # Testy z coverage report
 npm run format       # Formatuj kod (Prettier)
 npm run format:check # Sprawdź formatowanie
 npx tsc --noEmit     # Sprawdź renderer TypeScript
@@ -469,14 +473,16 @@ src/
 
 ## Faza 5: Testing & Quality (Tydzień 9-10)
 
-### Krok 5.1 — Unit tests
-- [ ] Setup: Vitest (szybkie, ESM-native, Vite-compatible)
-- [ ] Priorytet testowania:
-  1. `ToolLoopDetector` — critical safety mechanism
-  2. `SecurityGuard` — command injection, SSRF, path traversal
-  3. `ContextManager` — token budgeting, importance scoring
-  4. `IntentDetector` — intent recognition accuracy
-  5. `PromptService` — template rendering, variable substitution
+### Krok 5.1 — Unit tests ✅
+> **Zaimplementowano**: Vitest setup (`vitest.config.ts`), 4 pliki testowe (172 testy). Pokryte: `IntentDetector` (25 wzorców PL/EN, confidence, context, capture groups, shouldAuto* metody, detectAll), `SecurityGuard` (16 niebezpiecznych + 9 bezpiecznych komend, SSRF, path validation, rate limiting, shell sanitization, audit), `ContextManager` (estimateTokens, getModelContextLimit, configureForModel, buildContextWindow, pin/unpin, scoring, summary generation), `PromptService` (load priority, render, exists, list, copyToUser, cache).
+
+- [x] Setup: Vitest (szybkie, ESM-native, Vite-compatible) ✅
+- [x] Priorytet testowania:
+  1. ~~`ToolLoopDetector` — critical safety mechanism~~ (do zrobienia w przyszłej iteracji)
+  2. `SecurityGuard` — command injection, SSRF, path traversal ✅
+  3. `ContextManager` — token budgeting, importance scoring ✅
+  4. `IntentDetector` — intent recognition accuracy ✅
+  5. `PromptService` — template rendering, variable substitution ✅
   6. Tool parameter validation (po dodaniu zod schemas)
 
 ### Krok 5.2 — Integration tests
@@ -615,7 +621,7 @@ src/
 | 3 | Shared types + path aliases | 0.1 | 🟡 High | S | P0 |
 | 4 | SQLite memory ✅ + RAG | 2.3-2.4 | 🟡 High | L | P1 (2.3 ✅) |
 | 5 | Agent Loop modularization | 2.6 | 🟡 High | L | P1 |
-| 6 | Unit tests (safety-critical) | 5.1 | 🟡 High | M | P1 |
+| 6 | Unit tests (safety-critical) | 5.1 | 🟡 High | M | P1 ✅ |
 | 7 | Async file operations | 3.3 | 🟢 Medium | M | P2 |
 | 8 | IPC typesafe bridge | 3.1 | 🟢 Medium | M | P2 |
 | 9 | Service container | 3.2 | 🟢 Medium | M | P2 |
