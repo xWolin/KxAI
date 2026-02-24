@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { speak, stopSpeaking } from '../utils/tts';
 import type { ProactiveMessage } from '../types';
+import s from './ProactiveNotification.module.css';
+import { cn } from '../utils/cn';
 
 interface ProactiveNotificationProps {
   message: ProactiveMessage;
@@ -28,53 +30,53 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
   };
 
   return (
-    <div className="slide-in proactive-notification">
+    <div className={cn('slide-in', s.root)}>
       {/* Header */}
-      <div className="proactive-notification__header">
-        <div className="proactive-notification__header-left">
+      <div className={s.header}>
+        <div className={s.headerLeft}>
           <span>💡</span>
-          <span className="proactive-notification__label">
+          <span className={s.label}>
             Obserwacja KxAI
           </span>
         </div>
         <button
           onClick={onDismiss}
-          className="proactive-notification__close"
+          className={s.close}
         >
           ✕
         </button>
       </div>
 
       {/* Content */}
-      <div className="proactive-notification__content">
+      <div className={s.content}>
         {message.message}
       </div>
 
       {/* Context */}
       {message.context && (
-        <div className="proactive-notification__context">
+        <div className={s.context}>
           📋 {message.context}
         </div>
       )}
 
       {/* Actions */}
-      <div className="proactive-notification__actions">
+      <div className={s.actions}>
         <button
           onClick={handleSpeak}
-          className={`proactive-notification__btn-speak${isSpeaking ? ' proactive-notification__btn-speak--active' : ''}`}
+          className={isSpeaking ? s.btnSpeakActive : s.btnSpeak}
           title="Czytaj na głos"
         >
           {isSpeaking ? '⏹️' : '🔊'}
         </button>
         <button
           onClick={onDismiss}
-          className="proactive-notification__btn-dismiss"
+          className={s.btnDismiss}
         >
           Zamknij
         </button>
         <button
           onClick={() => onReply(message.message)}
-          className="proactive-notification__btn-reply"
+          className={s.btnReply}
         >
           Odpowiedz
         </button>

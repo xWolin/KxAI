@@ -1,0 +1,133 @@
+/* ═══════════════════════════════════════════════════
+   ProactiveNotification — CSS Module
+   ═══════════════════════════════════════════════════ */
+
+.root {
+  position: fixed;
+  top: 80px;
+  right: 20px;
+  width: 340px;
+  max-width: calc(100vw - 40px);
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 240, 255, 0.08);
+  border: 1px solid rgba(0, 240, 255, 0.15);
+  overflow: hidden;
+  z-index: 9998;
+  animation: fade-in 0.3s ease;
+}
+
+.header {
+  padding: 10px 14px;
+  background: var(--accent-glow);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.headerLeft {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: var(--font-mono);
+}
+
+.close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  transition: color 0.15s;
+}
+
+.close:hover { color: var(--text-primary); }
+
+.content {
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-primary);
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.context {
+  padding: 8px 14px;
+  font-size: 11px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+
+.actions {
+  padding: 8px 14px;
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+}
+
+.btnDismiss {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 6px 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 11px;
+  transition: var(--transition);
+}
+
+.btnDismiss:hover {
+  border-color: var(--border-bright);
+  background: var(--glass);
+}
+
+.btnSpeak {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 13px;
+  transition: var(--transition);
+  margin-right: auto;
+}
+
+.btnSpeak:hover {
+  background: var(--glass);
+  border-color: var(--accent);
+}
+
+.btnSpeakActive {
+  composes: btnSpeak;
+  background: var(--accent-glow);
+  border-color: var(--accent);
+}
+
+.btnReply {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(0, 240, 255, 0.1));
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  border-radius: var(--radius-xs);
+  padding: 6px 12px;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  transition: var(--transition);
+}
+
+.btnReply:hover {
+  box-shadow: 0 0 12px var(--accent-glow);
+}

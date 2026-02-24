@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import type { OnboardingData } from '../types';
+import s from './OnboardingWizard.module.css';
+import { cn } from '../utils/cn';
 
 interface OnboardingWizardProps {
   onComplete: () => void;
@@ -110,36 +112,36 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   };
 
   return (
-    <div className="onboarding">
+    <div className={s.root}>
       {/* Header */}
-      <div className="onboarding__header">
-        <div className="onboarding__icon">🤖</div>
-        <h2 className="onboarding__title">
+      <div className={s.header}>
+        <div className={s.icon}>🤖</div>
+        <h2 className={s.title}>
           {steps[step].title}
         </h2>
-        <p className="onboarding__subtitle">
+        <p className={s.subtitle}>
           {steps[step].subtitle}
         </p>
 
         {/* Progress dots */}
-        <div className="onboarding__dots">
+        <div className={s.dots}>
           {steps.map((_, i) => (
             <div
               key={i}
-              className={`onboarding__dot${i <= step ? ' onboarding__dot--active' : ''}`}
+              className={i <= step ? s.dotActive : s.dot}
             />
           ))}
         </div>
       </div>
 
       {/* Content */}
-      <div className="onboarding__content">
+      <div className={s.content}>
         {step === 0 && (
-          <div className="fade-in onboarding-welcome">
-            <p className="onboarding-welcome__desc">
+          <div className={cn('fade-in', s.welcome)}>
+            <p className={s.welcomeDesc}>
               <strong>KxAI</strong> to Twój osobisty asystent AI, który:
             </p>
-            <ul className="onboarding-welcome__features">
+            <ul className={s.welcomeFeatures}>
               <li>👁️ Obserwuje Twój ekran i proaktywnie pomaga</li>
               <li>💬 Analizuje konwersacje (WhatsApp, Slack, etc.)</li>
               <li>💻 Pomaga w kodowaniu i debugowaniu</li>
@@ -152,26 +154,26 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
         {step === 1 && (
           <div className="fade-in">
-            <label className="onboarding-label">Jak masz na imię?</label>
+            <label className={s.label}>Jak masz na imię?</label>
             <input
-              className="onboarding-input"
+              className={s.input}
               value={data.userName}
               onChange={(e) => setData({ ...data, userName: e.target.value })}
               placeholder="np. Kacper"
               autoFocus
             />
 
-            <label className="onboarding-label">Czym się zajmujesz?</label>
+            <label className={s.label}>Czym się zajmujesz?</label>
             <input
-              className="onboarding-input"
+              className={s.input}
               value={data.userRole}
               onChange={(e) => setData({ ...data, userRole: e.target.value })}
               placeholder="np. Fullstack Developer, CTO, Przedsiębiorca"
             />
 
-            <label className="onboarding-label">Opisz czym się zajmujesz i w czym chcesz pomocy</label>
+            <label className={s.label}>Opisz czym się zajmujesz i w czym chcesz pomocy</label>
             <textarea
-              className="onboarding-input onboarding-textarea"
+              className={s.textarea}
               value={data.userDescription}
               onChange={(e) => setData({ ...data, userDescription: e.target.value })}
               placeholder="np. Prowadzę software house, koduję w React/Node, dużo rozmawiam z klientami na WhatsApp, potrzebuję pomocy z analizą konwersacji i kodowaniem..."
@@ -181,34 +183,34 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
         {step === 2 && (
           <div className="fade-in">
-            <label className="onboarding-label">Nazwa agenta</label>
+            <label className={s.label}>Nazwa agenta</label>
             <input
-              className="onboarding-input"
+              className={s.input}
               value={data.agentName}
               onChange={(e) => setData({ ...data, agentName: e.target.value })}
               placeholder="KxAI"
               autoFocus
             />
 
-            <label className="onboarding-label">Emoji agenta</label>
-            <div className="onboarding-emoji-grid">
+            <label className={s.label}>Emoji agenta</label>
+            <div className={s.emojiGrid}>
               {['🤖', '🧠', '⚡', '🔮', '🦾', '🎯', '💡', '🚀', '🛸', '🐙'].map((emoji) => (
                 <button
                   key={emoji}
                   onClick={() => setData({ ...data, agentEmoji: emoji })}
-                  className={`onboarding-emoji-btn${data.agentEmoji === emoji ? ' onboarding-emoji-btn--selected' : ''}`}
+                  className={data.agentEmoji === emoji ? s.emojiBtnSelected : s.emojiBtn}
                 >
                   {emoji}
                 </button>
               ))}
             </div>
 
-            <div className="onboarding-preview">
-              <div className="onboarding-preview__emoji">{data.agentEmoji}</div>
-              <div className="onboarding-preview__name">
+            <div className={s.preview}>
+              <div className={s.previewEmoji}>{data.agentEmoji}</div>
+              <div className={s.previewName}>
                 {data.agentName}
               </div>
-              <div className="onboarding-preview__subtitle">
+              <div className={s.previewSubtitle}>
                 Twój osobisty agent AI
               </div>
             </div>
@@ -217,8 +219,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
         {step === 3 && (
           <div className="fade-in">
-            <label className="onboarding-label">Dostawca AI</label>
-            <div className="onboarding-providers">
+            <label className={s.label}>Dostawca AI</label>
+            <div className={s.providers}>
               {(['openai', 'anthropic'] as const).map((provider) => (
                 <button
                   key={provider}
@@ -227,21 +229,21 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                     aiProvider: provider,
                     aiModel: MODELS[provider][0].value,
                   })}
-                  className={`onboarding-provider-btn${data.aiProvider === provider ? ' onboarding-provider-btn--selected' : ''}`}
+                  className={data.aiProvider === provider ? s.providerBtnSelected : s.providerBtn}
                 >
-                  <div className="onboarding-provider__icon">
+                  <div className={s.providerIcon}>
                     {provider === 'openai' ? '🟢' : '🟠'}
                   </div>
-                  <div className="onboarding-provider__name">
+                  <div className={s.providerName}>
                     {provider === 'openai' ? 'OpenAI' : 'Anthropic'}
                   </div>
                 </button>
               ))}
             </div>
 
-            <label className="onboarding-label">Model</label>
+            <label className={s.label}>Model</label>
             <select
-              className="onboarding-input settings-select"
+              className={s.select}
               value={data.aiModel}
               onChange={(e) => setData({ ...data, aiModel: e.target.value })}
               title="Wybierz model AI"
@@ -257,24 +259,24 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
         {step === 4 && (
           <div className="fade-in">
-            <div className="onboarding-security-notice">
+            <div className={s.securityNotice}>
               🔒 Klucz API jest szyfrowany i przechowywany lokalnie.
               Nigdzie nie jest wysyłany poza oficjalne API {data.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'}.
             </div>
 
-            <label className="onboarding-label">
+            <label className={s.label}>
               Klucz API {data.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'}
             </label>
             <input
               type="password"
-              className="onboarding-input"
+              className={s.input}
               value={apiKey}
               onChange={(e) => setApiKey(e.target.value)}
               placeholder={data.aiProvider === 'openai' ? 'sk-...' : 'sk-ant-...'}
               autoFocus
             />
 
-            <p className="onboarding-key-hint">
+            <p className={s.keyHint}>
               {data.aiProvider === 'openai'
                 ? 'Wygeneruj klucz na platform.openai.com → API Keys'
                 : 'Wygeneruj klucz na console.anthropic.com → API Keys'}
@@ -283,19 +285,19 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         )}
 
         {step === 5 && (
-          <div className="fade-in onboarding-done">
-            <div className="onboarding-done__emoji">{data.agentEmoji}</div>
-            <h3 className="onboarding-done__title">
+          <div className={cn('fade-in', s.done)}>
+            <div className={s.doneEmoji}>{data.agentEmoji}</div>
+            <h3 className={s.doneTitle}>
               {data.agentName} jest gotowy!
             </h3>
-            <p className="onboarding-done__desc">
+            <p className={s.doneDesc}>
               Hej <strong>{data.userName}</strong>! Twój agent jest skonfigurowany.<br/>
               Możesz zacząć czatować, włączyć tryb proaktywny (👁️)<br/>
               lub kliknąć 📸 żeby przeanalizować ekran.
             </p>
-            <div className="onboarding-shortcuts">
+            <div className={s.shortcuts}>
               <div><strong>Skróty:</strong></div>
-              <div className="onboarding-shortcuts__item">• <kbd>Alt+K</kbd> — pokaż/ukryj agenta</div>
+              <div className={s.shortcutsItem}>• <kbd>Alt+K</kbd> — pokaż/ukryj agenta</div>
               <div>• <kbd>Enter</kbd> — wyślij wiadomość</div>
               <div>• <kbd>Shift+Enter</kbd> — nowa linia</div>
             </div>
@@ -305,17 +307,17 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
       {/* Error display */}
       {error && (
-        <div className="onboarding__error" style={{ color: '#ff6b6b', padding: '8px 24px', fontSize: '13px', textAlign: 'center' }}>
+        <div className={s.error}>
           ❌ {error}
         </div>
       )}
 
       {/* Footer */}
-      <div className="onboarding__footer">
+      <div className={s.footer}>
         {step > 0 && (
           <button
             onClick={() => setStep(step - 1)}
-            className="onboarding__btn-back"
+            className={s.btnBack}
           >
             Wstecz
           </button>
@@ -323,7 +325,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         <button
           onClick={handleNext}
           disabled={!canProceed() || isLoading}
-          className={`onboarding__btn-next ${canProceed() && !isLoading ? 'onboarding__btn-next--enabled' : 'onboarding__btn-next--disabled'}`}
+          className={canProceed() && !isLoading ? s.btnNextEnabled : s.btnNextDisabled}
         >
           {isLoading ? '...' : step === 5 ? 'Zacznijmy!' : 'Dalej →'}
         </button>

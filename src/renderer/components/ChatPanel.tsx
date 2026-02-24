@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import type { ConversationMessage, KxAIConfig, AgentStatus, IndexProgress } from '../types';
+import s from './ChatPanel.module.css';
+import { cn } from '../utils/cn';
 
 // Configure marked for chat messages
 marked.setOptions({
@@ -59,16 +61,16 @@ function MessageContent({ content }: { content: string }) {
 
   if (!html) return null;
   return (
-    <div className="chat-bubble-wrapper">
+    <div className={s.bubbleWrapper}>
       <button
-        className={`chat-copy-btn${copied ? ' chat-copy-btn--copied' : ''}`}
+        className={copied ? s.copyBtnCopied : s.copyBtn}
         onClick={handleCopy}
         title="Kopiuj wiadomość"
       >
         {copied ? '✓' : '📋'}
       </button>
       <div
-        className="chat-markdown"
+        className={s.markdown}
         dangerouslySetInnerHTML={{ __html: html }}
       />
     </div>
@@ -407,16 +409,16 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
   }
 
   return (
-    <div className="chat-panel">
+    <div className={s.panel}>
       {/* Header */}
-      <div className="chat-header">
-        <div className="chat-header__info">
-          <span className="chat-header__emoji">{config.agentEmoji || '🤖'}</span>
+      <div className={s.header}>
+        <div className={s.headerInfo}>
+          <span className={s.headerEmoji}>{config.agentEmoji || '🤖'}</span>
           <div>
-            <div className="chat-header__name">
+            <div className={s.headerName}>
               {config.agentName || 'KxAI'}
               {agentStatus.state !== 'idle' && (
-                <span className="chat-header__status-badge" title={agentStatus.detail || agentStatus.state}>
+                <span className={s.statusBadge} title={agentStatus.detail || agentStatus.state}>
                   {agentStatus.state === 'thinking' ? '🧠' :
                    agentStatus.state === 'tool-calling' ? '⚙️' :
                    agentStatus.state === 'streaming' ? '📡' :
@@ -426,10 +428,10 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
                 </span>
               )}
             </div>
-            <div className="chat-header__model">
+            <div className={s.headerModel}>
               {config.aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI'} · {config.aiModel}
               {agentStatus.state !== 'idle' && (
-                <span className="chat-header__status-text"> · {
+                <span className={s.statusText}> · {
                   agentStatus.state === 'thinking' ? 'myślę...' :
                   agentStatus.state === 'tool-calling' ? agentStatus.toolName || 'narzędzie...' :
                   agentStatus.state === 'streaming' ? 'odpowiadam...' :
@@ -442,12 +444,12 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
           </div>
         </div>
 
-        <div className="chat-header__actions">
+        <div className={s.headerActions}>
           {/* Proactive toggle */}
           <button
             onClick={toggleProactive}
             title={proactiveEnabled ? 'Wyłącz tryb proaktywny' : 'Włącz tryb proaktywny'}
-            className={`chat-btn${proactiveEnabled ? ' chat-btn--active' : ''}`}
+            className={proactiveEnabled ? s.btnActive : s.btn}
           >
             👁️
           </button>
@@ -456,7 +458,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
           <button
             onClick={captureAndAnalyze}
             title="Zrób screenshot i analizuj"
-            className="chat-btn"
+            className={s.btn}
           >
             📸
           </button>
@@ -465,7 +467,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
           <button
             onClick={onOpenCron}
             title="Cron Jobs"
-            className="chat-btn"
+            className={s.btn}
           >
             ⏰
           </button>
@@ -474,7 +476,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
           <button
             onClick={openDashboard}
             title="Otwórz Dashboard"
-            className="chat-btn"
+            className={s.btn}
           >
             📊
           </button>
@@ -483,7 +485,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
           <button
             onClick={onOpenMeeting}
             title="Meeting Coach"
-            className="chat-btn"
+            className={s.btn}
           >
             🎙️
           </button>
@@ -492,7 +494,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
           <button
             onClick={onOpenSettings}
             title="Ustawienia"
-            className="chat-btn"
+            className={s.btn}
           >
             ⚙️
           </button>
@@ -501,7 +503,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
           <button
             onClick={onClose}
             title="Zwiń"
-            className="chat-btn"
+            className={s.btn}
           >
             ✕
           </button>
@@ -510,23 +512,23 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
 
       {/* RAG Indexing Progress Bar */}
       {ragProgress && (
-        <div className="chat-rag-progress">
-          <div className="chat-rag-progress__info">
-            <span className="chat-rag-progress__label">
+        <div className={s.ragProgress}>
+          <div className={s.ragInfo}>
+            <span className={s.ragLabel}>
               📚 Indeksowanie: {ragProgress.phase === 'scanning' ? 'Skanowanie plików' :
                 ragProgress.phase === 'chunking' ? 'Dzielenie na fragmenty' :
                 ragProgress.phase === 'embedding' ? 'Generowanie embeddingów' :
                 ragProgress.phase === 'saving' ? 'Zapisywanie indeksu' : ragProgress.phase}
             </span>
-            <span className="chat-rag-progress__percent">{Math.round(ragProgress.overallPercent)}%</span>
+            <span className={s.ragPercent}>{Math.round(ragProgress.overallPercent)}%</span>
           </div>
-          <div className="chat-rag-progress__bar">
+          <div className={s.ragBar}>
             <div
-              className="chat-rag-progress__fill"
+              className={s.ragFill}
               style={{ width: `${ragProgress.overallPercent}%` }}
             />
           </div>
-          <div className="chat-rag-progress__detail">
+          <div className={s.ragDetail}>
             {ragProgress.filesProcessed}/{ragProgress.filesTotal} plików · {ragProgress.chunksCreated} fragmentów
             {ragProgress.currentFile && (
               <span title={ragProgress.currentFile}> · {ragProgress.currentFile.split(/[/\\]/).pop()}</span>
@@ -536,14 +538,14 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
       )}
 
       {/* Messages */}
-      <div className="chat-messages">
+      <div className={s.messages}>
         {messages.length === 0 && !isStreaming && (
-          <div className="chat-empty">
-            <div className="chat-empty__emoji">{config.agentEmoji || '🤖'}</div>
-            <div className="chat-empty__title">
+          <div className={s.empty}>
+            <div className={s.emptyEmoji}>{config.agentEmoji || '🤖'}</div>
+            <div className={s.emptyTitle}>
               Cześć! Jestem {config.agentName || 'KxAI'}
             </div>
-            <div className="chat-empty__subtitle">
+            <div className={s.emptySubtitle}>
               Napisz coś lub kliknij 📸 żeby przeanalizować ekran
             </div>
           </div>
@@ -552,16 +554,16 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className={`fade-in chat-msg chat-msg--${msg.role}`}
+            className={cn('fade-in', msg.role === 'user' ? s.msgUser : s.msgAssistant)}
           >
-            <div className={`chat-bubble chat-bubble--${msg.role}`}>
+            <div className={msg.role === 'user' ? s.bubbleUser : s.bubbleAssistant}>
               {msg.role === 'assistant' ? (
                 <MessageContent content={msg.content} />
               ) : (
                 msg.content
               )}
             </div>
-            <div className="chat-msg__time">
+            <div className={s.msgTime}>
               {formatTime(msg.timestamp)}
             </div>
           </div>
@@ -569,15 +571,15 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
 
         {/* Streaming message */}
         {isStreaming && (
-          <div className="fade-in chat-streaming">
-            <div className="chat-bubble chat-bubble--assistant">
+          <div className={cn('fade-in', s.streaming)}>
+            <div className={s.bubbleAssistant}>
               {streamingContent ? (
                 <MessageContent content={streamingContent} />
               ) : (
-                <div className="chat-typing">
-                  <span className="chat-typing__dot-1">●</span>
-                  <span className="chat-typing__dot-2">●</span>
-                  <span className="chat-typing__dot-3">●</span>
+                <div className={s.typing}>
+                  <span className={s.dot1}>●</span>
+                  <span className={s.dot2}>●</span>
+                  <span className={s.dot3}>●</span>
                 </div>
               )}
             </div>
@@ -588,8 +590,8 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
       </div>
 
       {/* Input */}
-      <div className="chat-input">
-        <div className="chat-input__row">
+      <div className={s.input}>
+        <div className={s.inputRow}>
           <textarea
             ref={inputRef}
             value={input}
@@ -597,13 +599,13 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
             onKeyDown={handleKeyDown}
             placeholder="Napisz wiadomość... (Shift+Enter = nowa linia)"
             disabled={isStreaming}
-            className="chat-textarea"
+            className={s.textarea}
             rows={1}
           />
           <button
             onClick={toggleVoiceInput}
             title={isRecording ? 'Zatrzymaj nagrywanie' : 'Nagrywaj głos'}
-            className={`chat-voice${isRecording ? ' chat-voice--recording' : ''}`}
+            className={isRecording ? s.voiceRecording : s.voice}
             disabled={isStreaming}
           >
             {isRecording ? '⏹' : '🎤'}
@@ -615,7 +617,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
                 setIsStreaming(false);
               }}
               title="Zatrzymaj agenta"
-              className="chat-send chat-send--stop"
+              className={s.sendStop}
             >
               ■
             </button>
@@ -623,7 +625,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
             <button
               onClick={sendMessage}
               disabled={!input.trim()}
-              className={`chat-send ${input.trim() ? 'chat-send--enabled' : 'chat-send--disabled'}`}
+              className={input.trim() ? s.sendEnabled : s.sendDisabled}
             >
               ➤
             </button>

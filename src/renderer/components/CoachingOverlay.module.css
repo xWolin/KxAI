@@ -1,0 +1,629 @@
+/* CoachingOverlay — CSS Module */
+/* Contains both idle overlay and active compact bar styles */
+
+/* ═══════ OVERLAY (Idle/Setup State) ═══════ */
+
+.overlay {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: var(--font);
+  border-radius: var(--radius);
+  overflow-x: hidden;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem 1rem;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.back {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 1.2rem;
+  cursor: pointer;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  -webkit-app-region: no-drag;
+  transition: var(--transition);
+}
+.back:hover { background: var(--accent-glow); }
+
+.title {
+  font-size: 1rem;
+  font-weight: 600;
+  flex: 1;
+  letter-spacing: 0.02em;
+}
+
+.actions { -webkit-app-region: no-drag; }
+
+.error {
+  padding: 0.5rem 1rem;
+  background: rgba(255, 51, 85, 0.1);
+  color: var(--error);
+  font-size: 0.85rem;
+  border-bottom: 1px solid rgba(255, 51, 85, 0.2);
+}
+
+.controls {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.btn {
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 0.5rem 1rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: var(--transition);
+  -webkit-app-region: no-drag;
+  font-family: var(--font);
+}
+.btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btnStart {
+  composes: btn;
+  background: linear-gradient(135deg, rgba(255, 0, 170, 0.2), rgba(255, 0, 170, 0.1));
+  border: 1px solid rgba(255, 0, 170, 0.4);
+  color: var(--neon-magenta);
+  width: 100%;
+  font-weight: 600;
+  padding: 0.65rem;
+}
+.btnStart:hover:not(:disabled) {
+  background: linear-gradient(135deg, rgba(255, 0, 170, 0.3), rgba(255, 0, 170, 0.15));
+  box-shadow: 0 0 16px rgba(255, 0, 170, 0.2);
+}
+
+.btnDashboard {
+  composes: btn;
+  background: none;
+  color: var(--text-muted);
+  padding: 0.25rem 0.5rem;
+  font-size: 1.1rem;
+}
+.btnDashboard:hover { color: var(--text-primary); }
+
+.btnLink {
+  composes: btn;
+  background: var(--bg-tertiary);
+  color: var(--accent);
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+}
+.btnLink:hover {
+  background: var(--bg-hover);
+  border-color: rgba(0, 240, 255, 0.2);
+}
+
+.idleInfo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 1rem;
+  overflow-y: auto;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* ═══════ Briefing Toggle ═══════ */
+.briefingToggle {
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.btnBriefing {
+  composes: btn;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 0.5rem 1rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  position: relative;
+}
+.btnBriefing:hover {
+  background: var(--bg-hover);
+  border-color: rgba(0, 240, 255, 0.2);
+}
+
+.btnBriefingActive {
+  composes: btnBriefing;
+  border-color: rgba(0, 240, 255, 0.3);
+  background: var(--accent-glow);
+}
+
+.briefingBadge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  color: var(--neon-green);
+  font-weight: bold;
+}
+
+/* ═══════ Briefing Form ═══════ */
+.briefingForm {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 0.8rem;
+  margin-bottom: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+.briefingField {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.briefingLabel {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.briefingInput {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  outline: none;
+  transition: border-color var(--transition);
+  font-family: var(--font);
+}
+.briefingInput:focus { border-color: rgba(0, 240, 255, 0.3); }
+
+.briefingInputSmall {
+  composes: briefingInput;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.75rem;
+}
+
+.briefingTextarea {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  outline: none;
+  resize: vertical;
+  font-family: var(--font);
+  min-height: 2rem;
+  transition: border-color var(--transition);
+}
+.briefingTextarea:focus { border-color: rgba(0, 240, 255, 0.3); }
+
+.briefingParticipants {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.briefingParticipant {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.briefingParticipantInfo strong {
+  color: var(--accent);
+}
+
+.briefingRemove {
+  background: none;
+  border: none;
+  color: var(--error);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+.briefingRemove:hover { background: rgba(255, 51, 85, 0.1); }
+
+.briefingAddParticipant {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.3rem;
+}
+.briefingAddParticipant .btnAdd {
+  grid-column: 1 / -1;
+}
+
+.btnAdd {
+  composes: btn;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  color: var(--accent);
+  padding: 0.3rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+}
+.btnAdd:hover {
+  background: var(--bg-hover);
+  border-color: rgba(0, 240, 255, 0.2);
+}
+
+.briefingActions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  padding-top: 0.3rem;
+}
+
+.btnSave {
+  composes: btn;
+  background: rgba(0, 255, 136, 0.12);
+  border: 1px solid rgba(0, 255, 136, 0.3);
+  color: var(--neon-green);
+  padding: 0.4rem 1rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+.btnSave:hover {
+  background: rgba(0, 255, 136, 0.2);
+  box-shadow: 0 0 12px rgba(0, 255, 136, 0.15);
+}
+.btnSave:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btnClear {
+  composes: btn;
+  background: var(--bg-tertiary);
+  border: 1px solid rgba(255, 51, 85, 0.2);
+  color: var(--error);
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+.btnClear:hover { background: rgba(255, 51, 85, 0.08); }
+
+/* ═══════ COMPACT BAR (Active Meeting) ═══════ */
+
+.bar {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: rgba(5, 5, 8, 0.96);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  overflow: hidden;
+  -webkit-app-region: drag;
+  font-family: var(--font);
+}
+
+.barHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+
+.barStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.barRecDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--neon-magenta);
+  box-shadow: 0 0 10px rgba(255, 0, 170, 0.5);
+  animation: rec-pulse 1.5s ease-in-out infinite;
+}
+
+.barTimer {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+.barApp {
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--accent-glow);
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.barLines {
+  font-size: 11px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.barActions {
+  display: flex;
+  gap: 4px;
+  -webkit-app-region: no-drag;
+}
+
+.barBtn {
+  border: none;
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: var(--transition);
+  -webkit-app-region: no-drag;
+  font-family: var(--font);
+}
+
+.barBtnExpand {
+  composes: barBtn;
+  background: transparent;
+  color: var(--text-muted);
+  padding: 4px 8px;
+}
+.barBtnExpand:hover {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.barBtnDashboard {
+  composes: barBtn;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.barBtnDashboard:hover { color: var(--text-primary); }
+
+.barBtnStop {
+  composes: barBtn;
+  background: rgba(255, 0, 170, 0.1);
+  color: var(--neon-magenta);
+  font-weight: 500;
+  border: 1px solid rgba(255, 0, 170, 0.2);
+}
+.barBtnStop:hover {
+  background: rgba(255, 0, 170, 0.2);
+  box-shadow: 0 0 8px rgba(255, 0, 170, 0.15);
+}
+.barBtnStop:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.barError {
+  padding: 4px 12px;
+  background: rgba(255, 51, 85, 0.08);
+  color: var(--error);
+  font-size: 11px;
+  border-bottom: 1px solid rgba(255, 51, 85, 0.15);
+}
+
+.barTipArea {
+  flex: 1;
+  padding: 6px 12px;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.barActiveTip,
+.barLastTip {
+  animation: tip-fade-in 0.3s ease;
+}
+
+.barTipLabel {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-family: var(--font-mono);
+}
+
+.barTipQuestion {
+  color: var(--accent);
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: var(--font);
+}
+
+.barTipTime {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+
+.barTipText {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-primary);
+  max-height: 60px;
+  overflow-y: auto;
+  overflow-wrap: break-word;
+}
+
+.barTipTextStreaming {
+  composes: barTipText;
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.barCursor {
+  color: var(--accent);
+  animation: cursor-blink 0.8s step-end infinite;
+}
+
+.barGenerating {
+  font-size: 12px;
+  color: var(--neon-purple);
+  animation: rec-pulse 1.5s ease-in-out infinite;
+}
+
+.barWaiting {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.barLastUtterance {
+  font-size: 10px;
+  color: var(--text-muted);
+  max-width: 260px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Speaker strip */
+.barSpeakersStrip {
+  display: flex;
+  gap: 4px;
+  padding: 3px 10px 4px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.barSpeakerDot {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  transition: var(--transition);
+  letter-spacing: 0.5px;
+}
+
+.barSpeakerDotActive {
+  composes: barSpeakerDot;
+  background: rgba(0, 255, 136, 0.12);
+  color: var(--neon-green);
+  border-color: rgba(0, 255, 136, 0.3);
+  box-shadow: 0 0 8px rgba(0, 255, 136, 0.2);
+}
+
+/* Expanded section */
+.barExpanded {
+  border-top: 1px solid var(--border);
+  padding: 6px 10px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.barSectionLabel {
+  font-size: 9px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+}
+
+.barRecentLine {
+  font-size: 11px;
+  padding: 2px 0;
+  display: flex;
+  gap: 6px;
+  line-height: 1.35;
+}
+
+.barSpeaker {
+  font-weight: 600;
+  color: var(--neon-purple);
+  flex-shrink: 0;
+}
+
+.barSpeakerMe {
+  composes: barSpeaker;
+  color: var(--neon-green);
+}
+
+.barText {
+  color: var(--text-secondary);
+}
+
+.barHistory { margin-top: 8px; }
+
+.barHistoryItem {
+  font-size: 11px;
+  padding: 3px 0;
+  display: flex;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.barHistoryTime {
+  color: var(--text-muted);
+  font-size: 10px;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+}
+
+.barHistoryText {
+  color: var(--text-muted);
+}
+
+/* Tip copy button & wrap */
+.barTipTextWrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.barTipTextWrap .barTipText {
+  flex: 1;
+}
+
+.barBtnCopy {
+  composes: barBtn;
+  background: var(--glass);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+.barBtnCopy:hover {
+  background: var(--accent-glow);
+  color: var(--accent);
+  border-color: rgba(0, 240, 255, 0.2);
+}

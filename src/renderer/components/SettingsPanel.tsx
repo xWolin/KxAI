@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { KxAIConfig, RAGFolderInfo } from '../types';
+import s from './SettingsPanel.module.css';
+import { cn } from '../utils/cn';
 
 interface SettingsPanelProps {
   config: KxAIConfig;
@@ -172,58 +174,55 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     }
   }
 
-  const inputClass = 'settings-input';
-  const labelClass = 'settings-label';
-
   return (
-    <div className="settings-panel">
+    <div className={s.panel}>
       {/* Header */}
-      <div className="settings-header">
-        <button onClick={onBack} className="settings-header__back">
+      <div className={s.header}>
+        <button onClick={onBack} className={s.headerBack}>
           ←
         </button>
-        <span className="settings-header__title">Ustawienia</span>
+        <span className={s.headerTitle}>Ustawienia</span>
       </div>
 
       {/* Tabs */}
-      <div className="settings-tabs">
-        <button className={`settings-tab${activeTab === 'general' ? ' settings-tab--active' : ''}`} onClick={() => setActiveTab('general')}>
+      <div className={s.tabs}>
+        <button className={activeTab === 'general' ? s.tabActive : s.tab} onClick={() => setActiveTab('general')}>
           ⚙️ Ogólne
         </button>
-        <button className={`settings-tab${activeTab === 'persona' ? ' settings-tab--active' : ''}`} onClick={() => setActiveTab('persona')}>
+        <button className={activeTab === 'persona' ? s.tabActive : s.tab} onClick={() => setActiveTab('persona')}>
           🎭 Persona
         </button>
-        <button className={`settings-tab${activeTab === 'memory' ? ' settings-tab--active' : ''}`} onClick={() => setActiveTab('memory')}>
+        <button className={activeTab === 'memory' ? s.tabActive : s.tab} onClick={() => setActiveTab('memory')}>
           🧠 Pamięć
         </button>
-        <button className={`settings-tab${activeTab === 'knowledge' ? ' settings-tab--active' : ''}`} onClick={() => setActiveTab('knowledge')}>
+        <button className={activeTab === 'knowledge' ? s.tabActive : s.tab} onClick={() => setActiveTab('knowledge')}>
           📚 Wiedza
         </button>
       </div>
 
       {/* Content */}
-      <div className="settings-content">
+      <div className={s.content}>
         {activeTab === 'general' && (
           <div className="fade-in">
             {/* Agent identity */}
-            <div className="settings-section">
-              <h3 className="settings-section__title">Agent</h3>
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>Agent</h3>
 
-              <label className={labelClass}>Nazwa</label>
+              <label className={s.label}>Nazwa</label>
               <input
-                className={inputClass}
+                className={s.input}
                 value={agentName}
                 onChange={(e) => setAgentName(e.target.value)}
                 title="Nazwa agenta"
               />
 
-              <label className={labelClass}>Emoji</label>
-              <div className="settings-emoji-grid">
+              <label className={s.label}>Emoji</label>
+              <div className={s.emojiGrid}>
                 {['🤖', '🧠', '⚡', '🔮', '🦾', '🎯', '💡', '🚀'].map((e) => (
                   <button
                     key={e}
                     onClick={() => setAgentEmoji(e)}
-                    className={`settings-emoji-btn${agentEmoji === e ? ' settings-emoji-btn--selected' : ''}`}
+                    className={agentEmoji === e ? s.emojiBtnSelected : s.emojiBtn}
                   >
                     {e}
                   </button>
@@ -232,12 +231,12 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             </div>
 
             {/* AI Provider */}
-            <div className="settings-section">
-              <h3 className="settings-section__title">AI Provider</h3>
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>AI Provider</h3>
 
-              <label className={labelClass}>Dostawca</label>
+              <label className={s.label}>Dostawca</label>
               <select
-                className={`${inputClass} settings-select`}
+                className={s.select}
                 value={provider}
                 title="Dostawca AI"
                 onChange={(e) => {
@@ -250,9 +249,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 <option value="anthropic">Anthropic</option>
               </select>
 
-              <label className={labelClass}>Model</label>
+              <label className={s.label}>Model</label>
               <select
-                className={`${inputClass} settings-select`}
+                className={s.select}
                 value={model}
                 title="Model AI"
                 onChange={(e) => setModel(e.target.value)}
@@ -262,12 +261,12 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 ))}
               </select>
 
-              <label className={labelClass}>
+              <label className={s.label}>
                 Klucz API {hasKey ? '✅' : '❌'}
               </label>
               <input
                 type="password"
-                className={inputClass}
+                className={s.input}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder={hasKey ? '••••••••••• (zmień)' : 'Wklej klucz API'}
@@ -275,65 +274,65 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             </div>
 
             {/* Proactive */}
-            <div className="settings-section">
-              <h3 className="settings-section__title">Tryb proaktywny</h3>
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>Tryb proaktywny</h3>
 
-              <label className={labelClass}>Interwał analizy ekranu (sekundy)</label>
+              <label className={s.label}>Interwał analizy ekranu (sekundy)</label>
               <input
                 type="number"
-                className={inputClass}
+                className={s.input}
                 value={proactiveInterval}
                 onChange={(e) => setProactiveInterval(Number(e.target.value))}
                 title="Interwał proaktywny w sekundach"
                 min={5}
                 max={300}
               />
-              <p className="settings-hint">
+              <p className={s.hint}>
                 Co ile sekund agent analizuje ekran (min. 5s). Niższa wartość = więcej API calls.
               </p>
             </div>
 
             {/* Deepgram / Meeting Coach */}
-            <div className="settings-section">
-              <h3 className="settings-section__title">🎙️ Meeting Coach (Deepgram)</h3>
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>🎙️ Meeting Coach (Deepgram)</h3>
 
-              <label className={labelClass}>
+              <label className={s.label}>
                 Klucz API Deepgram {hasDeepgramKey ? '✅' : '❌'}
               </label>
               <input
                 type="password"
-                className={inputClass}
+                className={s.input}
                 value={deepgramKey}
                 onChange={(e) => setDeepgramKey(e.target.value)}
                 placeholder={hasDeepgramKey ? '••••••••••• (zmień)' : 'Wklej klucz API Deepgram'}
               />
-              <p className="settings-hint">
+              <p className={s.hint}>
                 Wymagany do transkrypcji w czasie rzeczywistym (Nova-3 z diaryzacją). Pay-as-you-go: ~$0.0043/min.
               </p>
             </div>
 
             {/* Embeddings (RAG) */}
-            <div className="settings-section">
-              <h3 className="settings-section__title">🧬 Embeddingi (RAG)</h3>
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>🧬 Embeddingi (RAG)</h3>
 
-              <label className={labelClass}>
+              <label className={s.label}>
                 Klucz API OpenAI (embeddingi) {hasEmbeddingKey ? '✅' : hasKey && provider === 'openai' ? '🔗 (główny)' : '❌'}
               </label>
               <input
                 type="password"
-                className={inputClass}
+                className={s.input}
                 value={embeddingKey}
                 onChange={(e) => setEmbeddingKey(e.target.value)}
                 placeholder={hasEmbeddingKey ? '••••••••••• (zmień)' : 'Osobny klucz OpenAI do embeddingów (opcjonalnie)'}
               />
-              <p className="settings-hint">
+              <p className={s.hint}>
                 Osobny klucz OpenAI do generowania embeddingów. Jeśli nie podany, używany jest główny klucz OpenAI.
                 Jeśli żaden nie jest dostępny — RAG działa na lokalnym TF-IDF (bez kosztów, niższa jakość).
               </p>
 
-              <label className={labelClass}>Model embeddingów</label>
+              <label className={s.label}>Model embeddingów</label>
               <select
-                className={`${inputClass} settings-select`}
+                className={s.select}
                 value={embeddingModel}
                 title="Model embeddingów"
                 onChange={(e) => setEmbeddingModel(e.target.value)}
@@ -346,19 +345,19 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
             {/* Danger zone */}
             <div>
-              <h3 className="settings-section__title settings-section__title--danger">
+              <h3 className={s.sectionTitleDanger}>
                 Strefa niebezpieczna
               </h3>
-              <button onClick={clearHistory} className="settings-btn-danger">
+              <button onClick={clearHistory} className={s.btnDanger}>
                 🗑️ Wyczyść historię konwersacji
               </button>
             </div>
 
-            <div className="settings-save-wrapper">
+            <div className={s.saveWrapper}>
               <button
                 onClick={saveSettings}
                 disabled={saving}
-                className={`settings-btn-save${saving ? ' settings-btn-save--saving' : ''}`}
+                className={saving ? s.btnSaveSaving : s.btnSave}
               >
                 {saving ? 'Zapisywanie...' : 'Zapisz ustawienia'}
               </button>
@@ -368,17 +367,17 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
         {activeTab === 'persona' && (
           <div className="fade-in">
-            <p className="settings-desc">
+            <p className={s.desc}>
               SOUL.md definiuje osobowość, ton i granice Twojego agenta.
               Edytuj poniżej aby dostosować zachowanie.
             </p>
             <textarea
-              className={`${inputClass} settings-textarea`}
+              className={s.textarea}
               value={soulContent}
               onChange={(e) => setSoulContent(e.target.value)}
               title="Edycja SOUL.md"
             />
-            <button onClick={saveSoul} className="settings-btn-save">
+            <button onClick={saveSoul} className={s.btnSave}>
               Zapisz SOUL.md
             </button>
           </div>
@@ -386,17 +385,17 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
         {activeTab === 'memory' && (
           <div className="fade-in">
-            <p className="settings-desc">
+            <p className={s.desc}>
               MEMORY.md to pamięć długoterminowa Twojego agenta.
               Agent sam ją uzupełnia, ale możesz ją też edytować ręcznie.
             </p>
             <textarea
-              className={`${inputClass} settings-textarea`}
+              className={s.textarea}
               value={memoryContent}
               onChange={(e) => setMemoryContent(e.target.value)}
               title="Edycja MEMORY.md"
             />
-            <button onClick={saveMemory} className="settings-btn-save">
+            <button onClick={saveMemory} className={s.btnSave}>
               Zapisz MEMORY.md
             </button>
           </div>
@@ -404,42 +403,42 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
         {activeTab === 'knowledge' && (
           <div className="fade-in">
-            <p className="settings-desc">
+            <p className={s.desc}>
               Zarządzaj folderami, które agent indeksuje. Dodaj foldery z kodem, dokumentami lub notatkami — agent będzie je przeszukiwał semantycznie.
             </p>
 
             {/* Stats */}
             {ragStats && (
-              <div className="settings-section">
-                <h3 className="settings-section__title">Statystyki indeksu</h3>
+              <div className={s.section}>
+                <h3 className={s.sectionTitle}>Statystyki indeksu</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
-                  <div className="settings-stat-card">
-                    <div className="settings-stat-card__value">{ragStats.totalFiles}</div>
-                    <div className="settings-stat-card__label">Plików</div>
+                  <div className={s.statCard}>
+                    <div className={s.statCardValue}>{ragStats.totalFiles}</div>
+                    <div className={s.statCardLabel}>Plików</div>
                   </div>
-                  <div className="settings-stat-card">
-                    <div className="settings-stat-card__value">{ragStats.totalChunks}</div>
-                    <div className="settings-stat-card__label">Chunków</div>
+                  <div className={s.statCard}>
+                    <div className={s.statCardValue}>{ragStats.totalChunks}</div>
+                    <div className={s.statCardLabel}>Chunków</div>
                   </div>
-                  <div className="settings-stat-card">
-                    <div className="settings-stat-card__value">{ragStats.embeddingType}</div>
-                    <div className="settings-stat-card__label">Embeddings</div>
+                  <div className={s.statCard}>
+                    <div className={s.statCardValue}>{ragStats.embeddingType}</div>
+                    <div className={s.statCardLabel}>Embeddings</div>
                   </div>
                 </div>
               </div>
             )}
 
             {/* Indexed folders */}
-            <div className="settings-section">
-              <h3 className="settings-section__title">Zaindeksowane foldery</h3>
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>Zaindeksowane foldery</h3>
               
               {folderStats.map((folder, idx) => (
-                <div key={idx} className="settings-folder-item">
-                  <div className="settings-folder-item__info">
-                    <div className="settings-folder-item__path" title={folder.path}>
+                <div key={idx} className={s.folderItem}>
+                  <div className={s.folderItemInfo}>
+                    <div className={s.folderItemPath} title={folder.path}>
                       {folder.path}
                     </div>
-                    <div className="settings-folder-item__stats">
+                    <div className={s.folderItemStats}>
                       {folder.fileCount} plików · {folder.chunkCount} chunków
                       {folder.lastIndexed > 0 && (
                         <> · {new Date(folder.lastIndexed).toLocaleString('pl-PL')}</>
@@ -448,7 +447,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   </div>
                   {idx > 0 && (
                     <button
-                      className="settings-folder-item__remove"
+                      className={s.folderItemRemove}
                       onClick={() => handleRemoveFolder(folder.path)}
                       title="Usuń folder"
                     >
@@ -459,7 +458,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               ))}
 
               <button
-                className="settings-btn-save"
+                className={s.btnSave}
                 onClick={handleAddFolder}
                 style={{ marginTop: '8px' }}
               >
@@ -468,9 +467,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             </div>
 
             {/* Reindex */}
-            <div className="settings-section">
+            <div className={s.section}>
               <button
-                className="settings-btn-save"
+                className={s.btnSave}
                 onClick={handleReindex}
                 disabled={reindexing}
                 style={{ width: '100%' }}

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { CronJob } from '../types';
+import s from './CronPanel.module.css';
+import { cn } from '../utils/cn';
 
 interface CronPanelProps {
   onBack: () => void;
@@ -78,51 +80,51 @@ export function CronPanel({ onBack }: CronPanelProps) {
   };
 
   return (
-    <div className="cron-panel">
+    <div className={s.panel}>
       {/* Header */}
-      <div className="chat-header">
-        <div className="chat-header__info">
-          <span className="chat-header__emoji">⏰</span>
+      <div className={s.header}>
+        <div className={s.headerInfo}>
+          <span className={s.headerEmoji}>⏰</span>
           <div>
-            <div className="chat-header__name">Cron Jobs</div>
-            <div className="chat-header__model">{jobs.length} zadań</div>
+            <div className={s.headerName}>Cron Jobs</div>
+            <div className={s.headerModel}>{jobs.length} zadań</div>
           </div>
         </div>
-        <div className="chat-header__actions">
-          <button onClick={() => setShowAdd(true)} className="chat-btn" title="Dodaj zadanie">
+        <div className={s.headerActions}>
+          <button onClick={() => setShowAdd(true)} className={s.btn} title="Dodaj zadanie">
             ➕
           </button>
-          <button onClick={onBack} className="chat-btn" title="Wróć">
+          <button onClick={onBack} className={s.btn} title="Wróć">
             ✕
           </button>
         </div>
       </div>
 
       {/* Content */}
-      <div className="cron-content">
+      <div className={s.content}>
         {/* Add form */}
         {showAdd && (
-          <div className="cron-add-form fade-in">
-            <h3 className="cron-form__title">Nowe zadanie</h3>
+          <div className={cn('fade-in', s.addForm)}>
+            <h3 className={s.formTitle}>Nowe zadanie</h3>
             <input
               type="text"
               placeholder="Nazwa zadania"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              className="cron-input"
+              className={s.input}
             />
-            <div className="cron-form__row">
+            <div className={s.formRow}>
               <input
                 type="text"
                 placeholder="Harmonogram (np. 30m, 1h, */5 * * * *)"
                 value={newSchedule}
                 onChange={(e) => setNewSchedule(e.target.value)}
-                className="cron-input cron-input--schedule"
+                className={s.inputSchedule}
               />
               <select
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value as CronJob['category'])}
-                className="cron-select"
+                className={s.select}
               >
                 <option value="custom">⚙️ Custom</option>
                 <option value="routine">🔄 Rutyna</option>
@@ -136,14 +138,14 @@ export function CronPanel({ onBack }: CronPanelProps) {
               placeholder="Co agent ma robić? (np. Sprawdź moje maile i podsumuj najważniejsze)"
               value={newAction}
               onChange={(e) => setNewAction(e.target.value)}
-              className="cron-textarea"
+              className={s.textarea}
               rows={3}
             />
-            <div className="cron-form__actions">
-              <button onClick={addJob} className="cron-btn cron-btn--primary" disabled={!newName.trim() || !newAction.trim()}>
+            <div className={s.formActions}>
+              <button onClick={addJob} className={s.btnPrimary} disabled={!newName.trim() || !newAction.trim()}>
                 Dodaj
               </button>
-              <button onClick={() => setShowAdd(false)} className="cron-btn cron-btn--secondary">
+              <button onClick={() => setShowAdd(false)} className={s.btnSecondary}>
                 Anuluj
               </button>
             </div>
@@ -152,44 +154,44 @@ export function CronPanel({ onBack }: CronPanelProps) {
 
         {/* Jobs list */}
         {jobs.length === 0 && !showAdd && (
-          <div className="cron-empty">
-            <div className="cron-empty__icon">⏰</div>
-            <div className="cron-empty__title">Brak zadań cron</div>
-            <div className="cron-empty__subtitle">
+          <div className={s.empty}>
+            <div className={s.emptyIcon}>⏰</div>
+            <div className={s.emptyTitle}>Brak zadań cron</div>
+            <div className={s.emptySubtitle}>
               Dodaj zadanie lub poproś agenta w czacie o stworzenie automatycznego zadania.
             </div>
           </div>
         )}
 
         {jobs.map((job) => (
-          <div key={job.id} className={`cron-job fade-in${!job.enabled ? ' cron-job--disabled' : ''}`}>
-            <div className="cron-job__header">
-              <div className="cron-job__title">
-                <span className="cron-job__icon">{categoryIcons[job.category] || '⚙️'}</span>
-                <span className="cron-job__name">{job.name}</span>
-                {job.autoCreated && <span className="cron-job__badge">🤖 auto</span>}
+          <div key={job.id} className={cn('fade-in', job.enabled ? s.job : s.jobDisabled)}>
+            <div className={s.jobHeader}>
+              <div className={s.jobTitle}>
+                <span className={s.jobIcon}>{categoryIcons[job.category] || '⚙️'}</span>
+                <span className={s.jobName}>{job.name}</span>
+                {job.autoCreated && <span className={s.jobBadge}>🤖 auto</span>}
               </div>
-              <div className="cron-job__controls">
+              <div className={s.jobControls}>
                 <button
                   onClick={() => toggleJob(job.id, job.enabled)}
-                  className={`cron-toggle${job.enabled ? ' cron-toggle--on' : ''}`}
+                  className={job.enabled ? s.toggleOn : s.toggle}
                   title={job.enabled ? 'Wyłącz' : 'Włącz'}
                 >
                   {job.enabled ? '✓' : '○'}
                 </button>
-                <button onClick={() => removeJob(job.id)} className="cron-delete" title="Usuń">
+                <button onClick={() => removeJob(job.id)} className={s.delete} title="Usuń">
                   🗑️
                 </button>
               </div>
             </div>
-            <div className="cron-job__schedule">{formatSchedule(job.schedule)}</div>
-            <div className="cron-job__action">{job.action}</div>
-            <div className="cron-job__meta">
+            <div className={s.jobSchedule}>{formatSchedule(job.schedule)}</div>
+            <div className={s.jobAction}>{job.action}</div>
+            <div className={s.jobMeta}>
               <span>Uruchomień: {job.runCount}</span>
               <span>Ostatnio: {formatTime(job.lastRun)}</span>
             </div>
             {job.lastResult && (
-              <div className="cron-job__result">
+              <div className={s.jobResult}>
                 {job.lastResult.slice(0, 150)}
               </div>
             )}

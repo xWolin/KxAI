@@ -1,4 +1,5 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
+import s from './ErrorBoundary.module.css';
 
 // ─── Types ───
 
@@ -86,24 +87,24 @@ function DefaultErrorFallback({ error, label, onReset }: DefaultErrorFallbackPro
   const [showDetails, setShowDetails] = React.useState(false);
 
   return (
-    <div className="error-boundary">
-      <div className="error-boundary__icon">⚠️</div>
-      <h3 className="error-boundary__title">Coś poszło nie tak</h3>
-      <p className="error-boundary__message">
+    <div className={s.root}>
+      <div className={s.icon}>⚠️</div>
+      <h3 className={s.title}>Coś poszło nie tak</h3>
+      <p className={s.message}>
         {label
           ? `Wystąpił błąd w komponencie ${label}.`
           : 'Wystąpił nieoczekiwany błąd.'}
       </p>
 
-      <div className="error-boundary__actions">
+      <div className={s.actions}>
         <button
-          className="error-boundary__btn error-boundary__btn--primary"
+          className={s.btnPrimary}
           onClick={onReset}
         >
           Spróbuj ponownie
         </button>
         <button
-          className="error-boundary__btn error-boundary__btn--secondary"
+          className={s.btnSecondary}
           onClick={() => setShowDetails((v) => !v)}
         >
           {showDetails ? 'Ukryj szczegóły' : 'Pokaż szczegóły'}
@@ -111,10 +112,10 @@ function DefaultErrorFallback({ error, label, onReset }: DefaultErrorFallbackPro
       </div>
 
       {showDetails && (
-        <div className="error-boundary__details">
-          <p className="error-boundary__error-name">{error.name}: {error.message}</p>
+        <div className={s.details}>
+          <p className={s.errorName}>{error.name}: {error.message}</p>
           {error.stack && (
-            <pre className="error-boundary__stack">{error.stack}</pre>
+            <pre className={s.stack}>{error.stack}</pre>
           )}
         </div>
       )}

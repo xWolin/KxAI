@@ -1,0 +1,321 @@
+/* OnboardingWizard — CSS Module */
+
+.root {
+  width: 100%;
+  height: 100%;
+  background: var(--bg-primary);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+}
+
+.header {
+  padding: 20px;
+  text-align: center;
+  -webkit-app-region: drag;
+  background: linear-gradient(180deg, rgba(0, 240, 255, 0.03) 0%, transparent 100%);
+}
+
+.icon {
+  font-size: 48px;
+  margin-bottom: 8px;
+}
+
+.title {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  letter-spacing: 0.02em;
+}
+
+.subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.dots {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--border-bright);
+  transition: var(--transition);
+}
+
+.dotActive {
+  composes: dot;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+.content {
+  flex: 1;
+  padding: 0 24px;
+  overflow-y: auto;
+}
+
+.input {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: var(--font);
+  outline: none;
+  margin-bottom: 12px;
+  transition: border-color var(--transition);
+}
+
+.input:focus {
+  border-color: rgba(0, 240, 255, 0.3);
+}
+
+.label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.welcome {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.welcomeDesc {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.welcomeFeatures {
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 2;
+  list-style: none;
+  margin-top: 16px;
+}
+
+.textarea {
+  composes: input;
+  min-height: 100px;
+  resize: vertical;
+}
+
+.emojiGrid {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+
+.emojiBtn {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  font-size: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition);
+}
+
+.emojiBtn:hover {
+  border-color: var(--border-bright);
+  background: var(--bg-hover);
+}
+
+.emojiBtnSelected {
+  composes: emojiBtn;
+  border: 2px solid var(--accent);
+  background: var(--accent-glow);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.preview {
+  text-align: center;
+  padding: 20px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  margin-top: 16px;
+  border: 1px solid var(--border);
+}
+
+.previewEmoji { font-size: 48px; }
+.previewName {
+  font-size: 16px;
+  font-weight: 600;
+  margin-top: 8px;
+}
+.previewSubtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.providers {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.providerBtn {
+  flex: 1;
+  padding: 16px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-secondary);
+  cursor: pointer;
+  text-align: center;
+  color: var(--text-primary);
+  transition: var(--transition);
+}
+
+.providerBtn:hover {
+  border-color: var(--border-bright);
+  background: var(--bg-hover);
+}
+
+.providerBtnSelected {
+  composes: providerBtn;
+  border: 2px solid var(--accent);
+  background: var(--accent-glow);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.providerIcon { font-size: 20px; margin-bottom: 4px; }
+.providerName { font-size: 13px; font-weight: 600; }
+
+.securityNotice {
+  padding: 12px;
+  background: var(--accent-glow);
+  border-radius: var(--radius-sm);
+  margin-bottom: 16px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  border: 1px solid rgba(0, 240, 255, 0.1);
+}
+
+.keyHint {
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.done {
+  text-align: center;
+  padding: 20px 0;
+}
+
+.doneEmoji { font-size: 64px; margin-bottom: 16px; }
+.doneTitle {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.doneDesc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.shortcuts {
+  margin-top: 20px;
+  padding: 16px;
+  background: var(--bg-secondary);
+  border-radius: var(--radius);
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: left;
+  border: 1px solid var(--border);
+}
+
+.shortcutsItem { margin-top: 4px; }
+
+.error {
+  color: #ff6b6b;
+  padding: 8px 24px;
+  font-size: 13px;
+  text-align: center;
+}
+
+.footer {
+  padding: 16px 24px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.btnBack {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 20px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: var(--transition);
+}
+
+.btnBack:hover {
+  border-color: var(--border-bright);
+  background: var(--glass);
+}
+
+.btnNext {
+  border: none;
+  border-radius: var(--radius-sm);
+  padding: 10px 24px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+  transition: var(--transition);
+}
+
+.btnNextEnabled {
+  composes: btnNext;
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(0, 240, 255, 0.1));
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  cursor: pointer;
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.btnNextEnabled:hover {
+  box-shadow: 0 0 20px var(--accent-glow-strong);
+}
+
+.btnNextDisabled {
+  composes: btnNext;
+  background: var(--bg-tertiary);
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* Select override (for model dropdown) */
+.select {
+  composes: input;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2399a1b3' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+  cursor: pointer;
+}

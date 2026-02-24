@@ -10,6 +10,11 @@ export default defineConfig({
     outDir: '../../dist/renderer',
     emptyOutDir: true,
   },
+  css: {
+    modules: {
+      localsConvention: 'camelCase',
+    },
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src/renderer'),

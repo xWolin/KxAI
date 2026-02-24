@@ -1,0 +1,90 @@
+/* ═══════════════════════════════════════════════════
+   FloatingWidget — CSS Module
+   ═══════════════════════════════════════════════════ */
+
+.widget {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #0a0a10 0%, #111118 100%);
+  border: 1px solid rgba(0, 240, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.2), 0 4px 20px rgba(0, 0, 0, 0.5);
+  transition: all 0.3s ease;
+  -webkit-app-region: no-drag;
+  z-index: 9999;
+}
+
+.widget:hover {
+  transform: scale(1.1);
+  box-shadow: 0 0 30px rgba(0, 240, 255, 0.4), 0 4px 24px rgba(0, 0, 0, 0.6);
+  border-color: rgba(0, 240, 255, 0.5);
+}
+
+.notify {
+  animation: neon-breath 2s infinite;
+}
+
+.emoji {
+  font-size: 28px;
+  line-height: 1;
+}
+
+.badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--neon-magenta);
+  border: 2px solid var(--bg-primary);
+  animation: pulse 1.5s infinite;
+  box-shadow: 0 0 8px rgba(255, 0, 170, 0.5);
+}
+
+/* Take-control active — green pulsing ring */
+.control {
+  animation: none;
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.15) 0%, rgba(0, 255, 136, 0.05) 100%);
+  border-color: rgba(0, 255, 136, 0.5);
+  box-shadow: 0 0 24px rgba(0, 255, 136, 0.3);
+}
+
+.controlRing {
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  border: 2px solid var(--neon-green);
+  animation: control-pulse 1.2s ease-in-out infinite;
+}
+
+/* Suggestion ready — green glow */
+.suggestion {
+  background: linear-gradient(135deg, rgba(0, 255, 136, 0.15) 0%, rgba(0, 255, 136, 0.05) 100%);
+  border-color: rgba(0, 255, 136, 0.5);
+  animation: neon-glow 1.6s ease-in-out infinite;
+}
+
+.suggestion .badge {
+  background: var(--neon-green);
+  box-shadow: 0 0 8px rgba(0, 255, 136, 0.5);
+}
+
+/* Agent wants to speak — magenta glow */
+.speak {
+  background: linear-gradient(135deg, rgba(255, 0, 170, 0.15) 0%, rgba(255, 0, 170, 0.05) 100%);
+  border-color: rgba(255, 0, 170, 0.5);
+  animation: speak-glow 1.4s ease-in-out infinite;
+}
+
+.speak .badge {
+  background: var(--neon-magenta);
+  box-shadow: 0 0 8px rgba(255, 0, 170, 0.5);
+}

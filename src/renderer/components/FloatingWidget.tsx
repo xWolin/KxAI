@@ -1,4 +1,6 @@
 import React, { useRef, useCallback, useEffect } from 'react';
+import s from './FloatingWidget.module.css';
+import { cn } from '../utils/cn';
 
 interface FloatingWidgetProps {
   emoji: string;
@@ -72,14 +74,14 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
 
   // Priority: control > suggestion > speak > notify > normal
   const stateClass = controlActive
-    ? ' floating-widget--control'
+    ? s.control
     : hasSuggestion
-      ? ' floating-widget--suggestion'
+      ? s.suggestion
       : wantsToSpeak
-        ? ' floating-widget--speak'
+        ? s.speak
         : hasNotification
-          ? ' floating-widget--notify'
-          : '';
+          ? s.notify
+          : undefined;
 
   const titleText = controlActive
     ? `${name} — sterowanie aktywne (Ctrl+Shift+K aby zatrzymać)`
@@ -106,19 +108,19 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
       onMouseDown={handleMouseDown}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
-      className={`floating-widget${stateClass}`}
+      className={cn(s.widget, stateClass)}
       title={titleText}
     >
-      <span className="floating-widget__emoji">{emoji}</span>
+      <span className={s.emoji}>{emoji}</span>
       
       {/* Notification badge */}
       {(hasNotification || hasSuggestion || wantsToSpeak) && (
-        <div className="floating-widget__badge" />
+        <div className={s.badge} />
       )}
 
       {/* Control active indicator */}
       {controlActive && (
-        <div className="floating-widget__control-ring" />
+        <div className={s.controlRing} />
       )}
     </div>
   );

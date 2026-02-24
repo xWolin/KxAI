@@ -1,0 +1,106 @@
+/* ═══════════════════════════════════════════════════
+   ErrorBoundary — CSS Module
+   ═══════════════════════════════════════════════════ */
+
+.root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  padding: 32px 24px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border: 1px solid rgba(255, 0, 170, 0.2);
+  border-radius: var(--radius-lg, 12px);
+  margin: 16px;
+}
+
+.icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 0 8px rgba(255, 0, 170, 0.4));
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.message {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+.btn {
+  padding: 8px 18px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-family: var(--font-main, inherit);
+  cursor: pointer;
+  transition: var(--transition, all 0.2s ease);
+}
+
+.btnPrimary {
+  composes: btn;
+  background: var(--neon-magenta);
+  color: #fff;
+  border-color: var(--neon-magenta);
+}
+
+.btnPrimary:hover {
+  background: #ff33bb;
+  box-shadow: 0 0 12px rgba(255, 0, 170, 0.4);
+}
+
+.btnSecondary {
+  composes: btn;
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.btnSecondary:hover {
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.details {
+  margin-top: 16px;
+  width: 100%;
+  text-align: left;
+}
+
+.errorName {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--neon-magenta);
+}
+
+.stack {
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md, 8px);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
