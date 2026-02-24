@@ -26,11 +26,13 @@ src/
 │   │   ├── automation.ts   # AutomationStatus
 │   │   └── index.ts        # Barrel re-export
 │   └── constants.ts        # Stałe (limity, domyślne wartości)
+│   └── ipc-schema.ts        # IPC channel/event constants (Ch, Ev, ChSend) (Faza 3.1 ✅)
 ├── main/                   # Electron main process
-│   ├── main.ts             # Entry point, okno, tray, inicjalizacja serwisów
+│   ├── main.ts             # Entry point, okno, tray, ServiceContainer init (Faza 3.2 ✅)
 │   ├── ipc.ts              # IPC handlers (bridge main ↔ renderer)
 │   ├── preload.ts          # Context bridge (window.kxai API)
 │   └── services/
+│       ├── service-container.ts # DI container: typed ServiceMap, 6-phase init/shutdown (Faza 3.2 ✅)
 │       ├── ai-service.ts       # OpenAI + Anthropic SDK, streaming, vision, native FC
 │       ├── tool-schema-converter.ts # ToolDefinition[] → OpenAI/Anthropic format (Faza 2.1 ✅)
 │       ├── logger.ts           # Tagged logger: createLogger('Tag') (Quick Win ✅)
@@ -88,7 +90,8 @@ src/
 - **Język**: Komunikaty UI i komentarze w kodzie po polsku tam gdzie to naturalne (UX), nazwy zmiennych/typów po angielsku
 - **Typy**: Używaj TypeScript strict mode; współdzielone typy w `src/shared/types/` (canonical source), re-exportowane w serwisach dla backward compat
 - **Path aliases**: `@shared/*` → `src/shared/*`, `@main/*` → `src/main/*`, `@renderer/*` → `src/renderer/*`
-- **IPC**: Każdy nowy IPC handler dodaj w `ipc.ts`, expose w `preload.ts`, typuj w `types.ts` w interfejsie `KxAIBridge`
+- **IPC**: Kanały IPC definiowane jako stałe w `src/shared/ipc-schema.ts` (Ch/Ev/ChSend). Każdy nowy handler dodaj w `ipc.ts` używając stałych, expose w `preload.ts`, typuj w `types.ts`
+- **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
 - **Styling**: Globalne CSS w `global.css`, BEM-like naming (`.component__element--modifier`), CSS custom properties (design tokens)
 - **AI models**: OpenAI używa `max_completion_tokens` (nie `max_tokens`); GPT-5+ używa roli `developer` zamiast `system`
 - **Tool calling**: Native function calling (OpenAI tools API / Anthropic tool_use) domyślnie włączone (`config.useNativeFunctionCalling`). Fallback na ```tool bloki gdy wyłączone.
@@ -150,10 +153,10 @@ GitHub Actions workflow (`.github/workflows/build.yml`) buduje na 3 platformach:
 - **Problem**: Łatwy do złamania, wymaga custom parsingu, nie działa z parallel tool calls
 - **Rozwiązanie**: Faza 2.1 ✅ — Native function calling z `tool-schema-converter.ts`. Parallel tool calls. Fallback na ```tool bloki zachowany.
 
-### P3: Monolityczny ipc.ts (970 linii) i preload.ts (292 linie)
+### P3: Monolityczny ipc.ts (970 linii) i preload.ts (292 linie) ✅ ROZWIĄZANO
 - **Problem**: Każda nowa funkcja to zmiany w 3 plikach (ipc + preload + types)
 - **Problem**: Brak walidacji parametrów IPC, brak typesafe bridge
-- **Rozwiązanie**: Patrz Faza 3, krok 2
+- **Rozwiązanie**: Faza 3.1 ✅ — `ipc-schema.ts` z 95 stałymi kanałów (Ch, Ev, ChSend). Zero string literals w ipc.ts/preload.ts/main.ts. Faza 3.2 ✅ — ServiceContainer eliminuje manual wiring.
 
 ### P4: Brak testów ✅ CZĘŚCIOWO ROZWIĄZANO
 - **Problem**: Zero testów — unit, integration, e2e
@@ -324,40 +327,25 @@ src/
 
 ## Faza 3: Architektura & Stabilność (Tydzień 5-7)
 
-### Krok 3.1 — IPC v2 — Typesafe bridge generator
-> **Problem**: 970 linii ipc.ts, 292 linie preload.ts — ręczna synchronizacja.
+### Krok 3.1 — IPC v2 — Typesafe channel constants ✅
+> **Zaimplementowano**: `src/shared/ipc-schema.ts` z 95 stałymi kanałów w 3 grupach: `Ch` (74 handle channels), `Ev` (19 event channels), `ChSend` (2 send channels). Wszystkie string literals w `ipc.ts`, `preload.ts` i `main.ts` zamienione na stałe. Zero magic strings.
 
-- [ ] Stwórz system auto-generowania IPC bridge:
-  ```typescript
-  // Definicja w jednym miejscu:
-  const ipcSchema = defineIPC({
-    'ai:stream-message': {
-      params: z.object({ message: z.string(), context: z.string().optional() }),
-      returns: z.object({ success: z.boolean(), error: z.string().optional() }),
-    },
-    // ...
-  });
+- [x] Stałe IPC kanałów w `ipc-schema.ts` (Ch, Ev, ChSend) ✅
+- [x] Migracja `ipc.ts` — 74 handlery na stałe Ch.* ✅
+- [x] Migracja `preload.ts` — 74+ wywołań na stałe Ch.*/Ev.*/ChSend.* ✅
+- [x] Migracja `main.ts` — eventy na stałe Ev.* ✅
+- [ ] Runtime validation parametrów IPC via zod schemas (przyszła iteracja)
+- [ ] Pełny codegen bridge z typami (przyszła iteracja)
 
-  // Auto-generowane: preload bridge, renderer types, main handlers
-  ```
-- [ ] Alternatywnie: `electron-trpc` lub custom codegen script
-- [ ] Runtime validation parametrów IPC via zod schemas
-- [ ] Eliminuje 90% boilerplate w ipc.ts/preload.ts
+### Krok 3.2 — Service Container / Dependency Injection ✅
+> **Zaimplementowano**: `service-container.ts` z typowanym `ServiceMap` (22 serwisy). `get<K>(key)` z pełnym TS inference. 6-fazowa `init()` (dependency order) zastępuje ~100 linii ręcznego wiring. 6-fazowa `shutdown()` centralizuje graceful cleanup. `getIPCServices()` mapuje na interfejs kompatybilny z `setupIPC()`. `main.ts` zredukowany z ~685 do ~460 linii.
 
-### Krok 3.2 — Service Container / Dependency Injection
-> **Problem**: main.ts tworzy 22 serwisy ręcznie, wiring jest manualny.
-
-- [ ] Stwórz prosty service container:
-  ```typescript
-  const container = new ServiceContainer();
-  container.register('config', ConfigService);
-  container.register('security', SecurityService, ['config']);
-  container.register('ai', AIService, ['config', 'security', 'memory']);
-  // Auto-resolve dependencies, lazy init, singleton by default
-  ```
-- [ ] Services deklarują swoje zależności — container je wstrzykuje
-- [ ] Lifecycle hooks: `onInit()`, `onReady()`, `onShutdown()`
-- [ ] Eliminuje 100+ linii manual wiring w main.ts
+- [x] Typowany `ServiceContainer` z `ServiceMap` interface (22 klucze) ✅
+- [x] `get<K>(key)` — generyczny accessor z TypeScript inference ✅
+- [x] 6-fazowa `init()` w kolejności zależności ✅
+- [x] 6-fazowa `shutdown()` — centralizacja graceful cleanup ✅
+- [x] `getIPCServices()` — backward compat z `setupIPC()` ✅
+- [x] `main.ts` zredukowany o ~225 linii ✅
 
 ### Krok 3.3 — Async-first file operations ✅
 > **Zaimplementowano**: 7 najczęściej wywoływanych serwisów skonwertowanych z `fs.*Sync` na `fs/promises`. Fire-and-forget pattern (`void save()`) dla nie-krytycznych operacji, `await` dla krytycznych. 18 callerów prompt-service zaktualizowanych. Testy przepisane na async mocki.
@@ -617,9 +605,9 @@ src/
 | 7 | Async file operations | 3.3 | 🟢 Medium | M | P2 | ✅ Done (7 serwisów) |
 | 8 | Error boundaries | 3.5 | 🟢 Medium | S | P2 | ✅ Done |
 | 9 | Graceful shutdown | 3.4 | 🟢 Medium | S | P2 | ✅ Done |
-| 10 | IPC typesafe bridge | 3.1 | 🟢 Medium | M | P2 | ⬜ Next |
-| 11 | Service container | 3.2 | 🟢 Medium | M | P2 | ⬜ |
-| 12 | Frontend CSS Modules | 4.1 | 🟢 Medium | M | P2 | ⬜ |
+| 10 | IPC typesafe bridge | 3.1 | 🟢 Medium | M | P2 | ✅ Done |
+| 11 | Service container | 3.2 | 🟢 Medium | M | P2 | ✅ Done |
+| 12 | Frontend CSS Modules | 4.1 | 🟢 Medium | M | P2 | ⬜ Next |
 | 13 | Ollama local LLM | 2.5/6.5 | 🟡 High | M | P4 | ⬜ Odsunięty |
 | 14 | Structured Outputs | 2.2 | 🟢 Medium | S | P3 | ⬜ |
 | 15 | Knowledge Graph | 6.3 | 🟡 High | XL | P3 | ⬜ |
