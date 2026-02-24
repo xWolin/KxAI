@@ -3,7 +3,8 @@
 ## Projekt
 
 **KxAI** to personalny AI desktop agent (Electron 33 + React 19 + TypeScript 5.7 + Vite 6).
-Agent działa jako floating widget na pulpicie, posiada czat z AI (OpenAI / Anthropic), system pamięci (markdown files), proaktywne notyfikacje, screen capture z vision, cron jobs, framework narzędzi (tools), workflow learning i time awareness.
+Agent działa jako floating widget na pulpicie, posiada czat z AI (OpenAI / Anthropic), system pamięci (SQLite + markdown files), proaktywne notyfikacje, screen capture z vision, cron jobs, framework narzędzi (tools), workflow learning i time awareness.
+RAG pipeline z SQLite-vec (hybrid search: vector + FTS5), native function calling, natywny CDP do automatyzacji przeglądarki.
 
 ## Architektura
 
@@ -53,8 +54,8 @@ src/
 │       ├── browser-service.ts  # CDP browser automation — native CDP (Faza 1.2 ✅)
 │       ├── automation-service.ts # Desktop automation (mouse/keyboard via OS APIs)
 │       ├── database-service.ts # SQLite storage (better-sqlite3, WAL, FTS5, sqlite-vec) (Faza 2.3+2.4 ✅)
-│       ├── rag-service.ts      # RAG pipeline (chunking + embedding + search)
-│       ├── embedding-service.ts # OpenAI embeddings + TF-IDF fallback
+│       ├── rag-service.ts      # RAG pipeline: SQLite storage, vec0 KNN, hybrid search (Faza 2.4 ✅)
+│       ├── embedding-service.ts # OpenAI embeddings + TF-IDF fallback, SQLite cache (Faza 2.4 ✅)
 │       ├── context-manager.ts  # Inteligentne okno kontekstowe (token budget)
 │       ├── screen-monitor.ts   # Tiered monitoring (T0/T1/T2)
 │       ├── sub-agent.ts        # Multi-agent system
@@ -98,7 +99,7 @@ src/
 - **Cron suggestions**: AI outputuje ```cron\n{JSON}\n``` bloki, agent-loop parsuje i proponuje użytkownikowi
 - **Logging**: Używaj `createLogger('Tag')` z `src/main/services/logger.ts` zamiast `console.log/warn/error`
 - **Testing**: Vitest z mockami electron/fs. Testy w `tests/`. Konwencja: `tests/<service-name>.test.ts`
-- **Persistence**: Dane w `app.getPath('userData')/workspace/` (memory/, cron/, workflow/)
+- **Persistence**: SQLite (better-sqlite3, WAL) jako primary storage (sesje, RAG chunks, embeddings, cache). Markdown files dla pamięci agenta (SOUL.md, USER.md, MEMORY.md). Dane w `app.getPath('userData')/workspace/` (memory/, cron/, workflow/)
 
 ## Komendy
 
@@ -136,7 +137,7 @@ GitHub Actions workflow (`.github/workflows/build.yml`) buduje na 3 platformach:
 4. **ContextManager** — token budgeting, importance scoring, summarization
 5. **ToolLoopDetector** — zaawansowana detekcja zapętleń (hash, ping-pong, spiraling)
 6. **SecurityGuard** — SSRF protection, command injection prevention, audit log
-7. **RAG pipeline** — smart chunking per file type, embedding cache, incremental reindex
+7. **RAG pipeline** — SQLite-vec hybrid search (vector KNN + FTS5 keyword → RRF), smart chunking per 7 file types, SQLite persistent embedding cache + hot cache, incremental reindex (Faza 2.4 ✅)
 8. **Meeting Coach** — real-time Deepgram transcription + streaming AI coaching
 9. **Sub-agent system** — izolowane zadania z własnym tool loop
 10. **IntentDetector** — regex-based rozpoznawanie intencji (PL + EN)
@@ -162,9 +163,9 @@ GitHub Actions workflow (`.github/workflows/build.yml`) buduje na 3 platformach:
 - **Problem**: Zero testów — unit, integration, e2e
 - **Rozwiązanie**: Faza 5.1 ✅ — Vitest setup, 172 testy unit (IntentDetector, SecurityGuard, ContextManager, PromptService). Integration/E2E do zrobienia.
 
-### P5: Frontend — jeden plik CSS (global.css), brak component library
+### P5: Frontend — jeden plik CSS (global.css), brak component library ✅ CZĘŚCIOWO ROZWIĄZANO
 - **Problem**: Skalowanie UI jest trudne, brak design system
-- **Rozwiązanie**: Patrz Faza 4
+- **Rozwiązanie**: Faza 4.1 ✅ — CSS Modules per-component (8 plików `*.module.css`), `cn()` utility, design tokens w `:root`. Monolityczny `global.css` (2846→181 linii). Component library (4.2) i state management (4.3) do zrobienia.
 
 ### P6: Brak error boundaries i crash reporting ✅ CZĘŚCIOWO ROZWIĄZANO
 - **Problem**: Uncaught error = biały ekran, brak telemetrii
