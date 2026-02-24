@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import type { KxAIConfig, RAGFolderInfo } from '../types';
+import type { McpServerConfig, McpHubStatus, McpRegistryEntry } from '@shared/types/mcp';
 import s from './SettingsPanel.module.css';
 import { cn } from '../utils/cn';
 
@@ -53,11 +54,29 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [saving, setSaving] = useState(false);
   const [soulContent, setSoulContent] = useState('');
   const [memoryContent, setMemoryContent] = useState('');
-  const [activeTab, setActiveTab] = useState<'general' | 'persona' | 'memory' | 'knowledge'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'persona' | 'memory' | 'knowledge' | 'mcp'>('general');
   const [indexedFolders, setIndexedFolders] = useState<string[]>([]);
   const [folderStats, setFolderStats] = useState<RAGFolderInfo[]>([]);
   const [ragStats, setRagStats] = useState<{ totalChunks: number; totalFiles: number; embeddingType: string } | null>(null);
   const [reindexing, setReindexing] = useState(false);
+
+  // MCP state
+  const [mcpStatus, setMcpStatus] = useState<McpHubStatus | null>(null);
+  const [mcpRegistry, setMcpRegistry] = useState<McpRegistryEntry[]>([]);
+  const [mcpLoading, setMcpLoading] = useState(false);
+  const [mcpAddingServer, setMcpAddingServer] = useState(false);
+  const [mcpShowAddForm, setMcpShowAddForm] = useState(false);
+  const [mcpNewServer, setMcpNewServer] = useState({
+    name: '',
+    transport: 'stdio' as 'streamable-http' | 'sse' | 'stdio',
+    url: '',
+    command: '',
+    args: '',
+    env: '',
+    autoConnect: true,
+  });
+  const [mcpEnvEditing, setMcpEnvEditing] = useState<string | null>(null);
+  const [mcpEnvInput, setMcpEnvInput] = useState('');
 
   useEffect(() => {
     checkApiKey();
@@ -174,6 +193,160 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     }
   }
 
+  // ── MCP Functions ──
+  const loadMcpData = useCallback(async () => {
+    try {
+      setMcpLoading(true);
+      const [status, registry] = await Promise.all([
+        window.kxai.mcpGetStatus(),
+        window.kxai.mcpGetRegistry(),
+      ]);
+      setMcpStatus(status);
+      setMcpRegistry(registry);
+    } catch (err) {
+      console.error('Failed to load MCP data:', err);
+    } finally {
+      setMcpLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'mcp') {
+      loadMcpData();
+      const unsub = window.kxai.onMcpStatus((status: McpHubStatus) => {
+        setMcpStatus(status);
+      });
+      return unsub;
+    }
+  }, [activeTab, loadMcpData]);
+
+  async function handleMcpConnect(id: string) {
+    try {
+      await window.kxai.mcpConnect(id);
+      await loadMcpData();
+    } catch (err) {
+      console.error('MCP connect error:', err);
+    }
+  }
+
+  async function handleMcpDisconnect(id: string) {
+    try {
+      await window.kxai.mcpDisconnect(id);
+      await loadMcpData();
+    } catch (err) {
+      console.error('MCP disconnect error:', err);
+    }
+  }
+
+  async function handleMcpRemove(id: string, name: string) {
+    if (!confirm(`Usunąć serwer MCP "${name}"?`)) return;
+    try {
+      await window.kxai.mcpRemoveServer(id);
+      await loadMcpData();
+    } catch (err) {
+      console.error('MCP remove error:', err);
+    }
+  }
+
+  async function handleMcpAddFromRegistry(entry: McpRegistryEntry) {
+    setMcpAddingServer(true);
+    try {
+      const config: Omit<McpServerConfig, 'id'> = {
+        name: entry.name,
+        transport: entry.transport,
+        url: entry.url,
+        command: entry.command,
+        args: entry.args,
+        env: entry.env,
+        autoConnect: true,
+        enabled: true,
+        icon: entry.icon,
+        category: entry.category,
+      };
+      const added = await window.kxai.mcpAddServer(config);
+      if (added && !entry.requiresSetup) {
+        await window.kxai.mcpConnect(added.id);
+      }
+      await loadMcpData();
+    } catch (err) {
+      console.error('MCP add from registry error:', err);
+    } finally {
+      setMcpAddingServer(false);
+    }
+  }
+
+  async function handleMcpAddCustom() {
+    if (!mcpNewServer.name) return;
+    setMcpAddingServer(true);
+    try {
+      const envObj: Record<string, string> = {};
+      if (mcpNewServer.env.trim()) {
+        for (const line of mcpNewServer.env.split('\n')) {
+          const eqIdx = line.indexOf('=');
+          if (eqIdx > 0) {
+            envObj[line.slice(0, eqIdx).trim()] = line.slice(eqIdx + 1).trim();
+          }
+        }
+      }
+      const config: Omit<McpServerConfig, 'id'> = {
+        name: mcpNewServer.name,
+        transport: mcpNewServer.transport,
+        url: mcpNewServer.transport !== 'stdio' ? mcpNewServer.url : undefined,
+        command: mcpNewServer.transport === 'stdio' ? mcpNewServer.command : undefined,
+        args: mcpNewServer.transport === 'stdio' && mcpNewServer.args
+          ? mcpNewServer.args.split(' ')
+          : undefined,
+        env: Object.keys(envObj).length > 0 ? envObj : undefined,
+        autoConnect: mcpNewServer.autoConnect,
+        enabled: true,
+      };
+      await window.kxai.mcpAddServer(config);
+      setMcpShowAddForm(false);
+      setMcpNewServer({ name: '', transport: 'stdio', url: '', command: '', args: '', env: '', autoConnect: true });
+      await loadMcpData();
+    } catch (err) {
+      console.error('MCP add custom error:', err);
+    } finally {
+      setMcpAddingServer(false);
+    }
+  }
+
+  async function handleMcpUpdateEnv(serverId: string) {
+    try {
+      const envObj: Record<string, string> = {};
+      for (const line of mcpEnvInput.split('\n')) {
+        const eqIdx = line.indexOf('=');
+        if (eqIdx > 0) {
+          envObj[line.slice(0, eqIdx).trim()] = line.slice(eqIdx + 1).trim();
+        }
+      }
+      // Remove and re-add with updated env
+      const servers = await window.kxai.mcpListServers();
+      const server = servers.find(s => s.id === serverId);
+      if (!server) return;
+      await window.kxai.mcpRemoveServer(serverId);
+      await window.kxai.mcpAddServer({
+        ...server,
+        env: Object.keys(envObj).length > 0 ? envObj : undefined,
+      });
+      setMcpEnvEditing(null);
+      setMcpEnvInput('');
+      await loadMcpData();
+    } catch (err) {
+      console.error('MCP update env error:', err);
+    }
+  }
+
+  function getMcpStatusBadge(status: string) {
+    switch (status) {
+      case 'connected': return { text: 'Połączony', cls: s.mcpBadgeConnected };
+      case 'connecting': return { text: 'Łączenie...', cls: s.mcpBadgeConnecting };
+      case 'reconnecting': return { text: 'Reconnect...', cls: s.mcpBadgeConnecting };
+      case 'error': return { text: 'Błąd', cls: s.mcpBadgeError };
+      default: return { text: 'Rozłączony', cls: s.mcpBadgeDisconnected };
+    }
+  }
+
   return (
     <div className={s.panel}>
       {/* Header */}
@@ -197,6 +370,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         </button>
         <button className={activeTab === 'knowledge' ? s.tabActive : s.tab} onClick={() => setActiveTab('knowledge')}>
           📚 Wiedza
+        </button>
+        <button className={activeTab === 'mcp' ? s.tabActive : s.tab} onClick={() => setActiveTab('mcp')}>
+          🔌 MCP
         </button>
       </div>
 
@@ -476,6 +652,268 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               >
                 {reindexing ? '⏳ Reindeksowanie...' : '🔄 Przeindeksuj wszystko'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'mcp' && (
+          <div className="fade-in">
+            <p className={s.desc}>
+              Zarządzaj serwerami MCP (Model Context Protocol). Agent może łączyć się z zewnętrznymi usługami — kalendarzem, Slackiem, GitHubem i wieloma innymi.
+            </p>
+
+            {/* Hub Stats */}
+            {mcpStatus && (
+              <div className={s.section}>
+                <h3 className={s.sectionTitle}>Status Hub</h3>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
+                  <div className={s.statCard}>
+                    <div className={s.statCardValue}>{mcpStatus.connectedCount}</div>
+                    <div className={s.statCardLabel}>Połączonych</div>
+                  </div>
+                  <div className={s.statCard}>
+                    <div className={s.statCardValue}>{mcpStatus.servers.length}</div>
+                    <div className={s.statCardLabel}>Serwerów</div>
+                  </div>
+                  <div className={s.statCard}>
+                    <div className={s.statCardValue}>{mcpStatus.totalTools}</div>
+                    <div className={s.statCardLabel}>Narzędzi</div>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Connected Servers */}
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>Skonfigurowane serwery</h3>
+              
+              {mcpStatus && mcpStatus.servers.length === 0 && (
+                <p className={s.hint}>Brak skonfigurowanych serwerów. Dodaj z rejestru poniżej lub ręcznie.</p>
+              )}
+
+              {mcpStatus?.servers.map((server) => {
+                const badge = getMcpStatusBadge(server.status);
+                return (
+                  <div key={server.id} className={s.mcpServerItem}>
+                    <div className={s.mcpServerHeader}>
+                      <div className={s.mcpServerInfo}>
+                        <span className={s.mcpServerIcon}>{server.icon || '🔌'}</span>
+                        <span className={s.mcpServerName}>{server.name}</span>
+                        <span className={badge.cls}>{badge.text}</span>
+                      </div>
+                      <div className={s.mcpServerActions}>
+                        {server.status === 'connected' ? (
+                          <button
+                            className={s.mcpBtnSmall}
+                            onClick={() => handleMcpDisconnect(server.id)}
+                            title="Rozłącz"
+                          >
+                            ⏹
+                          </button>
+                        ) : (
+                          <button
+                            className={s.mcpBtnSmallAccent}
+                            onClick={() => handleMcpConnect(server.id)}
+                            title="Połącz"
+                          >
+                            ▶
+                          </button>
+                        )}
+                        <button
+                          className={s.mcpBtnSmall}
+                          onClick={() => {
+                            // Find server config to prefill env
+                            window.kxai.mcpListServers().then(servers => {
+                              const srv = servers.find(ss => ss.id === server.id);
+                              const envStr = srv?.env
+                                ? Object.entries(srv.env).map(([k, v]) => `${k}=${v}`).join('\n')
+                                : '';
+                              setMcpEnvEditing(server.id);
+                              setMcpEnvInput(envStr);
+                            });
+                          }}
+                          title="Edytuj env vars"
+                        >
+                          ⚙
+                        </button>
+                        <button
+                          className={s.folderItemRemove}
+                          onClick={() => handleMcpRemove(server.id, server.name)}
+                          title="Usuń"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Tools list */}
+                    {server.status === 'connected' && server.tools.length > 0 && (
+                      <div className={s.mcpToolsList}>
+                        {server.tools.map((tool) => (
+                          <span key={tool.name} className={s.mcpToolBadge} title={tool.description || tool.name}>
+                            {tool.name}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    {server.error && (
+                      <div className={s.mcpServerError}>{server.error}</div>
+                    )}
+
+                    {/* Env editor */}
+                    {mcpEnvEditing === server.id && (
+                      <div className={s.mcpEnvEditor}>
+                        <label className={s.label}>Zmienne środowiskowe (KEY=value, po jednej na linię)</label>
+                        <textarea
+                          className={s.mcpEnvTextarea}
+                          value={mcpEnvInput}
+                          onChange={(e) => setMcpEnvInput(e.target.value)}
+                          placeholder="GITHUB_TOKEN=ghp_xxx&#10;SLACK_TOKEN=xoxb-xxx"
+                          rows={4}
+                        />
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                          <button className={s.mcpBtnSmallAccent} onClick={() => handleMcpUpdateEnv(server.id)}>
+                            Zapisz
+                          </button>
+                          <button className={s.mcpBtnSmall} onClick={() => setMcpEnvEditing(null)}>
+                            Anuluj
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Add Custom Server */}
+            <div className={s.section}>
+              <button
+                className={s.btnSave}
+                onClick={() => setMcpShowAddForm(!mcpShowAddForm)}
+                style={{ marginBottom: '12px' }}
+              >
+                {mcpShowAddForm ? '✕ Anuluj' : '➕ Dodaj serwer ręcznie'}
+              </button>
+
+              {mcpShowAddForm && (
+                <div className={s.mcpAddForm}>
+                  <label className={s.label}>Nazwa</label>
+                  <input
+                    className={s.input}
+                    value={mcpNewServer.name}
+                    onChange={(e) => setMcpNewServer(prev => ({ ...prev, name: e.target.value }))}
+                    placeholder="np. moj-serwer"
+                  />
+
+                  <label className={s.label}>Transport</label>
+                  <select
+                    className={s.select}
+                    value={mcpNewServer.transport}
+                    onChange={(e) => setMcpNewServer(prev => ({
+                      ...prev,
+                      transport: e.target.value as 'streamable-http' | 'sse' | 'stdio',
+                    }))}
+                  >
+                    <option value="stdio">stdio (lokalny proces)</option>
+                    <option value="streamable-http">Streamable HTTP</option>
+                    <option value="sse">SSE (Server-Sent Events)</option>
+                  </select>
+
+                  {mcpNewServer.transport === 'stdio' ? (
+                    <>
+                      <label className={s.label}>Komenda</label>
+                      <input
+                        className={s.input}
+                        value={mcpNewServer.command}
+                        onChange={(e) => setMcpNewServer(prev => ({ ...prev, command: e.target.value }))}
+                        placeholder="npx, node, python..."
+                      />
+                      <label className={s.label}>Argumenty (spacja)</label>
+                      <input
+                        className={s.input}
+                        value={mcpNewServer.args}
+                        onChange={(e) => setMcpNewServer(prev => ({ ...prev, args: e.target.value }))}
+                        placeholder="-y @modelcontextprotocol/server-github"
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <label className={s.label}>URL</label>
+                      <input
+                        className={s.input}
+                        value={mcpNewServer.url}
+                        onChange={(e) => setMcpNewServer(prev => ({ ...prev, url: e.target.value }))}
+                        placeholder="http://localhost:3000/mcp"
+                      />
+                    </>
+                  )}
+
+                  <label className={s.label}>Zmienne środowiskowe (KEY=value)</label>
+                  <textarea
+                    className={s.mcpEnvTextarea}
+                    value={mcpNewServer.env}
+                    onChange={(e) => setMcpNewServer(prev => ({ ...prev, env: e.target.value }))}
+                    placeholder="API_KEY=xxx&#10;TOKEN=yyy"
+                    rows={3}
+                  />
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    <input
+                      type="checkbox"
+                      checked={mcpNewServer.autoConnect}
+                      onChange={(e) => setMcpNewServer(prev => ({ ...prev, autoConnect: e.target.checked }))}
+                    />
+                    Auto-connect przy starcie
+                  </label>
+
+                  <button
+                    className={s.btnSave}
+                    onClick={handleMcpAddCustom}
+                    disabled={mcpAddingServer || !mcpNewServer.name}
+                    style={{ marginTop: '12px' }}
+                  >
+                    {mcpAddingServer ? '⏳ Dodawanie...' : '✅ Dodaj serwer'}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Registry */}
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>📦 Rejestr integracji</h3>
+              <p className={s.hint}>
+                Gotowe integracje MCP. Kliknij aby dodać — agent automatycznie zyska nowe narzędzia.
+              </p>
+
+              {mcpRegistry.map((entry) => {
+                const alreadyAdded = mcpStatus?.servers.some(
+                  s => s.name.toLowerCase() === entry.name.toLowerCase()
+                );
+                return (
+                  <div key={entry.id} className={s.mcpRegistryItem}>
+                    <div className={s.mcpRegistryInfo}>
+                      <span className={s.mcpServerIcon}>{entry.icon}</span>
+                      <div>
+                        <div className={s.mcpRegistryName}>{entry.name}</div>
+                        <div className={s.mcpRegistryDesc}>{entry.description}</div>
+                        {entry.requiresSetup && (
+                          <span className={s.mcpRequiresSetup}>⚙ Wymaga konfiguracji</span>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      className={alreadyAdded ? s.mcpBtnSmall : s.mcpBtnSmallAccent}
+                      onClick={() => !alreadyAdded && handleMcpAddFromRegistry(entry)}
+                      disabled={alreadyAdded || mcpAddingServer}
+                      title={alreadyAdded ? 'Już dodany' : 'Dodaj i połącz'}
+                    >
+                      {alreadyAdded ? '✓' : '+'}
+                    </button>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}

@@ -129,6 +129,20 @@ export class CronService {
 
   private scheduleJob(job: CronJob): void {
     this.unscheduleJob(job.id);
+
+    // One-shot reminder with specific target time
+    if (job.runAt && job.oneShot) {
+      const delay = job.runAt - Date.now();
+      if (delay <= 0) {
+        // Already past — execute immediately and disable
+        void this.executeJob(job);
+        return;
+      }
+      const timer = setTimeout(() => this.executeJob(job), delay);
+      this.timers.set(job.id, timer);
+      return;
+    }
+
     const intervalMs = this.parseScheduleToMs(job.schedule);
     if (intervalMs <= 0) return;
 
@@ -144,6 +158,8 @@ export class CronService {
 
     const timer = setTimeout(() => {
       this.executeJob(job);
+      // Don't set up recurring interval for one-shot jobs
+      if (job.oneShot) return;
       // Set up recurring interval
       const recurring = setInterval(() => this.executeJob(job), intervalMs);
       this.timers.set(job.id, recurring);
@@ -169,6 +185,13 @@ export class CronService {
       job.lastRun = Date.now();
       job.lastResult = result.slice(0, 500);
       job.runCount++;
+
+      // Auto-disable one-shot jobs after execution
+      if (job.oneShot) {
+        job.enabled = false;
+        this.unscheduleJob(job.id);
+      }
+
       await this.saveJobs();
       await this.saveExecution({
         jobId: job.id,
@@ -179,6 +202,13 @@ export class CronService {
     } catch (error: any) {
       job.lastRun = Date.now();
       job.lastResult = `Error: ${error.message}`;
+
+      // Still disable one-shot on error
+      if (job.oneShot) {
+        job.enabled = false;
+        this.unscheduleJob(job.id);
+      }
+
       await this.saveJobs();
       await this.saveExecution({
         jobId: job.id,

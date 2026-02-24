@@ -206,6 +206,7 @@ export class ServiceContainer {
       browser,
       rag,
       plugins,
+      cron,
     });
 
     // MCP Client wiring

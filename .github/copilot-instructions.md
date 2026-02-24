@@ -614,7 +614,7 @@ src/
 - [x] ServiceContainer wiring (init Phase 5, shutdown Phase 2) ✅
 - [x] Dashboard: MCP Hub page + serwery w grafie agenta (`.graph-node--mcp`) ✅
 - [x] Curated registry: 12 serwerów (CalDAV, GitHub, Slack, Notion, Brave Search, etc.) ✅
-- [ ] Env vars UI — konfiguracja API keys/env per serwer (Settings panel)
+- [x] Env vars UI — konfiguracja API keys/env per serwer (Settings panel → zakładka 🔌 MCP) ✅
 - [ ] Auto-reconnect z exponential backoff
 - [ ] MCP server health monitoring (ping interval)
 
@@ -629,10 +629,13 @@ src/
 - [ ] Agent może: czytać emaile, wysyłać odpowiedzi, szukać w skrzynce
 - [ ] Proaktywne: "Masz 3 nowe emaile od klienta X"
 
-### Krok 8.4 — Reminder Engine
-- [ ] Agent zapamiętuje reminders w cron jobs
-- [ ] "Przypomnij mi jutro o 9:00 żeby wysłać raport"
-- [ ] Integration z kalendarzem — auto-tworzenie eventów z reminderów
+### Krok 8.4 — Reminder Engine ✅
+> **Zaimplementowano**: 3 narzędzia AI: `set_reminder`, `list_reminders`, `cancel_reminder`. Naturalny język PL/EN do cron: "jutro o 9:00", "za 2 godziny", "w piątek o 15:30", "codziennie o 8:00", "2025-03-15 10:00". One-shot scheduling z auto-disable (`CronJob.oneShot` + `runAt`). Prompte zaktualizowane (RESOURCEFUL.md + TOOLS.md). CronService rozszerzony o `runAt`-based scheduling.
+
+- [x] Agent zapamiętuje reminders w cron jobs ✅ (set_reminder → CronJob z category:'reminder')
+- [x] "Przypomnij mi jutro o 9:00 żeby wysłać raport" ✅ (parseReminderTime z PL/EN)
+- [x] One-shot reminders z auto-disable po wykonaniu ✅ (CronJob.oneShot + runAt)
+- [ ] Integration z kalendarzem — auto-tworzenie eventów z reminderów (wymaga Phase 8.2)
 
 ### Krok 8.5 — MCP Server Discovery
 - [ ] Dynamiczny fetch rejestru z glama.ai/mcp/servers lub GitHub awesome-mcp-servers
@@ -667,7 +670,7 @@ src/
 | 19 | i18n | 7.4 | 🟢 Medium | M | P4 | ⬜ |
 | 20 | Clipboard Pipeline | 6.1 | 🟢 Medium | M | P4 | ⬜ |
 | 21 | Google Calendar (CalDAV MCP) | 8.2 | 🟡 High | S | P3 | ⬜ |
-| 22 | Reminder Engine | 8.4 | 🟡 High | M | P3 | ⬜ |
+| 22 | Reminder Engine | 8.4 | 🟡 High | M | P3 | ✅ Done |
 | 23 | MCP Server Discovery | 8.5 | 🟢 Medium | M | P4 | ⬜ |
 
 **Effort legend**: S = <1 dzień, M = 2-4 dni, L = 1-2 tygodnie, XL = 2+ tygodnie

@@ -26,6 +26,7 @@ Wyjątek: możesz generować wiele bloków tool jeśli są od siebie NIEZALEŻNE
 | Szybki kod | `execute_code` | `create_and_run_script` (dla jednorazowych) |
 | Trwały skrypt | `create_and_run_script` | `execute_code` (nie persystuje) |
 | Kalendarz, email, Slack, bazy danych | `mcp_browse_registry` → `mcp_add_and_connect` → `mcp_*` | Pisanie własnych skryptów (MCP daje gotowe rozwiązanie) |
+| Przypomnienia, alarmy | `set_reminder` → `list_reminders` / `cancel_reminder` | Ręczne tworzenie cron jobów (set_reminder obsługuje naturalny język) |
 
 ## 🌐 Internet i przeglądarka
 

@@ -8,6 +8,7 @@ import { AutomationService } from './automation-service';
 import { BrowserService } from './browser-service';
 import { RAGService } from './rag-service';
 import { PluginService } from './plugin-service';
+import { CronService } from './cron-service';
 import { SecurityGuard } from './security-guard';
 import { SystemMonitor } from './system-monitor';
 
@@ -22,6 +23,7 @@ export class ToolsService {
   private browserService?: BrowserService;
   private ragService?: RAGService;
   private pluginService?: PluginService;
+  private cronService?: CronService;
   private securityGuard: SecurityGuard;
   private systemMonitor: SystemMonitor;
 
@@ -141,16 +143,19 @@ export class ToolsService {
     browser?: BrowserService;
     rag?: RAGService;
     plugins?: PluginService;
+    cron?: CronService;
   }): void {
     this.automationService = services.automation;
     this.browserService = services.browser;
     this.ragService = services.rag;
     this.pluginService = services.plugins;
+    this.cronService = services.cron;
 
     this.registerAutomationTools();
     this.registerBrowserTools();
     this.registerRAGTools();
     this.registerPluginTools();
+    this.registerReminderTools();
   }
 
   private registerBuiltinTools(): void {
@@ -1477,6 +1482,266 @@ export class ToolsService {
         return this.pluginService!.executeTool(def.name, params);
       });
     }
+  }
+
+  // ─── Reminder Tools ───
+
+  private registerReminderTools(): void {
+    if (!this.cronService) return;
+
+    // ── set_reminder ──
+    this.register({
+      name: 'set_reminder',
+      description: 'Ustawia przypomnienie na podany czas. Obsługuje naturalny język polski/angielski: "jutro o 9:00", "za 2 godziny", "w piątek o 15:30", "2025-03-15 10:00". Jednorazowe (one-shot) lub powtarzalne.',
+      category: 'cron',
+      parameters: {
+        message: { type: 'string', description: 'Treść przypomnienia — co agent ma powiedzieć/zrobić' },
+        time: { type: 'string', description: 'Kiedy: "za 30 minut", "jutro o 9:00", "w piątek o 15:30", "2025-03-15 10:00", "codziennie o 8:00"' },
+        recurring: { type: 'boolean', description: 'Czy powtarzalne (domyślnie: false = jednorazowe)' },
+      },
+    }, async (params: { message: string; time: string; recurring?: boolean }) => {
+      const cron = this.cronService!;
+      const { message, time, recurring } = params;
+      if (!message || !time) {
+        return { success: false, error: 'Wymagane parametry: message i time' };
+      }
+
+      const parsed = this.parseReminderTime(time);
+      if (!parsed) {
+        return { success: false, error: `Nie udało się zrozumieć czasu: "${time}". Spróbuj np. "za 30 minut", "jutro o 9:00", "2025-03-15 10:00"` };
+      }
+
+      const isOneShot = !recurring;
+
+      const job = cron.addJob({
+        name: `🔔 ${message.slice(0, 80)}`,
+        schedule: parsed.schedule,
+        action: `PRZYPOMNIENIE: ${message}. Powiadom użytkownika o tym przypomnieniu — użyj send_notification i wyświetl wiadomość w czacie.`,
+        autoCreated: true,
+        enabled: true,
+        category: 'reminder',
+        oneShot: isOneShot,
+        runAt: isOneShot ? parsed.timestamp : undefined,
+      });
+
+      const timeStr = parsed.timestamp
+        ? new Date(parsed.timestamp).toLocaleString('pl-PL', { dateStyle: 'medium', timeStyle: 'short' })
+        : parsed.schedule;
+
+      return {
+        success: true,
+        data: `✅ Przypomnienie ustawione!\n📝 ${message}\n⏰ ${timeStr}\n${isOneShot ? '🔂 Jednorazowe' : '🔄 Powtarzalne: ' + parsed.schedule}\n🆔 ${job.id}`,
+      };
+    });
+
+    // ── list_reminders ──
+    this.register({
+      name: 'list_reminders',
+      description: 'Wyświetla listę aktywnych przypomnień użytkownika',
+      category: 'cron',
+      parameters: {
+        include_past: { type: 'boolean', description: 'Czy pokazać też przeszłe/wyłączone przypomnienia (domyślnie: false)' },
+      },
+    }, async (params: { include_past?: boolean }) => {
+      const cron = this.cronService!;
+      const jobs = cron.getJobs();
+      let reminders = jobs.filter(j => j.category === 'reminder');
+      if (!params.include_past) {
+        reminders = reminders.filter(j => j.enabled);
+      }
+
+      if (reminders.length === 0) {
+        return { success: true, data: '📭 Brak aktywnych przypomnień.' };
+      }
+
+      const lines = reminders.map((r, i) => {
+        const status = r.enabled ? '🟢' : '⚪';
+        const type = r.oneShot ? '🔂' : '🔄';
+        const timeStr = r.runAt
+          ? new Date(r.runAt).toLocaleString('pl-PL', { dateStyle: 'medium', timeStyle: 'short' })
+          : r.schedule;
+        return `${i + 1}. ${status} ${type} ${r.name}\n   ⏰ ${timeStr} | Wykonań: ${r.runCount} | ID: ${r.id}`;
+      });
+
+      return { success: true, data: `🔔 Przypomnienia (${reminders.length}):\n\n${lines.join('\n\n')}` };
+    });
+
+    // ── cancel_reminder ──
+    this.register({
+      name: 'cancel_reminder',
+      description: 'Anuluje/usuwa przypomnienie po ID lub nazwie (fragment)',
+      category: 'cron',
+      parameters: {
+        id: { type: 'string', description: 'ID przypomnienia (UUID) — dokładne dopasowanie' },
+        name: { type: 'string', description: 'Fragment nazwy przypomnienia — szuka w nazwie i treści' },
+      },
+    }, async (params: { id?: string; name?: string }) => {
+      const cron = this.cronService!;
+      if (!params.id && !params.name) {
+        return { success: false, error: 'Podaj id lub name przypomnienia do anulowania' };
+      }
+
+      const jobs = cron.getJobs();
+      let target = params.id
+        ? jobs.find(j => j.id === params.id && j.category === 'reminder')
+        : jobs.find(j => j.category === 'reminder' && (
+            j.name.toLowerCase().includes((params.name || '').toLowerCase()) ||
+            j.action.toLowerCase().includes((params.name || '').toLowerCase())
+          ));
+
+      if (!target) {
+        return { success: false, error: `Nie znaleziono przypomnienia${params.id ? ` o ID: ${params.id}` : ` zawierającego: "${params.name}"`}` };
+      }
+
+      cron.removeJob(target.id);
+      return { success: true, data: `🗑️ Anulowano przypomnienie: ${target.name}` };
+    });
+  }
+
+  /**
+   * Parse natural language time expression to schedule + optional timestamp.
+   * Supports Polish and English date/time expressions.
+   */
+  private parseReminderTime(input: string): { schedule: string; timestamp?: number } | null {
+    const now = new Date();
+    const text = input.trim().toLowerCase();
+
+    // ── Relative time: "za X minut/godzin/sekund" or "in X minutes/hours" ──
+    const relMatch = text.match(
+      /^(?:za|in|om)\s+(\d+)\s*(min|minut|minute|minutes|m|godz|godzin|godziny|hour|hours|h|sek|sekund|sekundy|second|seconds|s|dni|dni|day|days|d)(?:y|ę)?$/i
+    );
+    if (relMatch) {
+      const val = parseInt(relMatch[1]);
+      const unit = relMatch[2].toLowerCase();
+      let ms: number;
+      if (unit.startsWith('min') || unit === 'm') ms = val * 60_000;
+      else if (unit.startsWith('godz') || unit.startsWith('hour') || unit === 'h') ms = val * 3_600_000;
+      else if (unit.startsWith('sek') || unit.startsWith('sec') || unit === 's') ms = val * 1000;
+      else if (unit.startsWith('dn') || unit.startsWith('day') || unit === 'd') ms = val * 86_400_000;
+      else ms = val * 60_000;
+      const target = now.getTime() + ms;
+      return { schedule: `${val}${unit[0]}`, timestamp: target };
+    }
+
+    // ── "jutro o HH:MM" / "tomorrow at HH:MM" ──
+    const tomorrowMatch = text.match(/^(?:jutro|tomorrow)\s*(?:o|at|@)?\s*(\d{1,2})[:\.](\d{2})$/);
+    if (tomorrowMatch) {
+      const target = new Date(now);
+      target.setDate(target.getDate() + 1);
+      target.setHours(parseInt(tomorrowMatch[1]), parseInt(tomorrowMatch[2]), 0, 0);
+      const min = target.getMinutes();
+      const hour = target.getHours();
+      return { schedule: `${min} ${hour} * * *`, timestamp: target.getTime() };
+    }
+
+    // ── "dziś/dzisiaj/today o HH:MM" ──
+    const todayMatch = text.match(/^(?:dzi[sś](?:iaj)?|today)\s*(?:o|at|@)?\s*(\d{1,2})[:\.](\d{2})$/);
+    if (todayMatch) {
+      const target = new Date(now);
+      target.setHours(parseInt(todayMatch[1]), parseInt(todayMatch[2]), 0, 0);
+      if (target.getTime() <= now.getTime()) {
+        // Already past today — set for tomorrow
+        target.setDate(target.getDate() + 1);
+      }
+      const min = target.getMinutes();
+      const hour = target.getHours();
+      return { schedule: `${min} ${hour} * * *`, timestamp: target.getTime() };
+    }
+
+    // ── Day of week: "w poniedziałek o HH:MM" / "on monday at HH:MM" ──
+    const dayNames: Record<string, number> = {
+      'poniedziałek': 1, 'poniedzialek': 1, 'pon': 1, 'monday': 1, 'mon': 1,
+      'wtorek': 2, 'wt': 2, 'tuesday': 2, 'tue': 2,
+      'środa': 3, 'sroda': 3, 'śr': 3, 'sr': 3, 'wednesday': 3, 'wed': 3,
+      'czwartek': 4, 'czw': 4, 'thursday': 4, 'thu': 4,
+      'piątek': 5, 'piatek': 5, 'pt': 5, 'friday': 5, 'fri': 5,
+      'sobota': 6, 'sob': 6, 'saturday': 6, 'sat': 6,
+      'niedziela': 0, 'niedz': 0, 'nd': 0, 'sunday': 0, 'sun': 0,
+    };
+    const dayMatch = text.match(
+      /^(?:w\s+|we\s+|on\s+|next\s+)?(\w+)\s*(?:o|at|@)?\s*(\d{1,2})[:\.](\d{2})$/
+    );
+    if (dayMatch) {
+      const dayName = dayMatch[1];
+      const targetDay = dayNames[dayName];
+      if (targetDay !== undefined) {
+        const hour = parseInt(dayMatch[2]);
+        const minute = parseInt(dayMatch[3]);
+        const target = new Date(now);
+        const currentDay = target.getDay();
+        let daysUntil = targetDay - currentDay;
+        if (daysUntil < 0) daysUntil += 7;
+        if (daysUntil === 0 && (hour < now.getHours() || (hour === now.getHours() && minute <= now.getMinutes()))) {
+          daysUntil = 7;
+        }
+        target.setDate(target.getDate() + daysUntil);
+        target.setHours(hour, minute, 0, 0);
+        return { schedule: `${minute} ${hour} * * ${targetDay}`, timestamp: target.getTime() };
+      }
+    }
+
+    // ── Absolute date: "YYYY-MM-DD HH:MM" or "DD.MM.YYYY HH:MM" ──
+    const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2})[:\.](\d{2})$/);
+    if (isoMatch) {
+      const target = new Date(
+        parseInt(isoMatch[1]), parseInt(isoMatch[2]) - 1, parseInt(isoMatch[3]),
+        parseInt(isoMatch[4]), parseInt(isoMatch[5]), 0
+      );
+      if (target.getTime() <= now.getTime()) {
+        return null; // Past date
+      }
+      const min = target.getMinutes();
+      const hour = target.getHours();
+      return { schedule: `${min} ${hour} ${target.getDate()} ${target.getMonth() + 1} *`, timestamp: target.getTime() };
+    }
+
+    const plDateMatch = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2})[:\.](\d{2})$/);
+    if (plDateMatch) {
+      const target = new Date(
+        parseInt(plDateMatch[3]), parseInt(plDateMatch[2]) - 1, parseInt(plDateMatch[1]),
+        parseInt(plDateMatch[4]), parseInt(plDateMatch[5]), 0
+      );
+      if (target.getTime() <= now.getTime()) {
+        return null;
+      }
+      const min = target.getMinutes();
+      const hour = target.getHours();
+      return { schedule: `${min} ${hour} ${target.getDate()} ${target.getMonth() + 1} *`, timestamp: target.getTime() };
+    }
+
+    // ── Recurring: "codziennie o HH:MM" / "every day at HH:MM" ──
+    const dailyMatch = text.match(/^(?:codziennie|every\s*day|daily)\s*(?:o|at|@)?\s*(\d{1,2})[:\.](\d{2})$/);
+    if (dailyMatch) {
+      const hour = parseInt(dailyMatch[1]);
+      const minute = parseInt(dailyMatch[2]);
+      return { schedule: `${minute} ${hour} * * *` };
+    }
+
+    // ── Recurring: "co X minut/godzin" / "every X minutes/hours" ──
+    const everyMatch = text.match(
+      /^(?:co|every)\s+(\d+)\s*(min|minut|minute|minutes|m|godz|godzin|godziny|hour|hours|h)(?:y|ę)?$/i
+    );
+    if (everyMatch) {
+      const val = parseInt(everyMatch[1]);
+      const unit = everyMatch[2].toLowerCase();
+      if (unit.startsWith('min') || unit === 'm') return { schedule: `${val}m` };
+      if (unit.startsWith('godz') || unit.startsWith('hour') || unit === 'h') return { schedule: `${val}h` };
+    }
+
+    // ── Just time: "o HH:MM" / "at HH:MM" / "HH:MM" ──
+    const timeOnly = text.match(/^(?:o|at|@)?\s*(\d{1,2})[:\.](\d{2})$/);
+    if (timeOnly) {
+      const hour = parseInt(timeOnly[1]);
+      const minute = parseInt(timeOnly[2]);
+      const target = new Date(now);
+      target.setHours(hour, minute, 0, 0);
+      if (target.getTime() <= now.getTime()) {
+        target.setDate(target.getDate() + 1);
+      }
+      return { schedule: `${minute} ${hour} * * *`, timestamp: target.getTime() };
+    }
+
+    return null;
   }
 
   // ─── Registry ───

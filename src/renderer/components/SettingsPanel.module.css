@@ -300,3 +300,220 @@
   font-family: var(--font-mono);
   line-height: 1.5;
 }
+
+/* ── MCP Tab ── */
+
+.mcpServerItem {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  transition: border-color 0.15s;
+}
+
+.mcpServerItem:hover {
+  border-color: var(--border-bright);
+}
+
+.mcpServerHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mcpServerInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mcpServerIcon {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.mcpServerName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mcpServerActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.mcpBtnSmall {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 4px 8px;
+  transition: var(--transition);
+}
+
+.mcpBtnSmall:hover {
+  background: var(--glass);
+  color: var(--text-primary);
+  border-color: var(--border-bright);
+}
+
+.mcpBtnSmall:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mcpBtnSmallAccent {
+  composes: mcpBtnSmall;
+  border-color: rgba(0, 240, 255, 0.3);
+  color: var(--accent);
+}
+
+.mcpBtnSmallAccent:hover {
+  background: var(--accent-glow);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* Status badges */
+.mcpBadgeConnected {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: rgba(0, 255, 136, 0.1);
+  color: #00ff88;
+  border: 1px solid rgba(0, 255, 136, 0.2);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.mcpBadgeConnecting {
+  composes: mcpBadgeConnected;
+  background: rgba(255, 200, 0, 0.1);
+  color: #ffc800;
+  border-color: rgba(255, 200, 0, 0.2);
+}
+
+.mcpBadgeError {
+  composes: mcpBadgeConnected;
+  background: rgba(255, 51, 85, 0.1);
+  color: var(--error);
+  border-color: rgba(255, 51, 85, 0.2);
+}
+
+.mcpBadgeDisconnected {
+  composes: mcpBadgeConnected;
+  background: rgba(128, 128, 128, 0.1);
+  color: var(--text-muted);
+  border-color: rgba(128, 128, 128, 0.2);
+}
+
+/* Tools list */
+.mcpToolsList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.mcpToolBadge {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--glass);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  border: 1px solid var(--border);
+}
+
+.mcpServerError {
+  font-size: 11px;
+  color: var(--error);
+  margin-top: 6px;
+  padding: 4px 8px;
+  background: rgba(255, 51, 85, 0.05);
+  border-radius: var(--radius-xs);
+}
+
+/* Env editor */
+.mcpEnvEditor {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.mcpEnvTextarea {
+  composes: input;
+  min-height: 80px;
+  resize: vertical;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+}
+
+/* Add form */
+.mcpAddForm {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 16px;
+}
+
+/* Registry */
+.mcpRegistryItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  transition: border-color 0.15s;
+}
+
+.mcpRegistryItem:hover {
+  border-color: var(--border-bright);
+}
+
+.mcpRegistryInfo {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+
+.mcpRegistryName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.mcpRegistryDesc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: 1.4;
+}
+
+.mcpRequiresSetup {
+  display: inline-block;
+  font-size: 10px;
+  color: #ffc800;
+  margin-top: 4px;
+}

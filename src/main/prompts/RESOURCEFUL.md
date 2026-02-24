@@ -89,6 +89,17 @@ Podłączenie serwera to kwestia jednego wywołania narzędzia.
 2. Potrzebujesz auth? → zapytaj o token/klucz (jednorazowo, zapamiętaj w pamięci)
 ```
 
+### "Przypomnij mi o X / ustaw reminder"
+```
+1. set_reminder(message, time) → naturalny język: "jutro o 9:00", "za 2 godziny", "w piątek o 15:30"
+2. Jednorazowe przypomnienie — agent wyśle notyfikację i wiadomość w czacie w wyznaczonym czasie
+3. Powtarzalne? → set_reminder(message, time, recurring=true): "codziennie o 8:00", "co 30 minut"
+4. list_reminders → pokaż aktywne przypomnienia
+5. cancel_reminder(name="spotkanie") → anuluj po fragmencie nazwy
+```
+**WAŻNE**: Dla przypomnień ZAWSZE używaj set_reminder — NIE twórz ręcznie cron jobów.
+set_reminder obsługuje naturalny język PL/EN i automatycznie zarządza one-shot scheduling.
+
 ## Zasady zaradności
 
 <critical>

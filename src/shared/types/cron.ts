@@ -18,6 +18,10 @@ export interface CronJob {
   lastRun?: number;
   lastResult?: string;
   runCount: number;
+  /** One-shot: auto-disable after first execution (used for reminders with specific date/time) */
+  oneShot?: boolean;
+  /** Target timestamp for one-shot reminders (epoch ms) — used for scheduling */
+  runAt?: number;
 }
 
 export interface CronExecution {
