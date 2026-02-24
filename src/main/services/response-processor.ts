@@ -13,6 +13,11 @@
 import { CronService, CronJob } from './cron-service';
 import { MemoryService } from './memory';
 import { createLogger } from './logger';
+import {
+  CronSuggestionSchema,
+  TakeControlSchema,
+  MemoryUpdateSchema,
+} from '../../shared/schemas/ai-responses';
 
 const log = createLogger('ResponseProcessor');
 
@@ -83,46 +88,59 @@ export class ResponseProcessor {
 
   /**
    * Parse cron job suggestion from AI response.
+   * Validates with zod schema — logs and returns null on invalid data.
    */
   parseCronSuggestion(response: string): CronSuggestion | null {
     const cronMatch = response.match(/```cron\s*\n([\s\S]*?)\n```/);
     if (!cronMatch) return null;
 
     try {
-      const parsed = JSON.parse(cronMatch[1]);
-      if (parsed.name && parsed.schedule && parsed.action) {
-        return {
-          name: parsed.name,
-          schedule: parsed.schedule,
-          action: parsed.action,
-          category: parsed.category || 'custom',
-          autoCreated: true,
-          enabled: true,
-        };
+      const raw = JSON.parse(cronMatch[1]);
+      const parsed = CronSuggestionSchema.safeParse(raw);
+      if (!parsed.success) {
+        log.warn('Invalid cron suggestion schema:', parsed.error.message);
+        return null;
       }
-    } catch { /* invalid JSON */ }
+      return {
+        name: parsed.data.name,
+        schedule: parsed.data.schedule,
+        action: parsed.data.action,
+        category: parsed.data.category,
+        autoCreated: true,
+        enabled: true,
+      };
+    } catch (err) {
+      log.warn('Failed to parse cron suggestion JSON:', err);
+    }
     return null;
   }
 
   /**
    * Parse take_control request from AI response.
+   * Validates with zod schema — logs and returns null on invalid data.
    */
   parseTakeControlRequest(response: string): string | null {
     const match = response.match(/```take_control\s*\n([\s\S]*?)\n```/);
     if (!match) return null;
 
     try {
-      const parsed = JSON.parse(match[1]);
-      if (parsed.task && typeof parsed.task === 'string') {
-        return parsed.task.slice(0, 500);
+      const raw = JSON.parse(match[1]);
+      const parsed = TakeControlSchema.safeParse(raw);
+      if (!parsed.success) {
+        log.warn('Invalid take_control schema:', parsed.error.message);
+        return null;
       }
-    } catch { /* invalid JSON */ }
+      return parsed.data.task;
+    } catch (err) {
+      log.warn('Failed to parse take_control JSON:', err);
+    }
     return null;
   }
 
   /**
    * Parse and apply memory updates from AI response.
    * Supports multiple ```update_memory blocks in one response.
+   * Validates each with zod schema — logs and skips invalid entries.
    * Returns the number of updates applied.
    */
   async processMemoryUpdates(response: string): Promise<number> {
@@ -132,8 +150,12 @@ export class ResponseProcessor {
 
     while ((match = regex.exec(response)) !== null) {
       try {
-        const parsed = JSON.parse(match[1]);
-        if (typeof parsed.file !== 'string') continue;
+        const raw = JSON.parse(match[1]);
+        const parsed = MemoryUpdateSchema.safeParse(raw);
+        if (!parsed.success) {
+          log.warn('Invalid memory update schema:', parsed.error.message);
+          continue;
+        }
 
         const fileMap: Record<string, 'SOUL.md' | 'USER.md' | 'MEMORY.md'> = {
           soul: 'SOUL.md',
@@ -141,15 +163,14 @@ export class ResponseProcessor {
           memory: 'MEMORY.md',
         };
 
-        const file = fileMap[parsed.file.toLowerCase()];
-        if (!file || !parsed.section || !parsed.content) continue;
+        const file = fileMap[parsed.data.file];
+        if (!file) continue;
 
-        const content = String(parsed.content).slice(0, 2000);
-        const section = String(parsed.section).slice(0, 100);
-
-        await this.memory.updateMemorySection(file, section, content);
+        await this.memory.updateMemorySection(file, parsed.data.section, parsed.data.content);
         count++;
-      } catch { /* invalid JSON, skip */ }
+      } catch (err) {
+        log.warn('Failed to parse memory update JSON:', err);
+      }
     }
 
     return count;

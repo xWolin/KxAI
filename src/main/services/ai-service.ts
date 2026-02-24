@@ -12,9 +12,18 @@ import {
   type NativeToolStreamResult,
 } from './tool-schema-converter';
 import type { ToolDefinition } from '../../shared/types/tools';
+import {
+  ScreenAnalysisSchema,
+  buildOpenAIJsonSchema,
+  type ScreenAnalysisResult,
+} from '../../shared/schemas/ai-responses';
+import { createLogger } from './logger';
 import { v4 as uuidv4 } from 'uuid';
 
+const log = createLogger('AIService');
+
 export type { NativeToolCall, NativeToolStreamResult } from './tool-schema-converter';
+export type { ScreenAnalysisResult } from '../../shared/schemas/ai-responses';
 
 interface AIMessage {
   role: 'system' | 'developer' | 'user' | 'assistant';
@@ -25,12 +34,6 @@ interface AIContentPart {
   type: 'text' | 'image_url';
   text?: string;
   image_url?: { url: string; detail?: string };
-}
-
-interface ScreenAnalysisResult {
-  hasInsight: boolean;
-  message: string;
-  context: string;
 }
 
 /**
@@ -925,12 +928,16 @@ export class AIService {
           ],
           ...this.openaiTokenParam(1024),
           temperature: 0.5,
-          response_format: { type: 'json_object' },
+          response_format: buildOpenAIJsonSchema('screen_analysis', ScreenAnalysisSchema),
         });
 
         const text = response.choices[0]?.message?.content || '{}';
-        const result = JSON.parse(text);
-        return result as ScreenAnalysisResult;
+        const parsed = ScreenAnalysisSchema.safeParse(JSON.parse(text));
+        if (!parsed.success) {
+          log.warn('Screen analysis response failed schema validation:', parsed.error.message);
+          return null;
+        }
+        return parsed.data;
       } else if (provider === 'anthropic' && this.anthropicClient) {
         const imageContents = screenshots.map((s) => {
           // Extract base64 data from data URL
@@ -962,12 +969,21 @@ export class AIService {
 
         const text =
           response.content[0]?.type === 'text' ? response.content[0].text : '{}';
-        const jsonMatch = text.match(/\{[\s\S]*\}/);
-        const result = JSON.parse(jsonMatch?.[0] || '{}');
-        return result as ScreenAnalysisResult;
+        // Use non-greedy regex to match the first JSON object (avoid greedy match across multiple braces)
+        const jsonMatch = text.match(/\{[\s\S]*?\}/);
+        if (!jsonMatch) {
+          log.warn('Screen analysis: no JSON object found in Anthropic response');
+          return null;
+        }
+        const parsed = ScreenAnalysisSchema.safeParse(JSON.parse(jsonMatch[0]));
+        if (!parsed.success) {
+          log.warn('Screen analysis response failed schema validation:', parsed.error.message);
+          return null;
+        }
+        return parsed.data;
       }
     } catch (error) {
-      console.error('Screen analysis failed:', error);
+      log.error('Screen analysis failed:', error);
     }
 
     return null;

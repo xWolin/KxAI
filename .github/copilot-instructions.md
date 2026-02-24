@@ -28,6 +28,8 @@ src/
 │   │   └── index.ts        # Barrel re-export
 │   └── constants.ts        # Stałe (limity, domyślne wartości)
 │   └── ipc-schema.ts        # IPC channel/event constants (Ch, Ev, ChSend) (Faza 3.1 ✅)
+│   └── schemas/
+│       └── ai-responses.ts  # Zod schemas: ScreenAnalysis, CronSuggestion, MemoryUpdate, TakeControl (Faza 2.2 ✅)
 ├── main/                   # Electron main process
 │   ├── main.ts             # Entry point, okno, tray, ServiceContainer init (Faza 3.2 ✅)
 │   ├── ipc.ts              # IPC handlers (bridge main ↔ renderer)
@@ -271,13 +273,14 @@ src/
 - [x] Zachowaj backward compatibility z ```tool blokami jako fallback ✅
 - [x] Ujednolicenie tool result format: `tool_call_id` mapping ✅
 
-### Krok 2.2 — Structured Outputs
-- [ ] Użyj OpenAI Structured Outputs (`response_format: { type: 'json_schema' }`) dla:
-  - Screen analysis responses (`{hasInsight, message, context}`)
-  - Cron suggestions (schema zamiast ```cron bloków)
-  - Memory updates (schema zamiast ```update_memory bloków)
-  - Intent classification
-- [ ] Eliminuje potrzebę custom parsingu — AI MUSI zwrócić valid JSON
+### Krok 2.2 — Structured Outputs ✅
+> **Zaimplementowano**: Zod schemas w `src/shared/schemas/ai-responses.ts` (ScreenAnalysis, CronSuggestion, MemoryUpdate, TakeControl). OpenAI screen analysis upgraded z `json_object` na `json_schema` (Structured Outputs) z `buildOpenAIJsonSchema()`. Anthropic regex naprawiony (greedy → non-greedy). Wszystkie parsery w `response-processor.ts` używają `safeParse()` z logowaniem błędów. Zduplikowane parsery usunięte z `agent-loop.ts` — delegacja do `ResponseProcessor`.
+
+- [x] OpenAI Structured Outputs (`json_schema`) dla screen analysis ✅
+- [x] Zod schema validation dla cron/memory/take_control parserów ✅
+- [x] Deduplikacja: agent-loop deleguje do ResponseProcessor ✅
+- [x] Error logging zamiast cichych `catch {}` ✅
+- [ ] Structured Outputs dla intent classification (przyszła iteracja)
 
 ### Krok 2.3 — Memory v2 — SQLite-backed ✅
 > **Zaimplementowano**: `database-service.ts` (~430 LOC) z better-sqlite3. WAL mode, FTS5 full-text search, prepared statements, schema migrations. `memory.ts` zaktualizowany — SQLite jako primary storage z JSON fallback. Auto-migracja starych JSON sesji. Retention policy (archive 30d, delete 90d). Graceful shutdown z WAL checkpoint w `main.ts`.
@@ -606,7 +609,7 @@ src/
 | 11 | Service container | 3.2 | 🟢 Medium | M | P2 | ✅ Done |
 | 12 | Frontend CSS Modules | 4.1 | 🟢 Medium | M | P2 | ✅ Done (8 modułów) |
 | 13 | Ollama local LLM | 2.5/6.5 | 🟡 High | M | P4 | ⬜ Odsunięty |
-| 14 | Structured Outputs | 2.2 | 🟢 Medium | S | P3 | ⬜ |
+| 14 | Structured Outputs | 2.2 | 🟢 Medium | S | P3 | ✅ Done |
 | 15 | Knowledge Graph | 6.3 | 🟡 High | XL | P3 | ⬜ |
 | 16 | Workflow Automator | 6.2 | 🟡 High | XL | P3 | ⬜ |
 | 17 | Auto-updater | 7.1 | 🟢 Medium | S | P3 | ⬜ |

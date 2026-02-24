@@ -519,8 +519,8 @@ export class AgentLoop {
             onChunk?.(visionResponse);
 
             // Process any tool calls, memory updates, etc. from the vision response
-            await this.processMemoryUpdates(visionResponse);
-            const cronSuggestion = this.parseCronSuggestion(visionResponse);
+            await this.responseProcessor.processMemoryUpdates(visionResponse);
+            const cronSuggestion = this.responseProcessor.parseCronSuggestion(visionResponse);
             if (cronSuggestion) {
               this.pendingCronSuggestions.push(cronSuggestion);
             }
@@ -704,7 +704,7 @@ export class AgentLoop {
     }
 
     // Check for cron suggestions — queue for user review
-    const cronSuggestion = this.parseCronSuggestion(fullResponse);
+    const cronSuggestion = this.responseProcessor.parseCronSuggestion(fullResponse);
     if (cronSuggestion) {
       this.pendingCronSuggestions.push(cronSuggestion);
       onChunk?.('\n\n📋 Zasugerowano nowy cron job (oczekuje na zatwierdzenie) — sprawdź zakładkę Cron Jobs.\n');
@@ -712,7 +712,7 @@ export class AgentLoop {
 
     // Check for take_control request — queue for user confirmation
     // First: check if AI responded with ```take_control block
-    let takeControlTask = this.parseTakeControlRequest(fullResponse);
+    let takeControlTask = this.responseProcessor.parseTakeControlRequest(fullResponse);
     // Fallback: detect intent from user's original message if AI didn't use the block
     if (!takeControlTask) {
       takeControlTask = this.detectTakeControlIntent(userMessage);
@@ -723,7 +723,7 @@ export class AgentLoop {
     }
 
     // Check for memory updates — AI self-updating its knowledge files
-    await this.processMemoryUpdates(fullResponse);
+    await this.responseProcessor.processMemoryUpdates(fullResponse);
 
     // Check for bootstrap completion
     if (fullResponse.includes('BOOTSTRAP_COMPLETE')) {
@@ -902,13 +902,13 @@ export class AgentLoop {
     }
 
     // Process cron suggestions, take_control, memory updates from final response
-    const cronSuggestion = this.parseCronSuggestion(fullResponse);
+    const cronSuggestion = this.responseProcessor.parseCronSuggestion(fullResponse);
     if (cronSuggestion) {
       this.pendingCronSuggestions.push(cronSuggestion);
       onChunk?.('\n\n📋 Zasugerowano nowy cron job (oczekuje na zatwierdzenie) — sprawdź zakładkę Cron Jobs.\n');
     }
 
-    let takeControlTask = this.parseTakeControlRequest(fullResponse);
+    let takeControlTask = this.responseProcessor.parseTakeControlRequest(fullResponse);
     if (!takeControlTask) {
       takeControlTask = this.detectTakeControlIntent(userMessage);
     }
@@ -917,7 +917,7 @@ export class AgentLoop {
       onChunk?.('\n\n🎮 Oczekuję na potwierdzenie przejęcia sterowania...\n');
     }
 
-    await this.processMemoryUpdates(fullResponse);
+    await this.responseProcessor.processMemoryUpdates(fullResponse);
 
     if (fullResponse.includes('BOOTSTRAP_COMPLETE')) {
       await this.memory.completeBootstrap();
@@ -1089,13 +1089,13 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       this.recordObservation(currentWindowTitle, monitorCtx, response);
 
       // Check if agent wants to create a cron job — queue for review
-      const cronSuggestion = this.parseCronSuggestion(response);
+      const cronSuggestion = this.responseProcessor.parseCronSuggestion(response);
       if (cronSuggestion) {
         this.pendingCronSuggestions.push(cronSuggestion);
       }
 
       // Process any memory updates from heartbeat
-      await this.processMemoryUpdates(response);
+      await this.responseProcessor.processMemoryUpdates(response);
 
       // Clean response for UI (strip tool blocks)
       const cleanResponse = response
@@ -1185,10 +1185,10 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         return null;
       }
 
-      await this.processMemoryUpdates(response);
+      await this.responseProcessor.processMemoryUpdates(response);
 
       // Check for cron suggestions
-      const cronSuggestion = this.parseCronSuggestion(response);
+      const cronSuggestion = this.responseProcessor.parseCronSuggestion(response);
       if (cronSuggestion) {
         this.pendingCronSuggestions.push(cronSuggestion);
       }
@@ -1416,7 +1416,7 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
 
       // Process any memory updates from flush
       if (response.trim() !== 'NO_REPLY') {
-        await this.processMemoryUpdates(response);
+        await this.responseProcessor.processMemoryUpdates(response);
       }
     } catch (err) {
       console.error('Memory flush error:', err);
@@ -1546,46 +1546,6 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
   }
 
   /**
-   * Parse cron job suggestion from AI response.
-   */
-  private parseCronSuggestion(response: string): Omit<CronJob, 'id' | 'createdAt' | 'runCount'> | null {
-    const cronMatch = response.match(/```cron\s*\n([\s\S]*?)\n```/);
-    if (!cronMatch) return null;
-
-    try {
-      const parsed = JSON.parse(cronMatch[1]);
-      if (parsed.name && parsed.schedule && parsed.action) {
-        return {
-          name: parsed.name,
-          schedule: parsed.schedule,
-          action: parsed.action,
-          category: parsed.category || 'custom',
-          autoCreated: true,
-          enabled: true,
-        };
-      }
-    } catch { /* invalid JSON */ }
-    return null;
-  }
-
-  /**
-   * Parse take_control request from AI response.
-   * AI outputs ```take_control\n{"task": "..."}\n``` when user asks to take over desktop.
-   */
-  private parseTakeControlRequest(response: string): string | null {
-    const match = response.match(/```take_control\s*\n([\s\S]*?)\n```/);
-    if (!match) return null;
-
-    try {
-      const parsed = JSON.parse(match[1]);
-      if (parsed.task && typeof parsed.task === 'string') {
-        return parsed.task.slice(0, 500);
-      }
-    } catch { /* invalid JSON */ }
-    return null;
-  }
-
-  /**
    * Detect take-control intent from user message.
    * Returns the user message as task description if intent is detected.
    */
@@ -1631,38 +1591,6 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       return task;
     }
     return this.takeControlEngine.consumePendingTakeControl();
-  }
-
-  /**
-   * Parse and apply memory updates from AI response.
-   * AI outputs ```update_memory\n{"file":"user","section":"...","content":"..."}\n``` blocks.
-   * Supports multiple updates in one response.
-   */
-  private async processMemoryUpdates(response: string): Promise<void> {
-    const regex = /```update_memory\s*\n([\s\S]*?)\n```/g;
-    let match: RegExpExecArray | null;
-
-    while ((match = regex.exec(response)) !== null) {
-      try {
-        const parsed = JSON.parse(match[1]);
-        if (typeof parsed.file !== 'string') continue;
-
-        const fileMap: Record<string, 'SOUL.md' | 'USER.md' | 'MEMORY.md'> = {
-          soul: 'SOUL.md',
-          user: 'USER.md',
-          memory: 'MEMORY.md',
-        };
-
-        const file = fileMap[parsed.file.toLowerCase()];
-        if (!file || !parsed.section || !parsed.content) continue;
-
-        // Sanitize content length — max 2000 chars per update
-        const content = String(parsed.content).slice(0, 2000);
-        const section = String(parsed.section).slice(0, 100);
-
-        await this.memory.updateMemorySection(file, section, content);
-      } catch { /* invalid JSON, skip */ }
-    }
   }
 
   /**
