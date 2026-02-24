@@ -36,6 +36,7 @@ import { TranscriptionService } from './transcription-service';
 import { MeetingCoachService } from './meeting-coach';
 import { DashboardServer } from './dashboard-server';
 import { DiagnosticService } from './diagnostic-service';
+import { UpdaterService } from './updater-service';
 
 const log = createLogger('Container');
 
@@ -65,6 +66,7 @@ export interface ServiceMap {
   meetingCoach: MeetingCoachService;
   dashboard: DashboardServer;
   diagnostic: DiagnosticService;
+  updater: UpdaterService;
 }
 
 export type ServiceKey = keyof ServiceMap;
@@ -93,6 +95,7 @@ export interface IPCServices {
   screenMonitorService: ScreenMonitorService;
   meetingCoachService?: MeetingCoachService;
   dashboardServer?: DashboardServer;
+  updaterService: UpdaterService;
 }
 
 export class ServiceContainer {
@@ -160,6 +163,7 @@ export class ServiceContainer {
     const tts = new TTSService(security);
     const screenMonitor = new ScreenMonitorService();
     const transcription = new TranscriptionService(security);
+    const updater = new UpdaterService();
 
     this.set('memory', memory);
     this.set('ai', ai);
@@ -176,6 +180,7 @@ export class ServiceContainer {
     this.set('tts', tts);
     this.set('screenMonitor', screenMonitor);
     this.set('transcription', transcription);
+    this.set('updater', updater);
 
     // ── Phase 3: Async initialization ──
     await memory.initialize();
@@ -288,6 +293,7 @@ export class ServiceContainer {
     this.trySync('agentLoop', (s) => s.stopProcessing());
     this.trySync('screenMonitor', (s) => s.stop());
     this.trySync('cron', (s) => s.stopAll());
+    this.trySync('updater', (s) => s.destroy());
 
     // ── Phase 2: Close network connections ──
     await this.tryAsync('meetingCoach', (s) => s.stopMeeting());
@@ -337,6 +343,7 @@ export class ServiceContainer {
       screenMonitorService: this.get('screenMonitor'),
       meetingCoachService: this.has('meetingCoach') ? this.get('meetingCoach') : undefined,
       dashboardServer: this.has('dashboard') ? this.get('dashboard') : undefined,
+      updaterService: this.get('updater'),
     };
   }
 

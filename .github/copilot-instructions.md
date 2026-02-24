@@ -71,6 +71,7 @@ src/
 │       ├── dashboard-server.ts # Localhost dashboard (Express + WebSocket)
 │       ├── retry-handler.ts    # Exponential backoff retry logic
 │       ├── diagnostic-service.ts # System diagnostics
+│       ├── updater-service.ts  # Auto-updater via electron-updater + GitHub Releases (Faza 7.1 ✅)
 │       └── config.ts          # Configuration persistence (async save — Faza 3.3 ✅)
 ├── renderer/               # React frontend
 │   ├── App.tsx             # Routing (widget/chat/settings/cron/onboarding/meeting)
@@ -550,11 +551,13 @@ src/
 
 ## Faza 7: Production Hardening (Tydzień 14-16)
 
-### Krok 7.1 — Auto-updater
-- [ ] `electron-updater` z GitHub Releases
-- [ ] Delta updates (nie cały installer)
-- [ ] Release notes w app
-- [ ] Update check na starcie + periodic (co 4h)
+### Krok 7.1 — Auto-updater ✅
+> **Zaimplementowano**: `updater-service.ts` (~220 LOC) z `electron-updater`. `autoUpdater.autoDownload = false` (user decyduje). Auto-check 10s po starcie + co 4h. Event handling: checking/available/not-available/downloading/downloaded/error. Push state do renderera via `Ev.UPDATE_STATE`. IPC: `Ch.UPDATE_CHECK`, `Ch.UPDATE_DOWNLOAD`, `Ch.UPDATE_INSTALL`, `Ch.UPDATE_GET_STATE`. Wired w ServiceContainer + shutdown Phase 1. CI/CD: `--publish always` + `GH_TOKEN` + `*.yml`/`*.blockmap` w GitHub Releases. `package.json` publish config: GitHub provider.
+
+- [x] `electron-updater` z GitHub Releases ✅
+- [x] Release notes w app ✅ (pushed via UpdateState.releaseNotes)
+- [x] Update check na starcie + periodic (co 4h) ✅
+- [ ] Delta updates (nie cały installer) — wymaga code signing (przyszła iteracja)
 
 ### Krok 7.2 — Performance optimization
 - [ ] Lazy loading serwisów — nie inicjalizuj meeting-coach jeśli user go nie używa
@@ -612,7 +615,7 @@ src/
 | 14 | Structured Outputs | 2.2 | 🟢 Medium | S | P3 | ✅ Done |
 | 15 | Knowledge Graph | 6.3 | 🟡 High | XL | P3 | ⬜ |
 | 16 | Workflow Automator | 6.2 | 🟡 High | XL | P3 | ⬜ |
-| 17 | Auto-updater | 7.1 | 🟢 Medium | S | P3 | ⬜ |
+| 17 | Auto-updater | 7.1 | 🟢 Medium | S | P3 | ✅ Done |
 | 18 | i18n | 7.4 | 🟢 Medium | M | P4 | ⬜ |
 | 19 | Clipboard Pipeline | 6.1 | 🟢 Medium | M | P4 | ⬜ |
 

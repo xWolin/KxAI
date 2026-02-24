@@ -155,6 +155,12 @@ export const Ch = {
 
   // Dashboard
   DASHBOARD_GET_URL: 'dashboard:get-url',
+
+  // Updates
+  UPDATE_CHECK: 'update:check',
+  UPDATE_DOWNLOAD: 'update:download',
+  UPDATE_INSTALL: 'update:install',
+  UPDATE_GET_STATE: 'update:get-state',
 } as const;
 
 // ─── Send Channels (renderer → main, fire-and-forget) ───
@@ -185,6 +191,7 @@ export const Ev = {
   MEETING_DETECTED: 'meeting:detected',
   MEETING_BRIEFING_UPDATED: 'meeting:briefing-updated',
   SUBAGENT_PROGRESS: 'subagent:progress',
+  UPDATE_STATE: 'update:state',
   NAVIGATE: 'navigate',
 } as const;
 

@@ -302,6 +302,9 @@ app.whenReady().then(async () => {
   // Setup IPC handlers
   setupIPC(mainWindow, container.getIPCServices());
 
+  // Initialize auto-updater (needs BrowserWindow for push events)
+  container.get('updater').initialize(mainWindow);
+
   // Auto-restore proactive mode (smart companion) if it was enabled before restart
   const proactiveSaved = container.get('config').get('proactiveMode');
   if (proactiveSaved) {

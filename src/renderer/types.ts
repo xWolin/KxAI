@@ -175,6 +175,27 @@ export interface KxAIBridge {
 
   // Dashboard
   getDashboardUrl: () => Promise<string>;
+
+  // Updates
+  updateCheck: () => Promise<UpdateState>;
+  updateDownload: () => Promise<{ success: boolean }>;
+  updateInstall: () => Promise<{ success: boolean }>;
+  updateGetState: () => Promise<UpdateState>;
+  onUpdateState: (callback: (state: UpdateState) => void) => (() => void);
+}
+
+// ──────────────── Updates ────────────────
+export interface UpdateState {
+  status: 'checking' | 'available' | 'not-available' | 'downloading' | 'downloaded' | 'error';
+  version?: string;
+  releaseNotes?: string;
+  progress?: {
+    percent: number;
+    bytesPerSecond: number;
+    transferred: number;
+    total: number;
+  };
+  error?: string;
 }
 
 export interface ConversationMessage {

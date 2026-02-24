@@ -289,4 +289,15 @@ contextBridge.exposeInMainWorld('kxai', {
 
   // Dashboard URL
   getDashboardUrl: () => ipcRenderer.invoke(Ch.DASHBOARD_GET_URL),
+
+  // Updates
+  updateCheck: () => ipcRenderer.invoke(Ch.UPDATE_CHECK),
+  updateDownload: () => ipcRenderer.invoke(Ch.UPDATE_DOWNLOAD),
+  updateInstall: () => ipcRenderer.invoke(Ch.UPDATE_INSTALL),
+  updateGetState: () => ipcRenderer.invoke(Ch.UPDATE_GET_STATE),
+  onUpdateState: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(Ev.UPDATE_STATE, handler);
+    return () => { ipcRenderer.removeListener(Ev.UPDATE_STATE, handler); };
+  },
 });

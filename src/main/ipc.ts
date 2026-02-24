@@ -22,6 +22,7 @@ import { TTSService } from './services/tts-service';
 import { ScreenMonitorService } from './services/screen-monitor';
 import { MeetingCoachService } from './services/meeting-coach';
 import { DashboardServer } from './services/dashboard-server';
+import { UpdaterService } from './services/updater-service';
 
 interface Services {
   configService: ConfigService;
@@ -43,6 +44,7 @@ interface Services {
   screenMonitorService: ScreenMonitorService;
   meetingCoachService?: MeetingCoachService;
   dashboardServer?: DashboardServer;
+  updaterService: UpdaterService;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
@@ -970,5 +972,27 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   ipcMain.handle(Ch.AGENT_SET_ACTIVE_HOURS, async (_event, start: number | null, end: number | null) => {
     agentLoop.setActiveHours(start, end);
     return { success: true };
+  });
+
+  // ─── Updates ───
+
+  const updaterService = services.updaterService;
+
+  ipcMain.handle(Ch.UPDATE_CHECK, async () => {
+    return updaterService.checkForUpdates();
+  });
+
+  ipcMain.handle(Ch.UPDATE_DOWNLOAD, async () => {
+    await updaterService.downloadUpdate();
+    return { success: true };
+  });
+
+  ipcMain.handle(Ch.UPDATE_INSTALL, () => {
+    updaterService.installUpdate();
+    return { success: true };
+  });
+
+  ipcMain.handle(Ch.UPDATE_GET_STATE, () => {
+    return updaterService.getState();
   });
 }
