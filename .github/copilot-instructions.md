@@ -40,7 +40,8 @@ src/
 │       ├── tools-service.ts    # Extensible tools framework (30+ built-in)
 │       ├── workflow-service.ts # Activity logging, pattern detection, time awareness
 │       ├── agent-loop.ts       # Orchestrator: tool calling, heartbeat, cron execution
-│       ├── browser-service.ts  # CDP browser automation (accessibility snapshots)
+│       ├── cdp-client.ts        # Native CDP client (WebSocket) — replaces playwright-core (Faza 1.1 ✅)
+│       ├── browser-service.ts  # CDP browser automation — native CDP (Faza 1.2 ✅)
 │       ├── automation-service.ts # Desktop automation (mouse/keyboard via OS APIs)
 │       ├── rag-service.ts      # RAG pipeline (chunking + embedding + search)
 │       ├── embedding-service.ts # OpenAI embeddings + TF-IDF fallback
@@ -124,10 +125,10 @@ GitHub Actions workflow (`.github/workflows/build.yml`) buduje na 3 platformach:
 
 ## Zidentyfikowane problemy krytyczne
 
-### P1: Browser Service — Playwright jako hard dependency
+### P1: Browser Service — Playwright jako hard dependency ✅ ROZWIĄZANO
 - **Problem**: `playwright-core` wymaga dodatkowych binariów chromium (~200MB), jest ciężki, problematyczny w packaging
 - **Problem**: Korzysta z dedykowanego profilu — nie widzi cookies/sesji użytkownika
-- **Rozwiązanie**: Patrz Faza 1, krok 1
+- **Rozwiązanie**: Faza 1 ✅ — Native CDP client (`cdp-client.ts`) + BrowserService przepisany na natywny CDP. `playwright-core` usunięty z dependencies.
 
 ### P2: Tool calling — niestandardowy format (```tool bloki)
 - **Problem**: Zamiast native function calling API (OpenAI/Anthropic), AI musi generować markdown code blocks
@@ -192,7 +193,7 @@ src/
 - [x] Dodaj `npm run typecheck` jako alias ✅
 
 ### Krok 0.3 — Dependency audit + cleanup
-- [ ] Usuń `playwright-core` z dependencies (zastąpiony w Fazie 1)
+- [x] Usuń `playwright-core` z dependencies (zastąpiony w Fazie 1) ✅
 - [x] Usuń `screenshot-desktop` — zastąp natywnym `desktopCapturer` ✅
 - [x] Dodaj `better-sqlite3` + `@types/better-sqlite3` dla lokalnego storage ✅
 - [x] Dodaj `zod` do runtime validation schemas (IPC params, config, tool params) ✅
@@ -204,42 +205,27 @@ src/
 
 > **Innowacja**: Zamiast Playwright (heavy, separate browser), podłączamy się BEZPOŚREDNIO do Chrome/Edge użytkownika przez Chrome DevTools Protocol, z jego cookies, sesje, rozszerzenia. Zero dodatkowych binarek.
 
-### Krok 1.1 — Native CDP Client (`cdp-client.ts`)
-- [ ] Stwórz lekki klient CDP (~300 LOC) oparty na WebSocket:
-  ```typescript
-  class CDPClient {
-    private ws: WebSocket;
-    async send(method: string, params?: object): Promise<any>;
-    on(event: string, handler: (params: any) => void): void;
-    // Domains: Page, Runtime, DOM, Input, Network, Accessibility
-  }
-  ```
-- [ ] Obsługa connection do istniejącej przeglądarki:
-  - Wykryj Chrome/Edge running → `http://localhost:{port}/json/version`
-  - Jeśli nie ma remote-debugging → uruchom z `--remote-debugging-port=0` + user profile
-  - Parsuj `DevToolsActivePort` file
-- [ ] Obsługa multiple tabs (targets) via CDP `/json/list`
+### Krok 1.1 — Native CDP Client (`cdp-client.ts`) ✅
+> **Zaimplementowano**: `cdp-client.ts` (~926 LOC) z 3 klasami: `CDPConnection` (WebSocket wrapper z request tracking), `CDPPage` (Page/Runtime/Input commands), `CDPBrowser` (HTTP target management). Obsługuje connect do istniejącej przeglądarki, multiple tabs via `/json/list`, full input emulation.
 
-### Krok 1.2 — Przepisanie BrowserService na native CDP
-- [ ] Zachowaj accessibility snapshot approach (jest genialny) ale bez Playwright dependency:
-  ```typescript
-  // Zamiast: page.evaluate(SNAPSHOT_SCRIPT)
-  // Użyj: cdp.send('Runtime.evaluate', { expression: SNAPSHOT_SCRIPT })
-  ```
-- [ ] Input events via CDP `Input.dispatchMouseEvent`, `Input.dispatchKeyEvent`
-  - Lepsze niż Playwright bo omija "automation detected" flagi
-- [ ] Network interception via `Fetch.enable` + `Fetch.requestPaused`
-  - Agent może modyfikować requesty (headers, body) w locie
-- [ ] `Page.captureScreenshot` via CDP — zero natywnych modułów
+- [x] Stwórz klient CDP oparty na WebSocket ✅ (CDPConnection + CDPPage + CDPBrowser)
+- [x] Obsługa connection do istniejącej przeglądarki ✅ (HTTP /json/version, DevToolsActivePort parsing)
+- [x] Obsługa multiple tabs (targets) via CDP `/json/list` ✅
 
-### Krok 1.3 — User Profile Bridge
-- [ ] **Kluczowa innowacja**: Agent korzysta z OTWARTEJ przeglądarki użytkownika:
-  - Wykrywa profile Chrome/Edge/Brave automatycznie
-  - Podłącza się do istniejącej sesji (cookies, localStorage, rozszerzenia)
-  - Jeśli przeglądarka nie jest otwarta → uruchamia z prawdziwym profilem
-  - `--restore-last-session` — wszystkie taby zachowane
-- [ ] Fallback na dedykowany profil KxAI jeśli user nie chce udostępniać swojego
-- [ ] Permission dialog: "KxAI chce użyć Twojej przeglądarki — pozwolić?"
+### Krok 1.2 — Przepisanie BrowserService na native CDP ✅
+> **Zaimplementowano**: Cały `browser-service.ts` przepisany — Playwright API zastąpione natywnym CDP. Accessibility snapshot via `Runtime.evaluate`, input via `Input.dispatchMouseEvent`/`Input.dispatchKeyEvent`, screenshot via `Page.captureScreenshot`. Wszystkie metody (click, type, hover, scroll, tabs, wait, fillForm, extractText) działają na CDPPage/CDPBrowser.
+
+- [x] Accessibility snapshot via `Runtime.evaluate` (SNAPSHOT_SCRIPT) ✅
+- [x] Input events via CDP `Input.dispatchMouseEvent`, `Input.dispatchKeyEvent` ✅
+- [ ] Network interception via `Fetch.enable` + `Fetch.requestPaused` (przyszła iteracja)
+- [x] `Page.captureScreenshot` via CDP ✅
+
+### Krok 1.3 — User Profile Bridge ✅
+> **Zaimplementowano**: BrowserService zachowuje pełną logikę user profile bridge — wykrywanie profili Chrome/Edge/Brave, podłączanie do istniejącej sesji, fallback na profil KxAI, SQLite backup cookies. Teraz działa przez natywny CDP zamiast Playwright.
+
+- [x] Agent korzysta z OTWARTEJ przeglądarki użytkownika ✅ (zachowane z oryginalnej implementacji)
+- [x] Fallback na dedykowany profil KxAI ✅
+- [ ] Permission dialog: "KxAI chce użyć Twojej przeglądarki — pozwolić?" (przyszła iteracja)
 
 ### Krok 1.4 — Anti-detection layer
 - [ ] CDP ma wbudowane sposoby na omijanie bot detection:
@@ -638,7 +624,7 @@ src/
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
 | 1 | Native Function Calling | 2.1 | 🔴 Critical | M | P0 |
-| 2 | Browser CDP Bypass | 1.1-1.3 | 🔴 Critical | L | P0 |
+| 2 | Browser CDP Bypass ✅ | 1.1-1.3 | 🔴 Critical | L | P0 ✅ |
 | 3 | Shared types + path aliases | 0.1 | 🟡 High | S | P0 |
 | 4 | SQLite memory + RAG | 2.3-2.4 | 🟡 High | L | P1 |
 | 5 | Agent Loop modularization | 2.6 | 🟡 High | L | P1 |

@@ -5,18 +5,22 @@ import * as fs from 'fs';
 import * as http from 'http';
 import * as net from 'net';
 import { app } from 'electron';
+import { CDPBrowser, CDPPage } from './cdp-client';
+import { createLogger } from './logger';
+
+const log = createLogger('BrowserService');
 
 /**
- * BrowserService — Playwright-based browser automation.
+ * BrowserService — Native CDP browser automation (zero Playwright dependency).
  *
  * Launches system Chrome / Edge / Chromium (headful, visible on screen),
- * connects via CDP, provides accessibility snapshots with numbered refs
- * for AI interaction (snapshot + ref pattern inspired by OpenClaw).
+ * connects via native Chrome DevTools Protocol, provides accessibility
+ * snapshots with numbered refs for AI interaction.
  *
  * Cross-platform: Windows, macOS, Linux.
  *
  * Flow:
- *   1. browser_launch  → spawn Chrome + connect via CDP
+ *   1. browser_launch  → spawn Chrome + connect via native CDP
  *   2. browser_snapshot → get text tree with [e1], [e2]... refs
  *   3. browser_click / browser_type → act on ref
  *   4. Repeat 2-3 until task is done
@@ -176,10 +180,9 @@ const SNAPSHOT_SCRIPT = `(() => {
 })()`;
 
 export class BrowserService {
-  // Playwright loaded dynamically (playwright-core)
-  private pw: any = null;
-  private browser: any = null;      // playwright Browser
-  private context: any = null;      // playwright BrowserContext
+  // Native CDP client — replaces playwright-core
+  private cdpBrowser: CDPBrowser | null = null;
+  private activePage: CDPPage | null = null;
   private activePageIdx = 0;
   private browserProcess: ChildProcess | null = null;
   private debugPort = 0;
@@ -224,11 +227,11 @@ export class BrowserService {
     }
 
     if (profileDir && fs.existsSync(profileDir)) {
-      console.log(`[BrowserService] Znaleziono profil użytkownika: ${profileDir}`);
+      log.info(`Znaleziono profil użytkownika: ${profileDir}`);
       return profileDir;
     }
 
-    console.log('[BrowserService] Brak profilu użytkownika, używam profilu KxAI');
+    log.info('Brak profilu użytkownika, używam profilu KxAI');
     return path.join(app.getPath('userData'), 'browser-profile');
   }
 
@@ -245,27 +248,26 @@ export class BrowserService {
       const port = parseInt(content.split('\n')[0], 10);
       if (!port || port <= 0) return false;
 
-      console.log(`[BrowserService] Znaleziono DevToolsActivePort na porcie ${port}, próbuję połączyć...`);
+      log.info(`Znaleziono DevToolsActivePort na porcie ${port}, próbuję połączyć...`);
       const wsUrl = await this.waitForBrowserReady(port, 5000);
 
-      if (!this.pw) {
-        this.pw = require('playwright-core');
-      }
-
-      this.browser = await this.pw.chromium.connectOverCDP(wsUrl);
-      const contexts = this.browser.contexts();
-      this.context = contexts.length > 0 ? contexts[0] : await this.browser.newContext();
-      this.activePageIdx = 0;
+      this.cdpBrowser = await CDPBrowser.connect(wsUrl);
       this.debugPort = port;
 
-      if (this.context.pages().length === 0) {
-        await this.context.newPage();
+      // Attach to existing pages
+      const targets = await this.cdpBrowser.getTargets();
+      if (targets.length > 0) {
+        this.activePage = await this.cdpBrowser.attachToPage(targets[0]);
+        this.activePageIdx = 0;
+      } else {
+        this.activePage = await this.cdpBrowser.newPage();
+        this.activePageIdx = 0;
       }
 
-      console.log(`[BrowserService] Połączono z istniejącą przeglądarką na porcie ${port}`);
+      log.info(`Połączono z istniejącą przeglądarką na porcie ${port}`);
       return true;
     } catch (err: any) {
-      console.log(`[BrowserService] Nie udało się połączyć z istniejącą przeglądarką: ${err.message}`);
+      log.info(`Nie udało się połączyć z istniejącą przeglądarką: ${err.message}`);
       return false;
     }
   }
@@ -330,7 +332,7 @@ export class BrowserService {
             if (ownerMatch) {
               resolve(ws);
             } else {
-              console.warn(`[BrowserService] CDP port ${port} belongs to a different process, skipping`);
+              log.warn(`CDP port ${port} belongs to a different process, skipping`);
               resolve(null);
             }
           } catch { resolve(null); }
@@ -369,7 +371,7 @@ export class BrowserService {
             if (exeMatch) {
               const ownerExe = exeMatch[1].trim().toLowerCase();
               if (ownerExe.includes(expectedName)) return true;
-              console.log(`[BrowserService] Port ${port} owned by ${ownerExe}, expected ${expectedName}`);
+              log.info(`Port ${port} owned by ${ownerExe}, expected ${expectedName}`);
               return false;
             }
           } catch { /* WMIC may fail for system processes */ }
@@ -386,7 +388,7 @@ export class BrowserService {
             try {
               const exePath = fs.readlinkSync(`/proc/${pid}/exe`);
               if (exePath.toLowerCase().includes(expectedName)) return true;
-              console.log(`[BrowserService] Port ${port} owned by ${exePath}, expected ${expectedName}`);
+              log.info(`Port ${port} owned by ${exePath}, expected ${expectedName}`);
               return false;
             } catch { /* readlink may fail without permissions */ }
           }
@@ -404,7 +406,7 @@ export class BrowserService {
               { encoding: 'utf-8', timeout: 5000 }
             ).trim().toLowerCase();
             if (psResult.includes(expectedName)) return true;
-            console.log(`[BrowserService] Port ${port} owned by ${psResult}, expected ${expectedName}`);
+            log.info(`Port ${port} owned by ${psResult}, expected ${expectedName}`);
             return false;
           }
         } catch { /* lsof/ps may fail */ }
@@ -419,7 +421,7 @@ export class BrowserService {
       if (expectedName.includes('msedge') && browser.includes('edge')) return true;
       if (expectedName.includes('brave') && browser.includes('brave')) return true;
       // Browser responded but doesn't match expected
-      console.log(`[BrowserService] CDP /json/version reports "${browser}", expected ${expectedName}`);
+      log.info(`CDP /json/version reports "${browser}", expected ${expectedName}`);
       return false;
     }
 
@@ -448,7 +450,7 @@ export class BrowserService {
           if (port > 0) {
             const wsUrl = await this.checkCDPPort(port, browserExe);
             if (wsUrl) {
-              console.log(`[BrowserService] Znaleziono CDP port ${port} w procesie ${name}`);
+              log.info(`Znaleziono CDP port ${port} w procesie ${name}`);
               return { port, wsUrl };
             }
           }
@@ -460,7 +462,7 @@ export class BrowserService {
     for (const port of [9222, 9223, 9224, 9225, 9229]) {
       const wsUrl = await this.checkCDPPort(port, browserExe);
       if (wsUrl) {
-        console.log(`[BrowserService] Znaleziono CDP na porcie ${port} (skan portów)`);
+        log.info(`Znaleziono CDP na porcie ${port} (skan portów)`);
         return { port, wsUrl };
       }
     }
@@ -492,9 +494,9 @@ export class BrowserService {
       prefs['browser']['check_default_browser'] = false;
 
       fs.writeFileSync(prefsPath, JSON.stringify(prefs, null, 2), 'utf-8');
-      console.log('[BrowserService] ensureProfileCleanExit: Preferences patched');
+      log.info('ensureProfileCleanExit: Preferences patched');
     } catch (err: any) {
-      console.warn(`[BrowserService] ensureProfileCleanExit failed: ${err.message}`);
+      log.warn(`ensureProfileCleanExit failed: ${err.message}`);
     }
   }
 
@@ -516,9 +518,9 @@ export class BrowserService {
       state['browser']['command_line_flag_security_warnings_enabled'] = false;
 
       fs.writeFileSync(localStatePath, JSON.stringify(state, null, 2), 'utf-8');
-      console.log('[BrowserService] suppressCommandLineFlagWarning: Local State patched');
+      log.info('suppressCommandLineFlagWarning: Local State patched');
     } catch (err: any) {
-      console.warn(`[BrowserService] suppressCommandLineFlagWarning failed: ${err.message}`);
+      log.warn(`suppressCommandLineFlagWarning failed: ${err.message}`);
     }
   }
 
@@ -559,7 +561,7 @@ export class BrowserService {
           copied++;
         }
       } catch (err: any) {
-        console.warn(`[copyProfileForSharing] Nie skopiowano ${file}: ${err.message}`);
+        log.warn(`Nie skopiowano ${file}: ${err.message}`);
       }
     }
 
@@ -573,7 +575,7 @@ export class BrowserService {
       if (isSqliteDb) {
         // Try sqlite3 .backup for a consistent snapshot
         if (this.trySqliteBackup(src, dst)) {
-          console.log(`[copyProfileForSharing] ${file}: skopiowano przez sqlite3 backup (bezpieczne)`);
+          log.info(`${file}: skopiowano przez sqlite3 backup (bezpieczne)`);
           copied++;
           continue;
         }
@@ -594,11 +596,11 @@ export class BrowserService {
         }
 
         if (directCopyOk) {
-          console.warn(`[copyProfileForSharing] ${file}: skopiowano bezpośrednio (WAL może powodować niespójność)`);
+          log.warn(`${file}: skopiowano bezpośrednio (WAL może powodować niespójność)`);
           warnings.push(file);
           copied++;
         } else {
-          console.warn(`[copyProfileForSharing] ${file}: nie udało się skopiować po 3 próbach`);
+          log.warn(`${file}: nie udało się skopiować po 3 próbach`);
         }
       } else {
         // Non-SQLite files — safe to copy directly
@@ -606,15 +608,15 @@ export class BrowserService {
           fs.copyFileSync(src, dst);
           copied++;
         } catch (err: any) {
-          console.warn(`[copyProfileForSharing] Nie skopiowano Default/${file}: ${err.message}`);
+          log.warn(`Nie skopiowano Default/${file}: ${err.message}`);
         }
       }
     }
 
     if (warnings.length > 0) {
-      console.warn(`[copyProfileForSharing] Pliki skopiowane bezpośrednio (ryzyko WAL): ${warnings.join(', ')}`);
+      log.warn(`Pliki skopiowane bezpośrednio (ryzyko WAL): ${warnings.join(', ')}`);
     }
-    console.log(`[copyProfileForSharing] Skopiowano ${copied} plików profilu → ${targetDir}`);
+    log.info(`Skopiowano ${copied} plików profilu → ${targetDir}`);
     return copied > 0;
   }
 
@@ -630,7 +632,7 @@ export class BrowserService {
       );
       return fs.existsSync(dstDb);
     } catch (err: any) {
-      console.log(`[copyProfileForSharing] sqlite3 backup niedostępny/błąd: ${err.message}`);
+      log.info(`sqlite3 backup niedostępny/błąd: ${err.message}`);
       return false;
     }
   }
@@ -724,7 +726,7 @@ export class BrowserService {
    * Launch a visible browser and optionally navigate to a URL.
    */
   async launch(options?: BrowserLaunchOptions): Promise<BrowserResult> {
-    if (this.browser) {
+    if (this.cdpBrowser) {
       return { success: false, error: 'Przeglądarka jest już uruchomiona. Zamknij ją najpierw (browser_close).' };
     }
 
@@ -737,17 +739,13 @@ export class BrowserService {
     }
 
     try {
-      if (!this.pw) {
-        this.pw = require('playwright-core');
-      }
-
       // Resolve user's real browser profile
       const realProfileDir = this.getUserProfileDir(execPath);
       this.userDataDir = realProfileDir;
 
       // ── Strategy 1: DevToolsActivePort file in profile dir ──
       if (await this.tryConnectToExisting(realProfileDir)) {
-        console.log('[BrowserService] Połączono przez DevToolsActivePort — sesja użytkownika');
+        log.info('Połączono przez DevToolsActivePort — sesja użytkownika');
         return this.afterConnect(execPath, options, 'istniejąca sesja');
       }
 
@@ -755,38 +753,33 @@ export class BrowserService {
       const existing = await this.findRunningCDPPort(execPath);
       if (existing) {
         try {
-          this.browser = await this.pw.chromium.connectOverCDP(existing.wsUrl);
-          const contexts = this.browser.contexts();
-          this.context = contexts.length > 0 ? contexts[0] : await this.browser.newContext();
+          this.cdpBrowser = await CDPBrowser.connect(existing.wsUrl);
           this.debugPort = existing.port;
-          this.activePageIdx = 0;
           // Open a new tab for the agent — don't hijack existing user tabs
-          const newPage = await this.context.newPage();
-          this.activePageIdx = this.context.pages().indexOf(newPage);
-          console.log(`[BrowserService] Połączono z istniejącym CDP na porcie ${existing.port} — sesja użytkownika`);
+          this.activePage = await this.cdpBrowser.newPage();
+          const targets = await this.cdpBrowser.getTargets();
+          this.activePageIdx = targets.findIndex(t => t.id === this.activePage!.targetId);
+          if (this.activePageIdx < 0) this.activePageIdx = 0;
+          log.info(`Połączono z istniejącym CDP na porcie ${existing.port} — sesja użytkownika`);
           return this.afterConnect(execPath, options, 'istniejąca sesja CDP');
         } catch (err: any) {
-          console.warn(`[BrowserService] CDP połączenie nie powiodło się: ${err.message}`);
+          log.warn(`CDP połączenie nie powiodło się: ${err.message}`);
         }
       }
 
       // ── Strategy 3: Profile not locked → launch with user's real profile ──
-      // NOTE: TOCTOU race — profile may become locked between check and launch.
-      // If launchViaCDP fails (e.g. Chrome was started concurrently), fall through to Strategy 4.
       if (!this.isBrowserProfileLocked(realProfileDir, execPath)) {
         try {
           this.userDataDir = realProfileDir;
           if (!fs.existsSync(this.userDataDir)) fs.mkdirSync(this.userDataDir, { recursive: true });
           await this.launchViaCDP(execPath, options);
-          console.log('[BrowserService] Uruchomiono z profilem użytkownika (przeglądarka nie działała)');
+          log.info('Uruchomiono z profilem użytkownika (przeglądarka nie działała)');
           return this.afterConnect(execPath, options, 'profil użytkownika');
         } catch (strategyErr: any) {
-          // TOCTOU: profile got locked between isBrowserProfileLocked and launchViaCDP
-          console.warn(`[BrowserService] Strategy 3 failed (TOCTOU race?): ${strategyErr.message}`);
-          console.warn('[BrowserService] Falling back to Strategy 4 (temporary profile with copied cookies)...');
-          // Clean up any partial state from the failed launch
-          this.browser = null;
-          this.context = null;
+          log.warn(`Strategy 3 failed (TOCTOU race?): ${strategyErr.message}`);
+          log.warn('Falling back to Strategy 4 (temporary profile with copied cookies)...');
+          this.cdpBrowser = null;
+          this.activePage = null;
           if (this.browserProcess) {
             try { this.browserProcess.kill(); } catch { /* ignore */ }
             this.browserProcess = null;
@@ -795,26 +788,22 @@ export class BrowserService {
       }
 
       // ── Strategy 4: Profile locked → use persistent KxAI profile ──
-      // Dedicated persistent browser profile for KxAI agent.
-      // On first launch, attempts to copy cookies from user's Chrome profile.
-      // If copying fails (Chrome locks SQLite files), the profile starts fresh —
-      // user logs in once and sessions persist across restarts (like OpenClaw).
       const kxaiProfileDir = path.join(app.getPath('userData'), 'browser-profile');
       const isFirstLaunch = !fs.existsSync(path.join(kxaiProfileDir, 'Default', 'Preferences'));
 
       let cookiesCopied = false;
 
       if (isFirstLaunch) {
-        console.log('[BrowserService] Pierwsza sesja KxAI — próbuję skopiować cookies z profilu użytkownika...');
+        log.info('Pierwsza sesja KxAI — próbuję skopiować cookies z profilu użytkownika...');
         try {
           cookiesCopied = this.copyProfileForSharing(realProfileDir, kxaiProfileDir);
-          console.log(`[BrowserService] Kopia cookies: ${cookiesCopied ? 'OK — cookies skopiowane' : 'BRAK — profil izolowany (zaloguj się ręcznie)'}`);
+          log.info(`Kopia cookies: ${cookiesCopied ? 'OK — cookies skopiowane' : 'BRAK — profil izolowany (zaloguj się ręcznie)'}`);
         } catch (copyErr: any) {
-          console.warn(`[BrowserService] Kopia cookies nieudana: ${copyErr.message} — profil izolowany`);
+          log.warn(`Kopia cookies nieudana: ${copyErr.message} — profil izolowany`);
         }
       } else {
-        console.log('[BrowserService] Używam istniejącego profilu KxAI (sesje zachowane z poprzednich uruchomień)');
-        cookiesCopied = true; // Reusing existing profile with saved sessions
+        log.info('Używam istniejącego profilu KxAI (sesje zachowane z poprzednich uruchomień)');
+        cookiesCopied = true;
       }
 
       this.userDataDir = kxaiProfileDir;
@@ -824,7 +813,7 @@ export class BrowserService {
       const label = isFirstLaunch
         ? (cookiesCopied ? 'profil KxAI (cookies skopiowane)' : 'profil KxAI — izolowany (zaloguj się raz, sesje zostaną zapamiętane)')
         : 'profil KxAI (zachowane sesje)';
-      console.log(`[BrowserService] Uruchomiono z ${label}`);
+      log.info(`Uruchomiono z ${label}`);
       return this.afterConnect(execPath, options, label);
     } catch (err: any) {
       await this.close();
@@ -836,19 +825,15 @@ export class BrowserService {
    * Common post-connection logic: navigate to URL if specified, return result.
    */
   private async afterConnect(execPath: string, options?: BrowserLaunchOptions, label?: string): Promise<BrowserResult> {
-    if (options?.url) {
-      const page = this.getActivePage();
-      if (page) {
-        await page.goto(options.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      }
+    if (options?.url && this.activePage) {
+      await this.activePage.navigate(options.url, { timeout: 30000 });
     }
-    const page = this.getActivePage();
     return {
       success: true,
       data: {
         browser: path.basename(execPath) + (label ? ` (${label})` : ''),
-        url: page?.url() || 'about:blank',
-        title: page ? await page.title() : '',
+        url: this.activePage?.url() || 'about:blank',
+        title: this.activePage ? await this.activePage.title() : '',
       },
     };
   }
@@ -910,34 +895,32 @@ export class BrowserService {
     });
 
     this.browserProcess.on('error', (err) => {
-      console.error('[BrowserService] Process error:', err);
+      log.error('Process error:', err);
     });
 
     this.browserProcess.on('exit', (code) => {
-      console.log(`[BrowserService] Browser process exited (code ${code})`);
-      this.browser = null;
-      this.context = null;
+      log.info(`Browser process exited (code ${code})`);
+      this.cdpBrowser = null;
+      this.activePage = null;
       this.browserProcess = null;
     });
 
     // Wait for browser ready
     const wsEndpoint = await this.waitForBrowserReady(this.debugPort, 15000);
 
-    // Connect via Playwright CDP
-    this.browser = await this.pw.chromium.connectOverCDP(wsEndpoint);
+    // Connect via native CDP (no Playwright!)
+    this.cdpBrowser = await CDPBrowser.connect(wsEndpoint);
 
-    const contexts = this.browser.contexts();
-    this.context = contexts.length > 0
-      ? contexts[0]
-      : await this.browser.newContext({ viewport: { width, height }, locale: 'pl-PL' });
-
+    // Attach to the first available page target
+    const targets = await this.cdpBrowser.getTargets();
+    if (targets.length > 0) {
+      this.activePage = await this.cdpBrowser.attachToPage(targets[0]);
+    } else {
+      this.activePage = await this.cdpBrowser.newPage();
+    }
     this.activePageIdx = 0;
 
-    if (this.context.pages().length === 0) {
-      await this.context.newPage();
-    }
-
-    console.log(`[BrowserService] Connected via CDP on port ${this.debugPort}`);
+    log.info(`Connected via native CDP on port ${this.debugPort}`);
   }
 
   /**
@@ -989,15 +972,13 @@ export class BrowserService {
   //  Internal helpers
   // ════════════════════════════════════════════════════
 
-  private getActivePage(): any | null {
-    if (!this.context) return null;
-    const pages = this.context.pages();
-    if (pages.length === 0) return null;
-    return pages[Math.min(this.activePageIdx, pages.length - 1)];
+  private getActivePage(): CDPPage | null {
+    if (!this.activePage || !this.activePage.connected) return null;
+    return this.activePage;
   }
 
   isRunning(): boolean {
-    return this.browser !== null && this.browser.isConnected();
+    return this.cdpBrowser !== null && this.cdpBrowser.connected;
   }
 
   // ════════════════════════════════════════════════════
@@ -1009,7 +990,7 @@ export class BrowserService {
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
     try {
-      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+      await page.navigate(url, { timeout: 30000 });
       return { success: true, data: { url: page.url(), title: await page.title() } };
     } catch (err: any) {
       return { success: false, error: `Nawigacja: ${err.message}` };
@@ -1020,7 +1001,7 @@ export class BrowserService {
     const page = this.getActivePage();
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
     try {
-      await page.goBack({ waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.goBack(15000);
       return { success: true, data: { url: page.url(), title: await page.title() } };
     } catch (err: any) {
       return { success: false, error: err.message };
@@ -1031,7 +1012,7 @@ export class BrowserService {
     const page = this.getActivePage();
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
     try {
-      await page.goForward({ waitUntil: 'domcontentloaded', timeout: 15000 });
+      await page.goForward(15000);
       return { success: true, data: { url: page.url(), title: await page.title() } };
     } catch (err: any) {
       return { success: false, error: err.message };
@@ -1086,22 +1067,23 @@ export class BrowserService {
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
     try {
-      const loc = page.locator(`[data-kxref="${ref}"]`);
-      if (await loc.count() === 0) {
+      const selector = `[data-kxref="${ref}"]`;
+      const count = await page.queryCount(selector);
+      if (count === 0) {
         return { success: false, error: `Element [${ref}] nie znaleziony. Weź nowy snapshot.` };
       }
 
       const urlBefore = page.url();
 
-      if (options?.doubleClick) {
-        await loc.dblclick({ button: options?.button || 'left', timeout: 10000 });
-      } else {
-        await loc.click({ button: options?.button || 'left', timeout: 10000 });
-      }
+      await page.click(selector, {
+        button: options?.button || 'left',
+        doubleClick: options?.doubleClick,
+        timeout: 10000,
+      });
 
       // Smart wait: if click triggered navigation, wait for load; otherwise short delay
       try {
-        await page.waitForLoadState('domcontentloaded', { timeout: 3000 });
+        await page.waitForLoad(3000);
       } catch {
         // Timeout = no navigation happened, that's fine
       }
@@ -1133,20 +1115,25 @@ export class BrowserService {
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
     try {
-      const loc = page.locator(`[data-kxref="${ref}"]`);
-      if (await loc.count() === 0) {
+      const selector = `[data-kxref="${ref}"]`;
+      const count = await page.queryCount(selector);
+      if (count === 0) {
         return { success: false, error: `Element [${ref}] nie znaleziony. Weź nowy snapshot.` };
       }
 
       if (options?.clear !== false) {
-        await loc.fill(text, { timeout: 10000 });
+        // fill = clear + set value (default behavior)
+        await page.fill(selector, text, { timeout: 10000 });
       } else {
-        await loc.pressSequentially(text, { delay: 30, timeout: 10000 });
+        // Type char by char (realistic keyboard simulation)
+        // First focus the element
+        await page.click(selector, { timeout: 10000 });
+        await page.typeText(text, { delay: 30 });
       }
 
       if (options?.submit) {
-        await loc.press('Enter');
-        await page.waitForTimeout(500);
+        await page.press('Enter');
+        await page.sleep(500);
       }
 
       return {
@@ -1166,7 +1153,7 @@ export class BrowserService {
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
     try {
-      await page.locator(`[data-kxref="${ref}"]`).hover({ timeout: 10000 });
+      await page.hover(`[data-kxref="${ref}"]`, { timeout: 10000 });
       return { success: true, data: { action: 'hover', ref } };
     } catch (err: any) {
       return { success: false, error: `Hover [${ref}]: ${err.message}` };
@@ -1181,7 +1168,7 @@ export class BrowserService {
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
     try {
-      await page.locator(`[data-kxref="${ref}"]`).selectOption(values, { timeout: 10000 });
+      await page.selectOption(`[data-kxref="${ref}"]`, values, { timeout: 10000 });
       return { success: true, data: { action: 'select', ref, values } };
     } catch (err: any) {
       return { success: false, error: `Select [${ref}]: ${err.message}` };
@@ -1196,8 +1183,8 @@ export class BrowserService {
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
     try {
-      await page.keyboard.press(key);
-      await page.waitForTimeout(200);
+      await page.press(key);
+      await page.sleep(200);
       return { success: true, data: { action: 'press', key } };
     } catch (err: any) {
       return { success: false, error: `Press "${key}": ${err.message}` };
@@ -1213,12 +1200,12 @@ export class BrowserService {
 
     try {
       switch (direction) {
-        case 'up':    await page.mouse.wheel(0, -(amount || 500)); break;
-        case 'down':  await page.mouse.wheel(0, amount || 500); break;
+        case 'up':    await page.mouseWheel(0, -(amount || 500)); break;
+        case 'down':  await page.mouseWheel(0, amount || 500); break;
         case 'top':   await page.evaluate('window.scrollTo(0, 0)'); break;
         case 'bottom': await page.evaluate('window.scrollTo(0, document.body.scrollHeight)'); break;
       }
-      await page.waitForTimeout(300);
+      await page.sleep(300);
       return { success: true, data: { action: 'scroll', direction, amount } };
     } catch (err: any) {
       return { success: false, error: `Scroll: ${err.message}` };
@@ -1233,12 +1220,13 @@ export class BrowserService {
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
     try {
-      const loc = page.locator(`[data-kxref="${ref}"]`);
-      if (await loc.count() === 0) {
+      const selector = `[data-kxref="${ref}"]`;
+      const count = await page.queryCount(selector);
+      if (count === 0) {
         return { success: false, error: `Element [${ref}] nie znaleziony. Weź nowy snapshot.` };
       }
-      await loc.scrollIntoViewIfNeeded({ timeout: 5000 });
-      await page.waitForTimeout(300);
+      await page.scrollIntoView(selector, { timeout: 5000 });
+      await page.sleep(300);
       return { success: true, data: { action: 'scroll-to-ref', ref } };
     } catch (err: any) {
       return { success: false, error: `ScrollToRef [${ref}]: ${err.message}` };
@@ -1273,11 +1261,11 @@ export class BrowserService {
 
       for (const sel of selectors) {
         try {
-          const btn = page.locator(sel).first();
-          if (await btn.isVisible({ timeout: 500 })) {
-            await btn.click({ timeout: 2000 });
+          const visible = await page.isVisible(sel);
+          if (visible) {
+            await page.click(sel, { timeout: 2000 });
             dismissed.push(sel);
-            await page.waitForTimeout(500);
+            await page.sleep(500);
             break; // One dismissal is usually enough
           }
         } catch { /* selector not found — try next */ }
@@ -1306,12 +1294,12 @@ export class BrowserService {
       let buffer: Buffer;
 
       if (options?.ref) {
-        buffer = await page.locator(`[data-kxref="${options.ref}"]`).screenshot({
-          type: 'jpeg', quality: 80, timeout: 10000,
+        buffer = await page.screenshotElement(`[data-kxref="${options.ref}"]`, {
+          quality: 80, format: 'jpeg', timeout: 10000,
         });
       } else {
         buffer = await page.screenshot({
-          type: 'jpeg', quality: 80, fullPage: options?.fullPage ?? false,
+          quality: 80, format: 'jpeg', fullPage: options?.fullPage ?? false,
         });
       }
 
@@ -1329,34 +1317,46 @@ export class BrowserService {
   // ════════════════════════════════════════════════════
 
   async tabs(): Promise<BrowserResult> {
-    if (!this.context) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
+    if (!this.cdpBrowser) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
-    const pages = this.context.pages();
-    const list: TabInfo[] = [];
+    try {
+      const targets = await this.cdpBrowser.getTargets();
+      const list: TabInfo[] = [];
 
-    for (let i = 0; i < pages.length; i++) {
-      let title = pages[i].url();
-      try { title = await pages[i].title(); } catch { /* use URL */ }
-      list.push({ index: i, url: pages[i].url(), title, active: i === this.activePageIdx });
+      for (let i = 0; i < targets.length; i++) {
+        list.push({
+          index: i,
+          url: targets[i].url,
+          title: targets[i].title,
+          active: this.activePage?.targetId === targets[i].id,
+        });
+      }
+
+      return { success: true, data: list };
+    } catch (err: any) {
+      return { success: false, error: `Tabs: ${err.message}` };
     }
-
-    return { success: true, data: list };
   }
 
   async newTab(url?: string): Promise<BrowserResult> {
-    if (!this.context) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
+    if (!this.cdpBrowser) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
     try {
-      const page = await this.context.newPage();
-      this.activePageIdx = this.context.pages().indexOf(page);
+      const newPage = await this.cdpBrowser.newPage(url);
+      this.activePage = newPage;
 
-      if (url) {
-        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
-      }
+      const targets = await this.cdpBrowser.getTargets();
+      this.activePageIdx = targets.findIndex(t => t.id === newPage.targetId);
+      if (this.activePageIdx < 0) this.activePageIdx = targets.length - 1;
 
       return {
         success: true,
-        data: { index: this.activePageIdx, url: page.url(), title: await page.title(), totalTabs: this.context.pages().length },
+        data: {
+          index: this.activePageIdx,
+          url: newPage.url(),
+          title: await newPage.title(),
+          totalTabs: targets.length,
+        },
       };
     } catch (err: any) {
       return { success: false, error: `New tab: ${err.message}` };
@@ -1364,34 +1364,46 @@ export class BrowserService {
   }
 
   async switchTab(index: number): Promise<BrowserResult> {
-    if (!this.context) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
+    if (!this.cdpBrowser) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
-    const pages = this.context.pages();
-    if (index < 0 || index >= pages.length) {
-      return { success: false, error: `Tab ${index} nie istnieje (0-${pages.length - 1})` };
+    try {
+      const targets = await this.cdpBrowser.getTargets();
+      if (index < 0 || index >= targets.length) {
+        return { success: false, error: `Tab ${index} nie istnieje (0-${targets.length - 1})` };
+      }
+
+      this.activePageIdx = index;
+      this.activePage = await this.cdpBrowser.attachToPage(targets[index]);
+      try { await this.activePage.bringToFront(); } catch { /* ok */ }
+
+      return { success: true, data: { index, url: this.activePage.url(), title: await this.activePage.title() } };
+    } catch (err: any) {
+      return { success: false, error: `Switch tab: ${err.message}` };
     }
-
-    this.activePageIdx = index;
-    try { await pages[index].bringToFront(); } catch { /* ok */ }
-
-    return { success: true, data: { index, url: pages[index].url(), title: await pages[index].title() } };
   }
 
   async closeTab(index?: number): Promise<BrowserResult> {
-    if (!this.context) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
-
-    const pages = this.context.pages();
-    const idx = index ?? this.activePageIdx;
-
-    if (idx < 0 || idx >= pages.length) return { success: false, error: `Tab ${idx} nie istnieje` };
-    if (pages.length <= 1) return { success: false, error: 'Nie można zamknąć ostatniego taba. Użyj browser_close.' };
+    if (!this.cdpBrowser) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
     try {
-      await pages[idx].close();
-      if (this.activePageIdx >= this.context.pages().length) {
-        this.activePageIdx = this.context.pages().length - 1;
+      const targets = await this.cdpBrowser.getTargets();
+      const idx = index ?? this.activePageIdx;
+
+      if (idx < 0 || idx >= targets.length) return { success: false, error: `Tab ${idx} nie istnieje` };
+      if (targets.length <= 1) return { success: false, error: 'Nie można zamknąć ostatniego taba. Użyj browser_close.' };
+
+      await this.cdpBrowser.closePage(targets[idx].id);
+
+      // Update active page
+      const remainingTargets = await this.cdpBrowser.getTargets();
+      if (this.activePageIdx >= remainingTargets.length) {
+        this.activePageIdx = remainingTargets.length - 1;
       }
-      return { success: true, data: { closedIndex: idx, activeIndex: this.activePageIdx, totalTabs: this.context.pages().length } };
+      if (remainingTargets.length > 0) {
+        this.activePage = await this.cdpBrowser.attachToPage(remainingTargets[this.activePageIdx]);
+      }
+
+      return { success: true, data: { closedIndex: idx, activeIndex: this.activePageIdx, totalTabs: remainingTargets.length } };
     } catch (err: any) {
       return { success: false, error: `Close tab: ${err.message}` };
     }
@@ -1443,18 +1455,18 @@ export class BrowserService {
       switch (options.type) {
         case 'selector':
           if (!options.value) return { success: false, error: 'Brak selektora' };
-          await page.waitForSelector(options.value, { timeout: ms });
+          await page.waitForSelector(options.value, ms);
           return { success: true, data: `Selector "${options.value}" znaleziony` };
         case 'url':
           if (!options.value) return { success: false, error: 'Brak URL' };
-          await page.waitForURL(options.value, { timeout: ms });
+          await page.waitForURL(options.value, ms);
           return { success: true, data: `URL matches "${options.value}"` };
         case 'load':
-          await page.waitForLoadState('networkidle', { timeout: ms });
+          await page.waitForNetworkIdle(ms);
           return { success: true, data: 'Network idle' };
         case 'timeout': {
           const delay = Math.min(parseInt(options.value || '1000', 10), 10000);
-          await page.waitForTimeout(delay);
+          await page.sleep(delay);
           return { success: true, data: `Waited ${delay}ms` };
         }
         default:
@@ -1473,10 +1485,15 @@ export class BrowserService {
     const page = this.getActivePage();
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
-    return {
-      success: true,
-      data: { url: page.url(), title: await page.title(), tabIndex: this.activePageIdx, totalTabs: this.context?.pages().length || 0 },
-    };
+    try {
+      const targets = this.cdpBrowser ? await this.cdpBrowser.getTargets() : [];
+      return {
+        success: true,
+        data: { url: page.url(), title: await page.title(), tabIndex: this.activePageIdx, totalTabs: targets.length },
+      };
+    } catch (err: any) {
+      return { success: false, error: `PageInfo: ${err.message}` };
+    }
   }
 
   // ════════════════════════════════════════════════════
@@ -1491,14 +1508,15 @@ export class BrowserService {
 
     for (const f of fields) {
       try {
-        const loc = page.locator(`[data-kxref="${f.ref}"]`);
-        if (await loc.count() === 0) { results.push({ ref: f.ref, ok: false, error: 'nie znaleziony' }); continue; }
+        const selector = `[data-kxref="${f.ref}"]`;
+        const count = await page.queryCount(selector);
+        if (count === 0) { results.push({ ref: f.ref, ok: false, error: 'nie znaleziony' }); continue; }
 
-        const tag: string = await loc.evaluate('(el) => el.tagName.toLowerCase()');
+        const tag = await page.tagName(selector);
         if (tag === 'select') {
-          await loc.selectOption(f.value, { timeout: 5000 });
+          await page.selectOption(selector, f.value, { timeout: 5000 });
         } else {
-          await loc.fill(f.value, { timeout: 5000 });
+          await page.fill(selector, f.value, { timeout: 5000 });
         }
         results.push({ ref: f.ref, ok: true });
       } catch (err: any) {
@@ -1521,7 +1539,7 @@ export class BrowserService {
     try {
       let text: string;
       if (selector) {
-        text = await page.locator(selector).innerText({ timeout: 10000 });
+        text = await page.innerText(selector, { timeout: 10000 });
       } else {
         text = await page.evaluate('document.body.innerText');
       }
@@ -1537,10 +1555,10 @@ export class BrowserService {
 
   async close(): Promise<void> {
     try {
-      if (this.browser) {
-        await this.browser.close().catch(() => {});
-        this.browser = null;
-        this.context = null;
+      if (this.cdpBrowser) {
+        this.cdpBrowser.close();
+        this.cdpBrowser = null;
+        this.activePage = null;
       }
     } catch { /* ignore */ }
 
@@ -1550,7 +1568,7 @@ export class BrowserService {
     }
 
     this.activePageIdx = 0;
-    console.log('[BrowserService] Browser closed');
+    log.info('Browser closed');
   }
 
   /**
@@ -1558,7 +1576,7 @@ export class BrowserService {
    * from user's real browser profile on next launch.
    */
   async resetProfile(): Promise<BrowserResult> {
-    if (this.browser) {
+    if (this.cdpBrowser) {
       return { success: false, error: 'Zamknij przeglądarkę (browser_close) przed resetem profilu.' };
     }
 
@@ -1566,7 +1584,7 @@ export class BrowserService {
     try {
       if (fs.existsSync(kxaiProfileDir)) {
         fs.rmSync(kxaiProfileDir, { recursive: true, force: true });
-        console.log('[BrowserService] Profil KxAI usunięty — cookies zostaną skopiowane przy następnym uruchomieniu');
+        log.info('Profil KxAI usunięty — cookies zostaną skopiowane przy następnym uruchomieniu');
       }
       return { success: true, data: 'Profil przeglądarki KxAI został zresetowany. Przy następnym uruchomieniu cookies zostaną skopiowane z Twojego profilu Chrome.' };
     } catch (err: any) {
@@ -1579,7 +1597,7 @@ export class BrowserService {
    * Must be called with browser closed.
    */
   async refreshCookies(): Promise<BrowserResult> {
-    if (this.browser) {
+    if (this.cdpBrowser) {
       return { success: false, error: 'Zamknij przeglądarkę (browser_close) przed odświeżeniem cookies.' };
     }
 

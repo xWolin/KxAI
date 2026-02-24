@@ -1174,7 +1174,7 @@ export class ToolsService {
     });
   }
 
-  // ─── Browser Tools (Playwright + CDP) ───
+  // ─── Browser Tools (Native CDP) ───
 
   private registerBrowserTools(): void {
     if (!this.browserService) return;
