@@ -52,3 +52,7 @@ export type { PluginInfo } from './plugins';
 
 // Automation
 export type { AutomationStatus } from './automation';
+
+// Errors
+export { KxAIError, ErrorCode } from './errors';
+export type { ErrorSeverity } from './errors';

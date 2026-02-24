@@ -6,6 +6,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { CronPanel } from './components/CronPanel';
 import { ProactiveNotification } from './components/ProactiveNotification';
 import { CoachingOverlay } from './components/CoachingOverlay';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { initTTS, speak } from './utils/tts';
 import type { ProactiveMessage, KxAIConfig, MeetingStateInfo } from './types';
 
@@ -137,6 +138,7 @@ export default function App() {
   }
 
   return (
+    <ErrorBoundary label="App">
     <div className={`app-container${view === 'widget' ? ' app-container--transparent' : ''}`}>
       {/* Proactive notifications — hide during active meeting (compact bar mode) */}
       {!meetingActive && proactiveMessages.map((msg) => (
@@ -155,7 +157,9 @@ export default function App() {
 
       {/* Main content */}
       {view === 'onboarding' && (
-        <OnboardingWizard onComplete={handleOnboardingComplete} />
+        <ErrorBoundary label="Onboarding">
+          <OnboardingWizard onComplete={handleOnboardingComplete} />
+        </ErrorBoundary>
       )}
 
       {view === 'widget' && (
@@ -179,45 +183,54 @@ export default function App() {
       )}
 
       {view === 'chat' && (
-        <ChatPanel
-          config={config!}
-          onClose={() => {
-            // Shrink window back to widget size and enable click-through
-            window.kxai.setWindowSize(100, 100);
-            window.kxai.setClickThrough(true);
-            setView('widget');
-          }}
-          onOpenSettings={() => setView('settings')}
-          onOpenCron={() => setView('cron')}
-          onOpenMeeting={() => setView('meeting')}
-          refreshTrigger={chatRefreshTrigger}
-        />
+        <ErrorBoundary label="Chat">
+          <ChatPanel
+            config={config!}
+            onClose={() => {
+              // Shrink window back to widget size and enable click-through
+              window.kxai.setWindowSize(100, 100);
+              window.kxai.setClickThrough(true);
+              setView('widget');
+            }}
+            onOpenSettings={() => setView('settings')}
+            onOpenCron={() => setView('cron')}
+            onOpenMeeting={() => setView('meeting')}
+            refreshTrigger={chatRefreshTrigger}
+          />
+        </ErrorBoundary>
       )}
 
       {view === 'cron' && (
-        <CronPanel onBack={() => setView('chat')} />
+        <ErrorBoundary label="Cron">
+          <CronPanel onBack={() => setView('chat')} />
+        </ErrorBoundary>
       )}
 
       {/* CoachingOverlay stays mounted while meeting is active — audio capture & IPC listeners survive navigation */}
       {(view === 'meeting' || meetingActive) && config && (
-        <div style={{ display: view === 'meeting' ? 'contents' : 'none' }}>
-          <CoachingOverlay
-            config={config}
-            onBack={() => setView('chat')}
-          />
-        </div>
+        <ErrorBoundary label="Meeting">
+          <div style={{ display: view === 'meeting' ? 'contents' : 'none' }}>
+            <CoachingOverlay
+              config={config}
+              onBack={() => setView('chat')}
+            />
+          </div>
+        </ErrorBoundary>
       )}
 
       {view === 'settings' && (
-        <SettingsPanel
-          config={config!}
-          onBack={() => setView('chat')}
-          onConfigUpdate={async () => {
-            const cfg = await window.kxai.getConfig();
-            setConfig(cfg);
-          }}
-        />
+        <ErrorBoundary label="Settings">
+          <SettingsPanel
+            config={config!}
+            onBack={() => setView('chat')}
+            onConfigUpdate={async () => {
+              const cfg = await window.kxai.getConfig();
+              setConfig(cfg);
+            }}
+          />
+        </ErrorBoundary>
       )}
     </div>
+    </ErrorBoundary>
   );
 }

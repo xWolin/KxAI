@@ -2738,3 +2738,108 @@ html, body, #root {
   border-color: rgba(0, 255, 136, 0.3);
   box-shadow: 0 0 8px rgba(0, 255, 136, 0.2);
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   ErrorBoundary — Fallback UI
+   ═══════════════════════════════════════════════════════════════ */
+
+.error-boundary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 200px;
+  padding: 32px 24px;
+  text-align: center;
+  background: var(--bg-secondary);
+  border: 1px solid rgba(255, 0, 170, 0.2);
+  border-radius: var(--radius-lg, 12px);
+  margin: 16px;
+}
+
+.error-boundary__icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+  filter: drop-shadow(0 0 8px rgba(255, 0, 170, 0.4));
+}
+
+.error-boundary__title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.error-boundary__message {
+  margin: 0 0 20px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.error-boundary__actions {
+  display: flex;
+  gap: 10px;
+}
+
+.error-boundary__btn {
+  padding: 8px 18px;
+  border-radius: var(--radius-md, 8px);
+  border: 1px solid transparent;
+  font-size: 13px;
+  font-family: var(--font-main, inherit);
+  cursor: pointer;
+  transition: var(--transition, all 0.2s ease);
+}
+
+.error-boundary__btn--primary {
+  background: var(--neon-magenta);
+  color: #fff;
+  border-color: var(--neon-magenta);
+}
+
+.error-boundary__btn--primary:hover {
+  background: #ff33bb;
+  box-shadow: 0 0 12px rgba(255, 0, 170, 0.4);
+}
+
+.error-boundary__btn--secondary {
+  background: transparent;
+  color: var(--text-secondary);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.error-boundary__btn--secondary:hover {
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.error-boundary__details {
+  margin-top: 16px;
+  width: 100%;
+  text-align: left;
+}
+
+.error-boundary__error-name {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--neon-magenta);
+}
+
+.error-boundary__stack {
+  margin: 0;
+  padding: 12px;
+  background: var(--bg-primary);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: var(--radius-md, 8px);
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
+  color: var(--text-muted);
+  line-height: 1.6;
+  overflow-x: auto;
+  max-height: 200px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
