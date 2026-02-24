@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { AIService, ComputerUseAction, ComputerUseMessage, ComputerUseStep } from './ai-service';
+import type { NativeToolStreamResult } from './tool-schema-converter';
 import { ToolsService, ToolResult } from './tools-service';
 import { CronService, CronJob } from './cron-service';
 import { WorkflowService } from './workflow-service';
@@ -17,12 +18,9 @@ import { SubAgentManager, SubAgentResult, SubAgentInfo } from './sub-agent';
 /**
  * Agent status for UI feedback.
  */
-export interface AgentStatus {
-  state: 'idle' | 'thinking' | 'tool-calling' | 'streaming' | 'heartbeat' | 'take-control' | 'sub-agent';
-  detail?: string;        // e.g., tool name, sub-agent task
-  toolName?: string;
-  subAgentCount?: number;
-}
+// Re-export from shared types (canonical source)
+export type { AgentStatus } from '../../shared/types/agent';
+import type { AgentStatus } from '../../shared/types/agent';
 
 /**
  * AgentLoop orchestrates the full agent lifecycle:
@@ -57,6 +55,7 @@ export class AgentLoop {
   private memoryFlushDone = false;        // Track if flush was done this compaction cycle
   private totalSessionTokens = 0;         // Approximate token usage in current session
   private isProcessing = false;           // Mutex: prevents heartbeat during user message processing
+  private cancelProcessing = false;       // Flag to cancel current processing
   private isAfk = false;                  // AFK state from screen monitor
   private afkSince = 0;                   // Timestamp when AFK started
   private lastAfkTaskTime = 0;            // Last time an AFK task was executed
@@ -299,7 +298,7 @@ export class AgentLoop {
 
     // 2) Neutralize code fences and instruction-like patterns
     raw = raw
-      .replace(/```/g, '\`\`\`')
+      .replace(/```/g, '` ` `')
       .replace(/\n(#+\s)/g, '\n\\$1');
 
     // 3) Wrap in data-only context
@@ -311,7 +310,7 @@ export class AgentLoop {
    * Uses ToolLoopDetector instead of hardcoded maxIterations.
    * Uses RAG to enrich context with relevant memory fragments.
    */
-  async processWithTools(userMessage: string, extraContext?: string): Promise<string> {
+  async processWithTools(userMessage: string, extraContext?: string, options?: { skipHistory?: boolean }): Promise<string> {
     // Build enhanced system context
     const enhancedCtx = await this.buildEnhancedContext();
 
@@ -326,11 +325,29 @@ export class AgentLoop {
     }
     const fullContext = [extraContext, ragContext].filter(Boolean).join('\n\n');
 
-    let response = await this.ai.sendMessage(userMessage, fullContext || undefined, enhancedCtx);
+    const sendOpts = options?.skipHistory ? { skipHistory: true } : undefined;
+    let response = await this.ai.sendMessage(userMessage, fullContext || undefined, enhancedCtx, sendOpts);
     const detector = new ToolLoopDetector();
+
+    // Hard iteration cap to prevent runaway loops
+    const MAX_ITERATIONS = 50;
+    let iterations = 0;
 
     // Multi-step tool loop with intelligent loop detection
     while (true) {
+      // Check cancellation
+      if (this.cancelProcessing) {
+        console.log('[AgentLoop] processWithTools cancelled by user');
+        break;
+      }
+
+      // Hard cap
+      if (++iterations > MAX_ITERATIONS) {
+        console.warn(`[AgentLoop] processWithTools hit max iterations (${MAX_ITERATIONS}), breaking`);
+        response += '\n\n⚠️ Osiągnięto maksymalną liczbę iteracji narzędzi.';
+        break;
+      }
+
       const toolCall = this.parseToolCall(response);
       if (!toolCall) break;
 
@@ -339,6 +356,12 @@ export class AgentLoop {
         result = await this.tools.execute(toolCall.tool, toolCall.params);
       } catch (err: any) {
         result = { success: false, error: `Tool execution error: ${err.message}` };
+      }
+
+      // Check cancellation after tool execution
+      if (this.cancelProcessing) {
+        console.log('[AgentLoop] processWithTools cancelled after tool execution');
+        break;
       }
 
       // Check for loops
@@ -354,6 +377,9 @@ export class AgentLoop {
 
       response = await this.ai.sendMessage(
         `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${feedbackSuffix}`,
+        undefined,
+        undefined,
+        sendOpts
       );
 
       if (!loopCheck.shouldContinue) break;
@@ -366,6 +392,16 @@ export class AgentLoop {
    * Stream message with multi-step tool support.
    * Uses RAG for context enrichment.
    */
+  /**
+   * Stop the agent's current processing (tool loop, heartbeat, streaming).
+   * Returns immediately — the running operation will check the flag and abort.
+   */
+  stopProcessing(): void {
+    this.cancelProcessing = true;
+    this.takeControlAbort = true;
+    console.log('[AgentLoop] stopProcessing requested');
+  }
+
   async streamWithTools(
     userMessage: string,
     extraContext?: string,
@@ -373,11 +409,13 @@ export class AgentLoop {
     skipIntentDetection?: boolean
   ): Promise<string> {
     this.isProcessing = true;
+    this.cancelProcessing = false;
     this.emitStatus({ state: 'thinking', detail: userMessage.slice(0, 100) });
     try {
       return await this._streamWithToolsInner(userMessage, extraContext, onChunk, skipIntentDetection);
     } finally {
       this.isProcessing = false;
+      this.cancelProcessing = false;
       this.emitStatus({ state: 'idle' });
     }
   }
@@ -454,21 +492,56 @@ export class AgentLoop {
     }
     const fullContext = [extraContext, ragContext].filter(Boolean).join('\n\n');
 
+    // ─── Native Function Calling path ───
+    // When enabled, uses OpenAI function calling / Anthropic tool_use
+    // instead of the legacy ```tool code block approach.
+    const useNativeFC = this.config.get('useNativeFunctionCalling') ?? true;
+    if (useNativeFC) {
+      return this._streamWithNativeToolsFlow(userMessage, fullContext, enhancedCtx, onChunk);
+    }
+
+    // ─── Legacy tool block parsing path (fallback) ───
     let fullResponse = '';
     // Track whether we're in tool-calling mode — during tool loops,
     // we buffer AI responses instead of streaming them to the UI.
     // Only the final response (after all tools finish) gets streamed.
     let isInToolLoop = false;
 
-    await this.ai.streamMessage(userMessage, fullContext || undefined, (chunk) => {
-      fullResponse += chunk;
-      onChunk?.(chunk);
-    }, enhancedCtx);
+    // Save user message to history BEFORE calling AI.
+    // We use skipHistory on ALL streamMessage calls to prevent raw tool blocks
+    // and [TOOL OUTPUT] data from polluting conversation history.
+    // The clean final response is saved explicitly after the tool loop.
+    this.memory.addMessage({
+      id: uuidv4(),
+      role: 'user',
+      content: userMessage,
+      timestamp: Date.now(),
+      type: 'chat',
+    });
+
+    try {
+      await this.ai.streamMessage(userMessage, fullContext || undefined, (chunk) => {
+        fullResponse += chunk;
+        onChunk?.(chunk);
+      }, enhancedCtx, { skipHistory: true });
+    } catch (aiErr: any) {
+      console.error('AgentLoop: Initial streamMessage failed:', aiErr);
+      const errMsg = `\n\n❌ Błąd AI: ${aiErr.message || aiErr}\n`;
+      onChunk?.(errMsg);
+      fullResponse += errMsg;
+      // Don't proceed to tool loop — return the error to user
+      return fullResponse;
+    }
 
     // Multi-step tool loop with intelligent loop detection (replaces maxIterations = 15)
     const detector = new ToolLoopDetector();
 
     while (true) {
+      if (this.cancelProcessing) {
+        onChunk?.('\n\n⛔ Agent zatrzymany przez użytkownika.\n');
+        break;
+      }
+
       const toolCall = this.parseToolCall(fullResponse);
       if (!toolCall) break;
 
@@ -484,6 +557,17 @@ export class AgentLoop {
       } catch (err: any) {
         result = { success: false, error: `Tool execution error: ${err.message}` };
       }
+
+      // Show brief tool result to user so they know what happened
+      if (result.success) {
+        const brief = typeof result.data === 'string'
+          ? result.data.slice(0, 120)
+          : JSON.stringify(result.data || '').slice(0, 120);
+        onChunk?.(`✅ ${toolCall.tool}: ${brief}${brief.length >= 120 ? '...' : ''}\n`);
+      } else {
+        onChunk?.(`❌ ${toolCall.tool}: ${result.error?.slice(0, 150) || 'błąd'}\n`);
+      }
+
       this.emitStatus({ state: 'thinking', detail: 'Przetwarzam wynik narzędzia...' });
 
       // Check for loops
@@ -504,17 +588,25 @@ export class AgentLoop {
       let toolResponse = '';
       fullResponse = ''; // Reset for next iteration parsing
 
-      await this.ai.streamMessage(
-        `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${feedbackSuffix}`,
-        undefined,
-        (chunk) => {
-          toolResponse += chunk;
-          fullResponse += chunk;
-          // Don't stream intermediate tool responses to UI —
-          // they contain [TOOL OUTPUT] data and internal AI reasoning.
-          // Only the final response after the tool loop will be streamed.
-        }
-      );
+      try {
+        await this.ai.streamMessage(
+          `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${feedbackSuffix}`,
+          undefined,
+          (chunk) => {
+            toolResponse += chunk;
+            fullResponse += chunk;
+            // Don't stream intermediate tool responses to UI —
+            // they contain [TOOL OUTPUT] data and internal AI reasoning.
+            // Only the final response after the tool loop will be streamed.
+          },
+          undefined,
+          { skipHistory: true }
+        );
+      } catch (aiErr: any) {
+        console.error('AgentLoop: AI streamMessage failed in tool loop:', aiErr);
+        onChunk?.(`\n\n❌ Błąd AI podczas przetwarzania narzędzia: ${aiErr.message || aiErr}\n`);
+        break;
+      }
 
       if (!loopCheck.shouldContinue) break;
     }
@@ -528,6 +620,23 @@ export class AgentLoop {
       if (cleanedResponse) {
         onChunk?.('\n\n' + cleanedResponse);
       }
+    }
+
+    // Save the clean AI response to conversation history.
+    // Strip tool blocks and tool outputs so only the user-facing text is persisted.
+    const historyResponse = fullResponse
+      .replace(/```tool\s*\n[\s\S]*?```/g, '')
+      .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
+      .replace(/⚙️ Wykonuję:.*?\n/g, '')
+      .trim();
+    if (historyResponse) {
+      this.memory.addMessage({
+        id: uuidv4(),
+        role: 'assistant',
+        content: historyResponse,
+        timestamp: Date.now(),
+        type: 'chat',
+      });
     }
 
     // Check for cron suggestions — queue for user review
@@ -553,6 +662,199 @@ export class AgentLoop {
     await this.processMemoryUpdates(fullResponse);
 
     // Check for bootstrap completion
+    if (fullResponse.includes('BOOTSTRAP_COMPLETE')) {
+      await this.memory.completeBootstrap();
+    }
+
+    // Track token usage for memory flush threshold
+    this.totalSessionTokens += Math.ceil((userMessage.length + fullResponse.length) / 3.5);
+
+    return fullResponse;
+  }
+
+  // ─── Native Function Calling Flow ───
+
+  /**
+   * Stream with native function calling (OpenAI function calling / Anthropic tool_use).
+   *
+   * Key differences from legacy ```tool parsing:
+   * - Tools are passed as API parameters, not in system prompt instructions
+   * - Response contains structured tool_calls instead of text blocks
+   * - Supports parallel tool calls (AI can request N tools at once)
+   * - Tool results are sent back as proper role:'tool' messages
+   */
+  private async _streamWithNativeToolsFlow(
+    userMessage: string,
+    fullContext: string,
+    enhancedCtx: string,
+    onChunk?: (chunk: string) => void,
+  ): Promise<string> {
+    // Save user message to history BEFORE calling AI.
+    this.memory.addMessage({
+      id: uuidv4(),
+      role: 'user',
+      content: userMessage,
+      timestamp: Date.now(),
+      type: 'chat',
+    });
+
+    // Get tool definitions (excluding categories not relevant for the current context)
+    const toolDefs = this.tools.getDefinitions();
+
+    let result: NativeToolStreamResult;
+    let fullResponse = '';
+
+    // Initial call with tools
+    try {
+      result = await this.ai.streamMessageWithNativeTools(
+        userMessage,
+        toolDefs,
+        fullContext || undefined,
+        (chunk) => {
+          fullResponse += chunk;
+          onChunk?.(chunk);
+        },
+        enhancedCtx,
+      );
+    } catch (aiErr: any) {
+      console.error('AgentLoop: Initial streamMessageWithNativeTools failed:', aiErr);
+      const errMsg = `\n\n❌ Błąd AI: ${aiErr.message || aiErr}\n`;
+      onChunk?.(errMsg);
+      fullResponse += errMsg;
+      return fullResponse;
+    }
+
+    // Tool loop — execute tools and continue conversation
+    const detector = new ToolLoopDetector();
+    const MAX_ITERATIONS = 50;
+    let iterations = 0;
+
+    while (result.toolCalls.length > 0) {
+      if (this.cancelProcessing) {
+        onChunk?.('\n\n⛔ Agent zatrzymany przez użytkownika.\n');
+        break;
+      }
+
+      if (++iterations > MAX_ITERATIONS) {
+        console.warn(`[AgentLoop] Native tool loop hit max iterations (${MAX_ITERATIONS})`);
+        onChunk?.('\n\n⚠️ Osiągnięto maksymalną liczbę iteracji narzędzi.\n');
+        break;
+      }
+
+      // Execute all tool calls (parallel if multiple)
+      const toolResults: Array<{ callId: string; name: string; result: string; isError?: boolean }> = [];
+
+      for (const tc of result.toolCalls) {
+        onChunk?.(`\n\n⚙️ Wykonuję: ${tc.name}...\n`);
+        this.emitStatus({ state: 'tool-calling', detail: tc.name, toolName: tc.name });
+
+        let execResult: ToolResult;
+        try {
+          execResult = await this.tools.execute(tc.name, tc.arguments);
+        } catch (err: any) {
+          execResult = { success: false, error: `Tool execution error: ${err.message}` };
+        }
+
+        // Show brief tool result to user
+        if (execResult.success) {
+          const brief = typeof execResult.data === 'string'
+            ? execResult.data.slice(0, 120)
+            : JSON.stringify(execResult.data || '').slice(0, 120);
+          onChunk?.(`✅ ${tc.name}: ${brief}${brief.length >= 120 ? '...' : ''}\n`);
+        } else {
+          onChunk?.(`❌ ${tc.name}: ${execResult.error?.slice(0, 150) || 'błąd'}\n`);
+        }
+
+        // Sanitize and format the result for AI
+        const resultStr = this.sanitizeToolOutput(tc.name, execResult.data || execResult.error);
+
+        toolResults.push({
+          callId: tc.id,
+          name: tc.name,
+          result: resultStr,
+          isError: !execResult.success,
+        });
+
+        // Loop detection — check for each tool call individually
+        const loopCheck: LoopCheckResult = detector.recordAndCheck(
+          tc.name,
+          tc.arguments,
+          execResult.data || execResult.error,
+        );
+
+        if (!loopCheck.shouldContinue) {
+          console.log(`[AgentLoop] Tool loop detector triggered for ${tc.name}, stopping loop`);
+          // Still send results but don't continue after
+          break;
+        }
+      }
+
+      if (this.cancelProcessing) {
+        onChunk?.('\n\n⛔ Agent zatrzymany przez użytkownika.\n');
+        break;
+      }
+
+      this.emitStatus({ state: 'thinking', detail: 'Przetwarzam wyniki narzędzi...' });
+
+      // Continue conversation with tool results
+      let turnText = '';
+      try {
+        result = await this.ai.continueWithToolResults(
+          result._messages,
+          toolResults,
+          toolDefs,
+          (chunk) => {
+            turnText += chunk;
+            // Don't stream intermediate tool responses to UI yet —
+            // wait until we know if there are more tool calls
+          },
+        );
+      } catch (aiErr: any) {
+        console.error('AgentLoop: continueWithToolResults failed:', aiErr);
+        onChunk?.(`\n\n❌ Błąd AI podczas przetwarzania narzędzia: ${aiErr.message || aiErr}\n`);
+        break;
+      }
+
+      // If this is the final response (no more tool calls), stream it to UI
+      if (result.toolCalls.length === 0 && turnText) {
+        onChunk?.('\n\n' + turnText);
+        fullResponse += '\n\n' + turnText;
+      }
+    }
+
+    // Save the clean AI response to conversation history.
+    const historyResponse = fullResponse
+      .replace(/⚙️ Wykonuję:.*?\n/g, '')
+      .replace(/[✅❌] [^:]+:.*?\n/g, '')
+      .trim();
+    if (historyResponse) {
+      this.memory.addMessage({
+        id: uuidv4(),
+        role: 'assistant',
+        content: historyResponse,
+        timestamp: Date.now(),
+        type: 'chat',
+      });
+    }
+
+    // Process cron suggestions, take_control, memory updates from final response
+    const cronSuggestion = this.parseCronSuggestion(fullResponse);
+    if (cronSuggestion) {
+      this.pendingCronSuggestions.push(cronSuggestion);
+      onChunk?.('\n\n📋 Zasugerowano nowy cron job (oczekuje na zatwierdzenie) — sprawdź zakładkę Cron Jobs.\n');
+    }
+
+    let takeControlTask = this.parseTakeControlRequest(fullResponse);
+    if (!takeControlTask) {
+      takeControlTask = this.detectTakeControlIntent(userMessage);
+    }
+    if (takeControlTask) {
+      this.pendingTakeControlTask = takeControlTask;
+      onChunk?.('\n\n🎮 Oczekuję na potwierdzenie przejęcia sterowania...\n');
+    }
+
+    await this.processMemoryUpdates(fullResponse);
+
     if (fullResponse.includes('BOOTSTRAP_COMPLETE')) {
       await this.memory.completeBootstrap();
     }
@@ -679,12 +981,65 @@ export class AgentLoop {
       ? `\n${monitorCtx}\nUWAGA: Okno "KxAI" to Twój własny interfejs — NIE komentuj go, nie opisuj i nie traktuj jako aktywność użytkownika.`
       : '';
 
-    const prompt = `[HEARTBEAT — Obserwacja]\n\n${timeCtx}\n\nAktywne cron joby:\n${jobsSummary || '(brak)'}${heartbeatSection}${observationCtx}${screenSection}
+    // Memory & cron nudge — remind agent to be proactive
+    const memoryNudge = jobsSummary
+      ? ''
+      : '\n\n⚠️ NIE MASZ ŻADNYCH CRON JOBÓW! Zasugeruj co najmniej 2 przydatne (poranny briefing, przypomnienie o przerwie, wieczorne podsumowanie). Użyj bloku ```cron.';
+
+    const memoryContent = await this.memory.get('MEMORY.md') || '';
+    const memoryEmpty = memoryContent.includes('(Uzupełnia się automatycznie') || memoryContent.includes('(Bieżące obserwacje');
+    const memoryReminder = memoryEmpty
+      ? '\n\n⚠️ MEMORY.md jest PUSTY! Na podstawie dotychczasowych obserwacji i rozmów, zapisz najważniejsze fakty o użytkowniku i projektach. Użyj bloków ```update_memory.'
+      : '';
+
+    const prompt = `[HEARTBEAT — Autonomiczny agent]\n\n${timeCtx}\n\nAktywne cron joby:\n${jobsSummary || '(brak)'}${heartbeatSection}${observationCtx}${screenSection}${memoryNudge}${memoryReminder}
+
+Masz pełny dostęp do narzędzi. Jeśli chcesz coś ZROBIĆ (sprawdzić, wyszukać, pobrać) — użyj narzędzia.
+Nie mów "mogę to zrobić" — PO PROSTU TO ZRÓB.
 
 ${this.promptService.load('HEARTBEAT.md')}`;
 
     try {
-      const response = await this.ai.sendMessage(prompt, undefined, undefined, { skipHistory: true });
+      this.emitStatus({ state: 'heartbeat', detail: 'Heartbeat...' });
+
+      let response = await this.ai.sendMessage(prompt, undefined, undefined, { skipHistory: true });
+
+      // ── Heartbeat tool loop — execute up to 5 tool calls ──
+      const detector = new ToolLoopDetector();
+      let toolIterations = 0;
+      const maxHeartbeatTools = 5;
+
+      while (toolIterations < maxHeartbeatTools) {
+        const toolCall = this.parseToolCall(response);
+        if (!toolCall) break;
+
+        toolIterations++;
+        console.log(`[Heartbeat] Tool call #${toolIterations}: ${toolCall.tool}`);
+        this.emitStatus({ state: 'heartbeat', detail: `Heartbeat: ${toolCall.tool}`, toolName: toolCall.tool });
+
+        let result: import('./tools-service').ToolResult;
+        try {
+          result = await this.tools.execute(toolCall.tool, toolCall.params);
+        } catch (err: any) {
+          result = { success: false, error: `Tool error: ${err.message}` };
+        }
+
+        const loopCheck = detector.recordAndCheck(toolCall.tool, toolCall.params, result.data || result.error);
+        const feedbackSuffix = loopCheck.shouldContinue
+          ? 'Możesz użyć kolejnego narzędzia lub odpowiedzieć.'
+          : 'Odpowiedz (zakończ pętlę).';
+
+        response = await this.ai.sendMessage(
+          `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${feedbackSuffix}`,
+          undefined,
+          undefined,
+          { skipHistory: true }
+        );
+
+        if (!loopCheck.shouldContinue) break;
+      }
+
+      this.emitStatus({ state: 'idle' });
 
       // Suppress HEARTBEAT_OK — don't bother the user
       const normalized = response.trim().replace(/[\s\n]+/g, ' ');
@@ -706,11 +1061,21 @@ ${this.promptService.load('HEARTBEAT.md')}`;
       // Process any memory updates from heartbeat
       await this.processMemoryUpdates(response);
 
-      // Notify UI about heartbeat result
-      this.onHeartbeatResult?.(response);
+      // Clean response for UI (strip tool blocks)
+      const cleanResponse = response
+        .replace(/```tool\s*\n[\s\S]*?```/g, '')
+        .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
+        .replace(/⚙️ Wykonuję:.*?\n/g, '')
+        .trim();
 
-      return response;
+      // Notify UI about heartbeat result
+      if (cleanResponse && cleanResponse !== 'HEARTBEAT_OK') {
+        this.onHeartbeatResult?.(cleanResponse);
+      }
+
+      return cleanResponse || null;
     } catch {
+      this.emitStatus({ state: 'idle' });
       return null;
     }
   }
@@ -742,12 +1107,42 @@ ${this.promptService.load('HEARTBEAT.md')}`;
 
     try {
       const timeCtx = this.workflow.buildTimeContext();
-      const response = await this.ai.sendMessage(
-        `[AFK MODE — Użytkownik jest nieaktywny od ${afkMinutes} minut]\n\n${timeCtx}\n\n${task.prompt}\n\nOdpowiedz zwięźle. Użyj bloków \`\`\`update_memory jeśli chcesz coś zapamiętać.\nJeśli nie masz nic wartościowego do zrobienia, odpowiedz "HEARTBEAT_OK".`,
+      let response = await this.ai.sendMessage(
+        `[AFK MODE — Użytkownik jest nieaktywny od ${afkMinutes} minut]\n\n${timeCtx}\n\n${task.prompt}\n\nMasz pełny dostęp do narzędzi — używaj ich! Odpowiedz zwięźle.\nJeśli nie masz nic wartościowego do zrobienia, odpowiedz "HEARTBEAT_OK".`,
         undefined,
         undefined,
         { skipHistory: true }
       );
+
+      // ── AFK tool loop — execute up to 3 tool calls ──
+      const detector = new ToolLoopDetector();
+      let toolIterations = 0;
+
+      while (toolIterations < 3) {
+        const toolCall = this.parseToolCall(response);
+        if (!toolCall) break;
+
+        toolIterations++;
+        console.log(`[AFK] Tool call #${toolIterations}: ${toolCall.tool}`);
+
+        let result: import('./tools-service').ToolResult;
+        try {
+          result = await this.tools.execute(toolCall.tool, toolCall.params);
+        } catch (err: any) {
+          result = { success: false, error: `Tool error: ${err.message}` };
+        }
+
+        const loopCheck = detector.recordAndCheck(toolCall.tool, toolCall.params, result.data || result.error);
+
+        response = await this.ai.sendMessage(
+          `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\nOdpowiedz zwięźle.`,
+          undefined,
+          undefined,
+          { skipHistory: true }
+        );
+
+        if (!loopCheck.shouldContinue) break;
+      }
 
       const normalized = response.trim().replace(/[\s\n]+/g, ' ');
       if (normalized === 'HEARTBEAT_OK' || normalized === 'NO_REPLY' || normalized.length < 10) {
@@ -762,8 +1157,16 @@ ${this.promptService.load('HEARTBEAT.md')}`;
         this.pendingCronSuggestions.push(cronSuggestion);
       }
 
-      this.onHeartbeatResult?.(response);
-      return response;
+      // Clean response for UI
+      const cleanResponse = response
+        .replace(/```tool\s*\n[\s\S]*?```/g, '')
+        .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
+        .trim();
+
+      if (cleanResponse && cleanResponse !== 'HEARTBEAT_OK') {
+        this.onHeartbeatResult?.(cleanResponse);
+      }
+      return cleanResponse || null;
     } catch (err) {
       console.error('[AFK] Task error:', err);
       return null;
@@ -951,8 +1354,6 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
    */
   private async maybeRunMemoryFlush(): Promise<void> {
     if (this.memoryFlushDone) return;
-    // Atomically mark as done to prevent concurrent flushes
-    this.memoryFlushDone = true;
 
     // Estimate context budget (conservative: 30% of model window × 3.5 chars/token)
     const history = this.memory.getConversationHistory();
@@ -962,6 +1363,9 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
     // (nowoczesne modele mają 200k+ tokenów, flush dopiero gdy jest co zapisywać)
     const FLUSH_THRESHOLD = 60000;
     if (historyTokens < FLUSH_THRESHOLD) return;
+
+    // Atomically mark as done to prevent concurrent flushes
+    this.memoryFlushDone = true;
 
     try {
       const response = await this.ai.sendMessage(
@@ -1053,7 +1457,9 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       try {
         console.log(`[BackgroundExec ${taskId}] Starting: ${task.slice(0, 100)}`);
         const result = await this.processWithTools(
-          `[BACKGROUND TASK]\n\n${task}\n\nWykonaj to zadanie w tle. Bądź zwięzły w wyniku.`
+          `[BACKGROUND TASK]\n\n${task}\n\nWykonaj to zadanie w tle. Bądź zwięzły w wyniku.`,
+          undefined,
+          { skipHistory: true }
         );
 
         // Notify user via heartbeat channel
@@ -1224,7 +1630,12 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
   async buildEnhancedContext(): Promise<string> {
     const baseCtx = await this.memory.buildSystemContext();
     const timeCtx = this.workflow.buildTimeContext();
-    const toolsPrompt = this.tools.getToolsPrompt(['automation']);
+
+    // When native function calling is active, tools are passed via API parameters.
+    // We still include tool usage guidelines (decision matrix, error handling)
+    // but skip the tool list and ```tool format instructions.
+    const useNativeFC = this.config.get('useNativeFunctionCalling') ?? true;
+    const toolsPrompt = useNativeFC ? '' : this.tools.getToolsPrompt(['automation']);
 
     // Bootstrap ritual — inject BOOTSTRAP.md into context for first conversation
     let bootstrapCtx = '';
@@ -1252,9 +1663,12 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       : '';
 
     // Load instructions from markdown files instead of inline strings
-    const toolsInstructions = this.promptService.load('TOOLS.md');
+    // Order matters: identity → reasoning → guardrails → capabilities → tools
     const agentsCapabilities = this.promptService.load('AGENTS.md');
+    const reasoningPrompt = this.promptService.load('REASONING.md');
+    const guardrailsPrompt = this.promptService.load('GUARDRAILS.md');
     const resourcefulPrompt = this.promptService.load('RESOURCEFUL.md');
+    const toolsInstructions = this.promptService.load('TOOLS.md');
 
     // System health warnings
     let systemCtx = '';
@@ -1291,13 +1705,46 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       activeHoursCtx = `\n## ⏰ Godziny aktywności\nHeartbeat aktywny: ${this.activeHours.start}:00-${this.activeHours.end}:00\n`;
     }
 
+    // Dynamic memory & cron nudge — reminds agent during regular chat too
+    let memoryCronNudge = '';
+    try {
+      const memContent = await this.memory.get('MEMORY.md') || '';
+      const memIsEmpty = memContent.includes('(Uzupełnia się automatycznie') || memContent.includes('(Bieżące obserwacje') || memContent.trim().length < 200;
+      const hasCrons = cronJobs.length > 0;
+
+      const nudges: string[] = [];
+      if (memIsEmpty) {
+        nudges.push('⚠️ MEMORY.md jest PUSTY! Zapisuj obserwacje o użytkowniku po każdej rozmowie za pomocą bloków ```update_memory.');
+      }
+      if (!hasCrons) {
+        nudges.push('⚠️ Nie masz żadnych cron jobów! Zasugeruj przydatne zadania cykliczne (poranny briefing, przypomnienie o przerwie, podsumowanie dnia) za pomocą bloków ```cron.');
+      }
+      if (nudges.length > 0) {
+        memoryCronNudge = '\n## 🔔 Przypomnienie\n' + nudges.join('\n') + '\n';
+      }
+    } catch { /* non-critical */ }
+
+    // Build system prompt with structured priority:
+    // 1. Identity & memory (who am I, who is the user)
+    // 2. Reasoning & guardrails (how to think, what limits)
+    // 3. Capabilities & resourcefulness (what I can do)
+    // 4. Dynamic context (time, cron, RAG, screen, tasks)
+    // 5. Tools (how to call tools — last because longest)
     return [
+      // === TIER 1: Identity ===
       baseCtx,
       '\n',
+      // === TIER 2: Reasoning & Safety ===
+      reasoningPrompt,
+      '\n',
+      guardrailsPrompt,
+      '\n',
+      // === TIER 3: Capabilities ===
       agentsCapabilities,
       '\n',
       resourcefulPrompt,
       '\n',
+      // === TIER 4: Dynamic Context ===
       timeCtx,
       bootstrapCtx,
       cronCtx,
@@ -1308,7 +1755,9 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       bgCtx,
       activeHoursCtx,
       systemCtx,
+      memoryCronNudge,
       '\n',
+      // === TIER 5: Tools (detailed, longest section) ===
       toolsPrompt,
       '\n',
       toolsInstructions,

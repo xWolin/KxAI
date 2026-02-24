@@ -22,10 +22,15 @@
     "copy:main-assets": "node -e \"const fs=require('fs'),p=require('path');const src=p.join('src','main','services','dashboard-spa.html');const dst=p.join('dist','main','services','dashboard-spa.html');fs.mkdirSync(p.dirname(dst),{recursive:true});fs.copyFileSync(src,dst);console.log('Copied dashboard-spa.html')\"",
     "dist": "npm run build && electron-builder",
     "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.main.json",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
     "start": "electron ."
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.0",
+    "better-sqlite3": "^12.6.2",
     "dompurify": "^3.3.1",
     "electron-store": "^8.2.0",
     "express": "^5.2.1",
@@ -33,11 +38,13 @@
     "openai": "^4.73.0",
     "pdf-parse": "^2.4.5",
     "playwright-core": "^1.58.2",
-    "screenshot-desktop": "^1.15.0",
     "uuid": "^11.0.0",
-    "ws": "^8.19.0"
+    "ws": "^8.19.0",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^7.6.13",
     "@types/dompurify": "^3.0.5",
     "@types/express": "^5.0.6",
     "@types/node": "^25.3.0",
@@ -50,9 +57,14 @@
     "electron": "^33.0.0",
     "electron-builder": "^25.1.0",
     "electron-icon-builder": "^2.0.1",
+    "eslint": "^10.0.2",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "prettier": "^3.8.1",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "typescript": "^5.7.0",
+    "typescript-eslint": "^8.56.1",
     "vite": "^6.0.0",
     "wait-on": "^9.0.4"
   },
@@ -92,6 +104,7 @@
       "icon": "assets/icons/png/256x256.png",
       "category": "Utility"
     },
+    "asar": true,
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,

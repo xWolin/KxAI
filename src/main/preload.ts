@@ -63,6 +63,12 @@ contextBridge.exposeInMainWorld('kxai', {
   getWindowPosition: () => ipcRenderer.invoke('window:get-position'),
   setWindowSize: (width: number, height: number) =>
     ipcRenderer.invoke('window:set-size', width, height),
+  setClickThrough: (enabled: boolean) =>
+    ipcRenderer.invoke('window:set-clickthrough', enabled),
+
+  // Voice transcription (Whisper)
+  transcribeAudio: (audioBase64: string) =>
+    ipcRenderer.invoke('voice:transcribe', audioBase64),
 
   // Navigation events
   onNavigate: (callback: (view: string) => void) => {
@@ -269,6 +275,9 @@ contextBridge.exposeInMainWorld('kxai', {
     ipcRenderer.on('agent:status', handler);
     return () => { ipcRenderer.removeListener('agent:status', handler); };
   },
+
+  // Stop agent processing
+  agentStop: () => ipcRenderer.invoke('agent:stop'),
 
   // RAG indexing progress
   onRagProgress: (callback: (data: any) => void) => {

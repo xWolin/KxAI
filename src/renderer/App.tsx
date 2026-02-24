@@ -41,6 +41,8 @@ export default function App() {
         } else {
           // Window starts at 420x600 — shrink to widget size to avoid invisible click-blocking area
           window.kxai.setWindowSize(100, 100);
+          // Enable click-through so transparent areas don't block desktop clicks
+          window.kxai.setClickThrough(true);
         }
       } catch (error) {
         console.error('Init error:', error);
@@ -76,7 +78,9 @@ export default function App() {
     const cleanupNavigate = window.kxai.onNavigate((target) => {
       if (target === 'widget') {
         window.kxai.setWindowSize(100, 100);
+        window.kxai.setClickThrough(true);
       } else {
+        window.kxai.setClickThrough(false);
         window.kxai.setWindowSize(420, 600);
       }
       setView(target as View);
@@ -115,6 +119,7 @@ export default function App() {
   const handleOnboardingComplete = async () => {
     const cfg = await window.kxai.getConfig();
     setConfig(cfg);
+    window.kxai.setClickThrough(true);
     window.kxai.setWindowSize(100, 100);
     setView('widget');
   };
@@ -140,6 +145,8 @@ export default function App() {
           message={msg}
           onDismiss={() => dismissProactive(msg.id)}
           onReply={(text: string) => {
+            window.kxai.setClickThrough(false);
+            window.kxai.setWindowSize(420, 600);
             setView('chat');
             dismissProactive(msg.id);
           }}
@@ -159,7 +166,8 @@ export default function App() {
             // Clear companion states when opening chat
             setHasSuggestion(false);
             setWantsToSpeak(false);
-            // Resize window for chat view before switching
+            // Disable click-through and resize window for chat view
+            window.kxai.setClickThrough(false);
             window.kxai.setWindowSize(420, 600);
             setView('chat');
           }}
@@ -174,8 +182,9 @@ export default function App() {
         <ChatPanel
           config={config!}
           onClose={() => {
-            // Shrink window back to widget size
+            // Shrink window back to widget size and enable click-through
             window.kxai.setWindowSize(100, 100);
+            window.kxai.setClickThrough(true);
             setView('widget');
           }}
           onOpenSettings={() => setView('settings')}
@@ -190,10 +199,10 @@ export default function App() {
       )}
 
       {/* CoachingOverlay stays mounted while meeting is active — audio capture & IPC listeners survive navigation */}
-      {(view === 'meeting' || meetingActive) && (
+      {(view === 'meeting' || meetingActive) && config && (
         <div style={{ display: view === 'meeting' ? 'contents' : 'none' }}>
           <CoachingOverlay
-            config={config!}
+            config={config}
             onBack={() => setView('chat')}
           />
         </div>

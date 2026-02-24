@@ -17,7 +17,7 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
   const moveHandlerRef = useRef<((ev: MouseEvent) => void) | null>(null);
   const upHandlerRef = useRef<(() => void) | null>(null);
 
-  // Cleanup drag listeners on unmount
+  // Cleanup drag listeners on unmount + restore click-through
   useEffect(() => {
     return () => {
       if (moveHandlerRef.current) {
@@ -26,6 +26,8 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
       if (upHandlerRef.current) {
         window.removeEventListener('mouseup', upHandlerRef.current);
       }
+      // Restore click-through when widget unmounts (e.g. switching to chat view)
+      window.kxai.setClickThrough(false);
     };
   }, []);
 
@@ -87,9 +89,23 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
         ? `${name} — chcę coś powiedzieć (Ctrl+Shift+P)`
         : `${name} — kliknij aby otworzyć`;
 
+  // ─── Click-through toggle: disable when hovering widget, enable when leaving ───
+  const handleMouseEnter = useCallback(() => {
+    window.kxai.setClickThrough(false);
+  }, []);
+
+  const handleMouseLeave = useCallback(() => {
+    // Don't re-enable click-through during drag — mouse can leave widget area
+    if (!isDragging.current) {
+      window.kxai.setClickThrough(true);
+    }
+  }, []);
+
   return (
     <div
       onMouseDown={handleMouseDown}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
       className={`floating-widget${stateClass}`}
       title={titleText}
     >

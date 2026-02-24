@@ -6,13 +6,19 @@
   <title>KxAI Dashboard</title>
   <style>
     :root {
-      --bg: #0d1117; --surface: #161b22; --surface2: #21262d; --surface3: #30363d;
-      --border: #30363d; --text: #e6edf3; --text-dim: #8b949e; --text-muted: #484f58;
-      --accent: #58a6ff; --accent2: #3fb950; --warning: #d29922; --danger: #f85149;
-      --purple: #bc8cff; --pink: #f778ba;
+      --bg: #050508; --surface: #0a0a10; --surface2: #111118; --surface3: #1a1a24;
+      --border: rgba(255,255,255,0.06); --border-bright: rgba(255,255,255,0.12);
+      --text: #f0f0f5; --text-dim: #8888a0; --text-muted: #555568;
+      --accent: #00f0ff; --accent2: #00ff88; --warning: #ffe600; --danger: #ff3355;
+      --purple: #b347ff; --pink: #ff00aa;
+      --font: 'Inter','Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif;
+      --font-mono: 'JetBrains Mono','Fira Code','Consolas',monospace;
     }
     * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); }
+    body { font-family: var(--font); background: var(--bg); color: var(--text); }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,240,255,0.15); border-radius: 2px; }
 
     .dashboard { display: grid; grid-template-columns: 220px 1fr; grid-template-rows: 56px 1fr; height: 100vh; }
     .topbar {
@@ -20,94 +26,101 @@
       display: flex; align-items: center; padding: 0 20px; gap: 12px;
     }
     .topbar__logo { font-size: 24px; }
-    .topbar__title { font-size: 16px; font-weight: 600; }
-    .topbar__status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); }
-    .topbar__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent2); }
-    .topbar__dot--busy { background: var(--warning); animation: blink 1s infinite; }
+    .topbar__title { font-size: 16px; font-weight: 600; letter-spacing: 0.02em; }
+    .topbar__status { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-dim); font-family: var(--font-mono); }
+    .topbar__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent2); box-shadow: 0 0 8px rgba(0,255,136,0.4); }
+    .topbar__dot--busy { background: var(--pink); box-shadow: 0 0 8px rgba(255,0,170,0.4); animation: blink 1s infinite; }
     @keyframes blink { 50% { opacity: 0.3; } }
 
     .sidebar {
       background: var(--surface); border-right: 1px solid var(--border); padding: 12px 0;
       overflow-y: auto;
     }
-    .sidebar__section { padding: 8px 16px; font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+    .sidebar__section { padding: 8px 16px; font-size: 10px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; font-family: var(--font-mono); }
     .sidebar__item {
       display: flex; align-items: center; gap: 10px; padding: 8px 16px;
       cursor: pointer; font-size: 13px; color: var(--text-dim); transition: all 0.15s;
       border-left: 2px solid transparent;
     }
     .sidebar__item:hover { background: var(--surface2); color: var(--text); }
-    .sidebar__item--active { background: var(--surface2); color: var(--accent); border-left-color: var(--accent); }
+    .sidebar__item--active { background: rgba(0,240,255,0.05); color: var(--accent); border-left-color: var(--accent); }
     .sidebar__icon { width: 18px; text-align: center; }
 
     .main { overflow-y: auto; padding: 20px; }
 
-    .card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-    .card__title { font-size: 14px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 16px; margin-bottom: 16px; transition: border-color 0.15s;
+    }
+    .card:hover { border-color: var(--border-bright); }
+    .card__title { font-size: 13px; font-weight: 600; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; text-transform: uppercase; letter-spacing: 0.3px; color: var(--text-dim); }
     .card__title .icon { font-size: 16px; }
 
     .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
     .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
 
     .stat { text-align: center; }
-    .stat__value { font-size: 28px; font-weight: 700; color: var(--accent); }
+    .stat__value { font-size: 28px; font-weight: 700; color: var(--accent); font-family: var(--font-mono); }
     .stat__label { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
 
     .table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .table th { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); color: var(--text-dim); font-weight: 500; font-size: 11px; text-transform: uppercase; }
-    .table td { padding: 8px; border-bottom: 1px solid var(--surface2); }
-    .table tr:hover td { background: var(--surface2); }
+    .table th { text-align: left; padding: 8px; border-bottom: 1px solid var(--border); color: var(--text-muted); font-weight: 600; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; font-family: var(--font-mono); }
+    .table td { padding: 8px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+    .table tr:hover td { background: rgba(0,240,255,0.02); }
 
     .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 500; }
-    .badge--green { background: rgba(63,185,80,0.15); color: var(--accent2); }
-    .badge--blue { background: rgba(88,166,255,0.15); color: var(--accent); }
-    .badge--yellow { background: rgba(210,153,34,0.15); color: var(--warning); }
-    .badge--red { background: rgba(248,81,73,0.15); color: var(--danger); }
-    .badge--purple { background: rgba(188,140,255,0.15); color: var(--purple); }
-    .badge--dim { background: rgba(139,148,158,0.1); color: var(--text-dim); }
+    .badge--green { background: rgba(0,255,136,0.1); color: var(--accent2); }
+    .badge--blue { background: rgba(0,240,255,0.1); color: var(--accent); }
+    .badge--yellow { background: rgba(255,230,0,0.1); color: var(--warning); }
+    .badge--red { background: rgba(255,51,85,0.1); color: var(--danger); }
+    .badge--purple { background: rgba(179,71,255,0.1); color: var(--purple); }
+    .badge--dim { background: rgba(136,136,160,0.08); color: var(--text-dim); }
 
-    .progress-bar { height: 6px; background: var(--surface3); border-radius: 3px; overflow: hidden; }
-    .progress-bar__fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+    .progress-bar { height: 4px; background: var(--surface3); border-radius: 2px; overflow: hidden; }
+    .progress-bar__fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--purple)); border-radius: 2px; transition: width 0.3s; box-shadow: 0 0 8px rgba(0,240,255,0.3); }
 
     .tool-card {
-      background: var(--surface2); border-radius: 6px; padding: 10px 12px; margin-bottom: 6px;
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 8px;
+      padding: 10px 12px; margin-bottom: 6px;
       display: flex; justify-content: space-between; align-items: center;
+      transition: border-color 0.15s;
     }
+    .tool-card:hover { border-color: var(--border-bright); }
     .tool-card__name { font-weight: 500; font-size: 13px; }
     .tool-card__cat { font-size: 11px; color: var(--text-dim); }
 
-    .shortcut { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--surface2); font-size: 13px; }
+    .shortcut { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 13px; }
     .shortcut__keys { display: flex; gap: 4px; }
     .shortcut__key {
       background: var(--surface2); border: 1px solid var(--border); border-radius: 4px;
-      padding: 2px 8px; font-size: 11px; font-family: monospace; color: var(--text-dim);
+      padding: 2px 8px; font-size: 11px; font-family: var(--font-mono); color: var(--text-dim);
     }
 
-    .activity-item { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--surface2); font-size: 13px; }
-    .activity-item__time { color: var(--text-muted); font-size: 11px; min-width: 50px; }
+    .activity-item { display: flex; gap: 12px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.03); font-size: 13px; }
+    .activity-item__time { color: var(--text-muted); font-size: 11px; min-width: 50px; font-family: var(--font-mono); }
     .activity-item__action { color: var(--text-dim); }
 
     .empty { text-align: center; padding: 40px; color: var(--text-muted); }
-    .empty__icon { font-size: 40px; margin-bottom: 8px; }
+    .empty__icon { font-size: 40px; margin-bottom: 8px; opacity: 0.6; }
 
     /* ─── Graph Visualization ─── */
-    .graph-container { position: relative; width: 100%; height: 400px; background: var(--surface2); border-radius: 8px; overflow: hidden; }
+    .graph-container { position: relative; width: 100%; height: 400px; background: var(--surface2); border-radius: 8px; overflow: hidden; border: 1px solid var(--border); }
     .graph-node {
       position: absolute; width: 60px; height: 60px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
       font-size: 24px; border: 2px solid var(--border); cursor: pointer;
       transition: transform 0.2s, box-shadow 0.2s;
     }
-    .graph-node:hover { transform: scale(1.15); box-shadow: 0 0 20px rgba(88,166,255,0.3); }
-    .graph-node--agent { background: var(--surface); border-color: var(--accent); }
-    .graph-node--tool { background: var(--surface); border-color: var(--accent2); }
-    .graph-node--cron { background: var(--surface); border-color: var(--warning); }
-    .graph-node--rag { background: var(--surface); border-color: var(--purple); }
-    .graph-node--system { background: var(--surface); border-color: var(--pink); }
+    .graph-node:hover { transform: scale(1.15); box-shadow: 0 0 24px rgba(0,240,255,0.3); }
+    .graph-node--agent { background: var(--surface); border-color: var(--accent); box-shadow: 0 0 12px rgba(0,240,255,0.2); }
+    .graph-node--tool { background: var(--surface); border-color: var(--accent2); box-shadow: 0 0 12px rgba(0,255,136,0.2); }
+    .graph-node--cron { background: var(--surface); border-color: var(--warning); box-shadow: 0 0 12px rgba(255,230,0,0.15); }
+    .graph-node--rag { background: var(--surface); border-color: var(--purple); box-shadow: 0 0 12px rgba(179,71,255,0.2); }
+    .graph-node--system { background: var(--surface); border-color: var(--pink); box-shadow: 0 0 12px rgba(255,0,170,0.2); }
     .graph-label { position: absolute; top: 65px; font-size: 10px; color: var(--text-dim); white-space: nowrap; text-align: center; width: 80px; left: -10px; }
     svg.graph-lines { position: absolute; inset: 0; pointer-events: none; }
-    svg.graph-lines line { stroke: var(--border); stroke-width: 1; opacity: 0.5; }
-    svg.graph-lines line.active { stroke: var(--accent); stroke-width: 2; opacity: 0.8; animation: line-pulse 2s infinite; }
+    svg.graph-lines line { stroke: rgba(255,255,255,0.06); stroke-width: 1; opacity: 0.5; }
+    svg.graph-lines line.active { stroke: var(--accent); stroke-width: 2; opacity: 0.8; animation: line-pulse 2s infinite; filter: drop-shadow(0 0 4px rgba(0,240,255,0.4)); }
     @keyframes line-pulse { 50% { opacity: 0.3; } }
   </style>
 </head>
@@ -144,6 +157,9 @@
       <span class="sidebar__icon">💻</span> System
     </div>
     <div class="sidebar__section">Inne</div>
+    <div class="sidebar__item" data-page="meeting-prep">
+      <span class="sidebar__icon">🔍</span> Meeting Prep
+    </div>
     <div class="sidebar__item" data-page="meetings">
       <span class="sidebar__icon">🎙️</span> Spotkania
     </div>
@@ -212,6 +228,13 @@
           liveMeetingState = null;
           if (currentPage === 'meeting-live') loadPage('meetings');
         }
+        // Meeting prep progress
+        if (msg.type === 'meeting-prep:progress' && msg.data) {
+          var progEl = document.getElementById('prep-progress');
+          if (progEl) {
+            progEl.textContent = msg.data.status || '';
+          }
+        }
       } catch(ex) {}
     };
     wsConn.onclose = function() { setTimeout(connectWS, 3000); };
@@ -260,6 +283,7 @@
       case 'rag': return renderRag(main);
       case 'system': return renderSystem(main);
       case 'meetings': return renderMeetings(main);
+      case 'meeting-prep': return renderMeetingPrep(main);
       case 'meeting-live': return renderMeetingLive(main);
       case 'activity': return renderActivity(main);
       case 'shortcuts': return renderShortcuts(main);
@@ -416,13 +440,19 @@
     api('/api/cron').then(function(jobs) {
       jobs = jobs || [];
       var rows = jobs.map(function(j) {
+        var safeName = escapeHtml(String(j.name || ''));
+        var safeSchedule = escapeHtml(String(j.schedule || ''));
+        var safeCategory = escapeHtml(String(j.category || ''));
+        var safeRunCount = String(Number(j.runCount) || 0);
+        var safeEnabled = !!j.enabled;
+        var safeLastRun = j.lastRun ? escapeHtml(new Date(j.lastRun).toLocaleString('pl')) : '-';
         return '<tr>' +
-          '<td>' + j.name + '</td>' +
-          '<td><code>' + j.schedule + '</code></td>' +
-          '<td><span class="badge badge--purple">' + j.category + '</span></td>' +
-          '<td><span class="badge badge--' + (j.enabled?'green':'red') + '">' + (j.enabled?'Aktywny':'Wyłączony') + '</span></td>' +
-          '<td>' + j.runCount + '</td>' +
-          '<td>' + (j.lastRun ? new Date(j.lastRun).toLocaleString('pl') : '-') + '</td>' +
+          '<td>' + safeName + '</td>' +
+          '<td><code>' + safeSchedule + '</code></td>' +
+          '<td><span class="badge badge--purple">' + safeCategory + '</span></td>' +
+          '<td><span class="badge badge--' + (safeEnabled?'green':'red') + '">' + (safeEnabled?'Aktywny':'Wyłączony') + '</span></td>' +
+          '<td>' + safeRunCount + '</td>' +
+          '<td>' + safeLastRun + '</td>' +
         '</tr>';
       }).join('');
       el.innerHTML =
@@ -478,6 +508,168 @@
     });
   }
 
+  // ─── Meeting Prep — Participant Research ───
+  var prepResults = [];
+
+  function renderMeetingPrep(el) {
+    var html = '<div class="card">' +
+      '<div class="card__title"><span class="icon">🔍</span> Meeting Prep — Research uczestników</div>' +
+      '<p style="color:var(--text-dim);font-size:13px;margin-bottom:16px">Podaj uczestników spotkania. AI wyszuka o nich wszystkie dostępne informacje (LinkedIn, Twitter, firma, publikacje).</p>' +
+      '<div id="prep-participants">' +
+        renderPrepParticipantRow(0) +
+      '</div>' +
+      '<div style="display:flex;gap:8px;margin-top:12px">' +
+        '<button id="btn-add-participant" onclick="addPrepParticipant()" style="background:rgba(0,240,255,0.08);color:var(--accent);border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:12px;font-family:var(--font-mono)">+ Dodaj uczestnika</button>' +
+        '<button id="btn-research" onclick="startPrepResearch()" style="background:rgba(0,240,255,0.15);color:var(--accent);border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-size:13px;font-family:var(--font-mono);font-weight:600">🔍 Zbadaj wszystkich</button>' +
+      '</div>' +
+      '<div id="prep-progress" style="color:var(--text-dim);font-size:12px;margin-top:8px;font-style:italic"></div>' +
+    '</div>';
+
+    // Show previous results
+    if (prepResults.length > 0) {
+      html += renderPrepResults(prepResults);
+    }
+
+    el.innerHTML = html;
+  }
+
+  function renderPrepParticipantRow(idx) {
+    return '<div class="prep-row" data-idx="' + idx + '" style="display:flex;gap:8px;margin-bottom:8px;align-items:flex-start">' +
+      '<div style="flex:1">' +
+        '<input type="text" placeholder="Imię i nazwisko *" class="prep-name" style="width:100%;padding:6px 10px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;margin-bottom:4px" />' +
+        '<div style="display:flex;gap:6px">' +
+          '<input type="text" placeholder="Firma" class="prep-company" style="flex:1;padding:6px 10px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px" />' +
+          '<input type="text" placeholder="Rola (np. CTO)" class="prep-role" style="flex:1;padding:6px 10px;background:rgba(255,255,255,0.05);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px" />' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;flex-direction:column;align-items:center;gap:4px">' +
+        '<label style="width:64px;height:64px;border:2px dashed var(--border);border-radius:8px;display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:20px;background:rgba(255,255,255,0.02);overflow:hidden" title="Dodaj zdjęcie">' +
+          '<input type="file" accept="image/*" class="prep-photo" style="display:none" onchange="handlePrepPhoto(this,' + idx + ')" />' +
+          '<span class="prep-photo-preview" data-idx="' + idx + '">📷</span>' +
+        '</label>' +
+        '<span style="font-size:10px;color:var(--text-muted)">Zdjęcie</span>' +
+      '</div>' +
+      '<button onclick="removePrepParticipant(this)" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:16px;padding:4px;margin-top:4px" title="Usuń">✕</button>' +
+    '</div>';
+  }
+
+  window.addPrepParticipant = function() {
+    var container = document.getElementById('prep-participants');
+    if (!container) return;
+    var rows = container.querySelectorAll('.prep-row');
+    var idx = rows.length;
+    container.insertAdjacentHTML('beforeend', renderPrepParticipantRow(idx));
+  };
+
+  window.removePrepParticipant = function(btn) {
+    var row = btn.closest('.prep-row');
+    if (row) row.remove();
+  };
+
+  window.handlePrepPhoto = function(input, idx) {
+    if (!input.files || !input.files[0]) return;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var preview = document.querySelector('.prep-photo-preview[data-idx="' + idx + '"]');
+      if (preview) {
+        preview.innerHTML = '<img src="' + e.target.result + '" style="width:60px;height:60px;object-fit:cover;border-radius:6px" />';
+        preview.setAttribute('data-base64', e.target.result);
+      }
+    };
+    reader.readAsDataURL(input.files[0]);
+  };
+
+  window.startPrepResearch = function() {
+    var rows = document.querySelectorAll('.prep-row');
+    var participants = [];
+    rows.forEach(function(row) {
+      var name = row.querySelector('.prep-name');
+      var company = row.querySelector('.prep-company');
+      var role = row.querySelector('.prep-role');
+      var preview = row.querySelector('.prep-photo-preview');
+      if (name && name.value.trim()) {
+        var p = { name: name.value.trim() };
+        if (company && company.value.trim()) p.company = company.value.trim();
+        if (role && role.value.trim()) p.role = role.value.trim();
+        if (preview && preview.getAttribute('data-base64')) p.photoBase64 = preview.getAttribute('data-base64');
+        participants.push(p);
+      }
+    });
+
+    if (participants.length === 0) {
+      document.getElementById('prep-progress').textContent = '⚠️ Podaj przynajmniej jednego uczestnika';
+      return;
+    }
+
+    var btn = document.getElementById('btn-research');
+    btn.disabled = true;
+    btn.textContent = '⏳ Badanie w toku...';
+    document.getElementById('prep-progress').textContent = 'Rozpoczynam research...';
+
+    fetch(API + '/api/meeting-prep/research', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ participants: participants }),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(j) {
+      btn.disabled = false;
+      btn.textContent = '🔍 Zbadaj wszystkich';
+      if (j.success && j.data) {
+        prepResults = j.data;
+        var main = document.getElementById('mainContent');
+        // Re-render with results
+        var existingResults = document.getElementById('prep-results-container');
+        if (existingResults) existingResults.remove();
+        main.insertAdjacentHTML('beforeend', renderPrepResults(j.data));
+        document.getElementById('prep-progress').textContent = '✅ Research zakończony — ' + j.data.length + ' osób zbadanych';
+      } else {
+        document.getElementById('prep-progress').textContent = '❌ Błąd: ' + (j.error || 'Nieznany błąd');
+      }
+    })
+    .catch(function(err) {
+      btn.disabled = false;
+      btn.textContent = '🔍 Zbadaj wszystkich';
+      document.getElementById('prep-progress').textContent = '❌ Błąd połączenia: ' + err.message;
+    });
+  };
+
+  function renderPrepResults(results) {
+    if (!results || results.length === 0) return '';
+    var cards = results.map(function(r) {
+      var socialLinks = (r.socialMedia || []).map(function(s) {
+        return '<a href="' + escapeHtml(s.url) + '" target="_blank" style="color:var(--accent);text-decoration:none;font-size:12px">' + escapeHtml(s.platform) + '</a>';
+      }).join(' · ');
+
+      var experienceList = (r.experience || []).map(function(e) { return '<li>' + escapeHtml(e) + '</li>'; }).join('');
+      var interestsList = (r.interests || []).map(function(i) { return '<span class="badge" style="margin:2px">' + escapeHtml(i) + '</span>'; }).join('');
+      var talkingList = (r.talkingPoints || []).map(function(t) { return '<li style="color:var(--accent2)">' + escapeHtml(t) + '</li>'; }).join('');
+      var cautionsList = (r.cautions || []).map(function(c) { return '<li style="color:var(--pink)">' + escapeHtml(c) + '</li>'; }).join('');
+      var commonList = (r.commonGround || []).map(function(c) { return '<li>' + escapeHtml(c) + '</li>'; }).join('');
+
+      return '<div class="card" style="margin-bottom:12px">' +
+        '<div class="card__title">' +
+          '<span class="icon">👤</span> ' + escapeHtml(r.name) +
+          (r.role ? ' · <span style="color:var(--text-dim);font-weight:400">' + escapeHtml(r.role) + '</span>' : '') +
+          (r.company ? ' @ <span style="color:var(--accent)">' + escapeHtml(r.company) + '</span>' : '') +
+        '</div>' +
+        (r.photoDescription ? '<p style="font-size:12px;color:var(--text-muted);font-style:italic;margin-bottom:8px">📷 ' + escapeHtml(r.photoDescription) + '</p>' : '') +
+        '<p style="font-size:13px;margin-bottom:12px">' + escapeHtml(r.summary) + '</p>' +
+        (socialLinks ? '<div style="margin-bottom:12px">' + socialLinks + '</div>' : '') +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">' +
+          (experienceList ? '<div><strong style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Doświadczenie</strong><ul style="margin:4px 0;padding-left:16px;font-size:12px">' + experienceList + '</ul></div>' : '') +
+          (interestsList ? '<div><strong style="font-size:11px;color:var(--text-muted);text-transform:uppercase">Zainteresowania</strong><div style="margin-top:4px">' + interestsList + '</div></div>' : '') +
+          (talkingList ? '<div><strong style="font-size:11px;color:var(--text-muted);text-transform:uppercase">💬 O czym rozmawiać</strong><ul style="margin:4px 0;padding-left:16px;font-size:12px">' + talkingList + '</ul></div>' : '') +
+          (commonList ? '<div><strong style="font-size:11px;color:var(--text-muted);text-transform:uppercase">🤝 Wspólne punkty</strong><ul style="margin:4px 0;padding-left:16px;font-size:12px">' + commonList + '</ul></div>' : '') +
+        '</div>' +
+        (cautionsList ? '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:8px"><strong style="font-size:11px;color:var(--pink);text-transform:uppercase">⚠️ Na co uważać</strong><ul style="margin:4px 0;padding-left:16px;font-size:12px">' + cautionsList + '</ul></div>' : '') +
+        (r.sources && r.sources.length ? '<div style="margin-top:8px;font-size:10px;color:var(--text-muted)">Źródła: ' + r.sources.map(function(s) { return '<a href="' + escapeHtml(s) + '" target="_blank" style="color:var(--text-muted)">' + escapeHtml(s.slice(0,50)) + '</a>'; }).join(', ') + '</div>' : '') +
+      '</div>';
+    }).join('');
+
+    return '<div id="prep-results-container"><div class="card__title" style="margin-top:16px;margin-bottom:8px"><span class="icon">📋</span> Wyniki researchu (' + results.length + ' osób)</div>' + cards + '</div>';
+  }
+
   function renderMeetings(el) {
     api('/api/meetings').then(function(meetings) {
       meetings = meetings || [];
@@ -486,14 +678,14 @@
       var liveBanner = '';
       if (liveMeetingState && liveMeetingState.active) {
         liveBanner =
-          '<div class="card" style="border-color:#f85149;background:rgba(248,81,73,0.05)">' +
+          '<div class="card" style="border-color:var(--pink);background:rgba(255,0,170,0.03)">' +
             '<div class="card__title"><span class="icon" style="animation:blink 1s infinite">🔴</span> Spotkanie w toku</div>' +
             '<div style="display:flex;justify-content:space-between;align-items:center">' +
               '<div style="font-size:13px;color:var(--text-dim)">' +
                 '💬 ' + (liveMeetingState.transcriptLineCount || liveTranscript.length) + ' linii transkrypcji · ' +
                 '💡 ' + liveCoachingTips.length + ' sugestii' +
               '</div>' +
-              '<button onclick="_dashNav(\'meeting-live\')" style="background:rgba(88,166,255,0.12);color:var(--accent);border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px">📡 Podgląd live →</button>' +
+              '<button onclick="_dashNav(\'meeting-live\')" style="background:rgba(0,240,255,0.08);color:var(--accent);border:none;border-radius:6px;padding:6px 12px;cursor:pointer;font-size:12px;font-family:var(--font-mono)">📡 Podgląd live →</button>' +
             '</div>' +
           '</div>';
       }
@@ -554,7 +746,7 @@
 
       // Sentiment
       if (m.sentiment) {
-        html += '<div class="card" style="border-left:3px solid #bc8cff">' +
+        html += '<div class="card" style="border-left:3px solid var(--purple)">' +
           '<div class="card__title"><span class="icon">🎭</span> Atmosfera spotkania</div>' +
           '<p style="font-size:14px;line-height:1.6;color:var(--text);margin:0;font-style:italic">' + escapeHtml(m.sentiment) + '</p>' +
         '</div>';
@@ -603,7 +795,7 @@
           var isMe = s.name === 'Ja';
           var color = isMe ? 'var(--accent2)' : 'var(--purple)';
           return '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--surface2);border-radius:8px">' +
-            '<div style="width:36px;height:36px;border-radius:50%;background:' + (isMe ? 'rgba(63,185,80,0.15)' : 'rgba(188,140,255,0.15)') + ';display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">' +
+            '<div style="width:36px;height:36px;border-radius:50%;background:' + (isMe ? 'rgba(0,255,136,0.12)' : 'rgba(179,71,255,0.12)') + ';display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0">' +
               (isMe ? '👤' : '🎙️') +
             '</div>' +
             '<div style="flex:1;min-width:0">' +
@@ -646,7 +838,7 @@
         var transcriptLines = m.transcript.map(function(line) {
           var time = new Date(line.timestamp).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
           var isMe = line.speaker === 'Ja';
-          var color = isMe ? '#3fb950' : '#bc8cff';
+          var color = isMe ? 'var(--accent2)' : 'var(--purple)';
           return '<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--surface2);font-size:12px">' +
             '<span style="color:var(--text-muted);flex-shrink:0;min-width:60px">' + time + '</span>' +
             '<span style="color:' + color + ';font-weight:600;flex-shrink:0;min-width:80px">' + escapeHtml(line.speaker) + '</span>' +
@@ -679,16 +871,16 @@
 
   function renderMeetingLive(el) {
     if (!liveMeetingState || !liveMeetingState.active) {
-      el.innerHTML = '<div class="empty"><div class="empty__icon">🎙️</div>Brak aktywnego spotkania<br><button onclick="_dashNav(\'meetings\')" style="margin-top:12px;background:rgba(88,166,255,0.12);color:var(--accent);border:none;border-radius:6px;padding:8px 16px;cursor:pointer">← Powrót do spotkań</button></div>';
+      el.innerHTML = '<div class="empty"><div class="empty__icon">🎙️</div>Brak aktywnego spotkania<br><button onclick="_dashNav(\'meetings\')" style="margin-top:12px;background:rgba(0,240,255,0.08);color:var(--accent);border:none;border-radius:6px;padding:8px 16px;cursor:pointer;font-family:var(--font-mono)">← Powrót do spotkań</button></div>';
       return;
     }
 
     var html = '<div style="margin-bottom:8px"><button onclick="_dashNav(\'meetings\')" style="background:transparent;color:var(--accent);border:none;cursor:pointer;font-size:13px;padding:4px 0">← Powrót do listy</button></div>';
 
     // Live status
-    html += '<div class="card" style="border-color:#f85149">' +
+    html += '<div class="card" style="border-color:var(--pink)">' +
       '<div style="display:flex;align-items:center;gap:10px">' +
-        '<span style="width:10px;height:10px;border-radius:50%;background:#f85149;box-shadow:0 0 8px rgba(248,81,73,0.6);animation:blink 1s infinite"></span>' +
+        '<span style="width:10px;height:10px;border-radius:50%;background:var(--pink);box-shadow:0 0 8px rgba(255,0,170,0.5);animation:blink 1s infinite"></span>' +
         '<span style="font-size:16px;font-weight:700;color:var(--text)">Spotkanie w toku</span>' +
         '<span style="font-size:13px;color:var(--text-dim)">💬 ' + liveTranscript.length + ' linii · 💡 ' + liveCoachingTips.length + ' sugestii</span>' +
       '</div>' +
@@ -717,7 +909,7 @@
     lines.forEach(function(line) {
       var time = new Date(line.timestamp).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       var isMe = line.speaker === 'Ja';
-      var color = isMe ? '#3fb950' : '#bc8cff';
+      var color = isMe ? 'var(--accent2)' : 'var(--purple)';
       html += '<div style="display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--surface2);font-size:12px">' +
         '<span style="color:var(--text-muted);flex-shrink:0;min-width:60px">' + time + '</span>' +
         '<span style="color:' + color + ';font-weight:600;flex-shrink:0;min-width:80px">' + escapeHtml(line.speaker) + '</span>' +
@@ -741,7 +933,7 @@
     if (!line) return;
     var time = new Date(line.timestamp).toLocaleTimeString('pl', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     var isMe = line.speaker === 'Ja';
-    var color = isMe ? '#3fb950' : '#bc8cff';
+    var color = isMe ? 'var(--accent2)' : 'var(--purple)';
     var div = document.createElement('div');
     div.style.cssText = 'display:flex;gap:8px;padding:4px 0;border-bottom:1px solid var(--surface2);font-size:12px';
     div.innerHTML = '<span style="color:var(--text-muted);flex-shrink:0;min-width:60px">' + time + '</span>' +

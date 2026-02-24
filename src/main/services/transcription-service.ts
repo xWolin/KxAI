@@ -1,8 +1,9 @@
 /**
- * TranscriptionService — Real-time Speech-to-Text via ElevenLabs Scribe v2.
+ * TranscriptionService — Real-time Speech-to-Text via Deepgram Nova-3.
  *
- * Uses WebSocket connection to ElevenLabs Realtime STT API.
+ * Uses WebSocket connection to Deepgram Live Streaming API.
  * Receives PCM 16kHz audio chunks and returns partial/committed transcripts.
+ * Supports real-time speaker diarization (speaker IDs per word).
  * Supports multiple concurrent sessions (e.g. mic + system audio).
  */
 
@@ -17,9 +18,9 @@ export interface TranscriptEvent {
   label: string;         // 'mic' | 'system'
   text: string;
   isFinal: boolean;
-  speaker?: string;
+  speaker?: string;      // e.g. "0", "1", "2" — Deepgram speaker ID
   timestamp?: number;
-  words?: Array<{ text: string; start: number; end: number }>;
+  words?: Array<{ text: string; start: number; end: number; speaker?: number }>;
 }
 
 export interface TranscriptionSessionInfo {
@@ -35,6 +36,7 @@ interface ActiveSession {
   ws: WebSocket | null;
   connected: boolean;
   language: string;
+  keepAliveTimer: ReturnType<typeof setInterval> | null;
 }
 
 // ──────────────── Service ────────────────
@@ -44,6 +46,7 @@ export class TranscriptionService extends EventEmitter {
   private securityService: SecurityService;
   private reconnectAttempts: Map<string, number> = new Map();
   private readonly MAX_RECONNECT = 3;
+  _emptyResultCount: Map<string, number> = new Map();
 
   constructor(securityService: SecurityService) {
     super();
@@ -51,7 +54,7 @@ export class TranscriptionService extends EventEmitter {
   }
 
   /**
-   * Start a new transcription session via ElevenLabs WebSocket.
+   * Start a new transcription session via Deepgram WebSocket.
    */
   async startSession(sessionId: string, label: string, language: string = 'pl'): Promise<void> {
     // Stop existing session if any
@@ -59,9 +62,9 @@ export class TranscriptionService extends EventEmitter {
       await this.stopSession(sessionId);
     }
 
-    const apiKey = await this.securityService.getApiKey('elevenlabs');
+    const apiKey = await this.securityService.getApiKey('deepgram');
     if (!apiKey) {
-      throw new Error('Brak klucza API ElevenLabs. Ustaw go w ustawieniach.');
+      throw new Error('Brak klucza API Deepgram. Ustaw go w ustawieniach.');
     }
 
     this.reconnectAttempts.set(sessionId, 0);
@@ -71,21 +74,26 @@ export class TranscriptionService extends EventEmitter {
   private async connectSession(
     sessionId: string, label: string, language: string, apiKey: string
   ): Promise<void> {
-    const wsUrl = new URL('wss://api.elevenlabs.io/v1/speech-to-text/realtime');
-    wsUrl.searchParams.set('model_id', 'scribe_v2_realtime');
-    wsUrl.searchParams.set('language_code', language);
-    wsUrl.searchParams.set('audio_format', 'pcm_16000');
-    // VAD commit strategy for instant transcript delivery on silence
-    wsUrl.searchParams.set('commit_strategy', 'vad');
-    wsUrl.searchParams.set('vad_silence_threshold_secs', '1.2');
-    wsUrl.searchParams.set('vad_threshold', '0.4');
-    wsUrl.searchParams.set('min_speech_duration_ms', '100');
-    wsUrl.searchParams.set('min_silence_duration_ms', '100');
-    // Enable word-level timestamps for better analysis
-    wsUrl.searchParams.set('include_timestamps', 'true');
+    // Build Deepgram Live Streaming WebSocket URL
+    const params = new URLSearchParams({
+      model: 'nova-3',
+      language,
+      smart_format: 'true',
+      punctuate: 'true',
+      diarize: 'true',              // Real-time speaker diarization!
+      interim_results: 'true',
+      utterance_end_ms: '1500',     // 1.5s silence = utterance end
+      vad_events: 'true',
+      endpointing: '300',           // 300ms endpointing for responsive results
+      encoding: 'linear16',
+      sample_rate: '16000',
+      channels: '1',
+    });
 
-    const ws = new WebSocket(wsUrl.toString(), {
-      headers: { 'xi-api-key': apiKey },
+    const wsUrl = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
+
+    const ws = new WebSocket(wsUrl, {
+      headers: { 'Authorization': `Token ${apiKey}` },
     });
 
     const session: ActiveSession = {
@@ -94,17 +102,22 @@ export class TranscriptionService extends EventEmitter {
       ws,
       connected: false,
       language,
+      keepAliveTimer: null,
     };
 
     this.sessions.set(sessionId, session);
 
     ws.on('open', () => {
       session.connected = true;
-      // NOTE: Don't reset reconnectAttempts here — only reset after receiving
-      // actual transcript data. Otherwise, a connect→immediate-close loop
-      // would reset the counter every time and reconnect infinitely.
-      console.log(`[Transcription] Session '${label}' connected`);
+      console.log(`[Transcription] Session '${label}' connected (Deepgram Nova-3, diarize=true)`);
       this.emit('session:connected', { sessionId, label });
+
+      // Deepgram requires KeepAlive messages if no audio for >12s
+      session.keepAliveTimer = setInterval(() => {
+        if (session.ws && session.connected && session.ws.readyState === WebSocket.OPEN) {
+          session.ws.send(JSON.stringify({ type: 'KeepAlive' }));
+        }
+      }, 8000);
     });
 
     ws.on('message', (data: WebSocket.Data) => {
@@ -123,16 +136,19 @@ export class TranscriptionService extends EventEmitter {
 
     ws.on('close', async (code: number, reason: Buffer) => {
       session.connected = false;
+      if (session.keepAliveTimer) {
+        clearInterval(session.keepAliveTimer);
+        session.keepAliveTimer = null;
+      }
       const reasonStr = reason.toString();
       console.log(`[Transcription] Session '${label}' closed: ${code} ${reasonStr}`);
 
-      // Don't reconnect on policy violations (invalid request) — the request
-      // itself is malformed and retrying won't help.
-      if (code === 1008) {
-        console.error(`[Transcription] Session '${label}' rejected with 1008 (invalid request) — nie ponawiam`);
+      // Don't reconnect on auth errors (401/403)
+      if (code === 1008 || code === 4001 || code === 4003) {
+        console.error(`[Transcription] Session '${label}' rejected (auth/policy error) — nie ponawiam`);
         this.sessions.delete(sessionId);
         this.reconnectAttempts.delete(sessionId);
-        this.emit('session:error', { sessionId, label, error: `Serwer odrzucił połączenie: ${reasonStr}` });
+        this.emit('session:error', { sessionId, label, error: `Deepgram odrzucił połączenie: ${reasonStr}` });
         this.emit('session:closed', { sessionId, label });
         return;
       }
@@ -144,15 +160,24 @@ export class TranscriptionService extends EventEmitter {
         console.log(`[Transcription] Reconnecting '${label}'... (attempt ${attempts + 1})`);
         await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempts))); // exponential backoff
         if (this.sessions.has(sessionId)) {
-          // Re-fetch API key to avoid using a stale/rotated key
-          const freshKey = await this.securityService.getApiKey('elevenlabs');
-          if (!freshKey) {
-            console.error(`[Transcription] Cannot reconnect '${label}': no ElevenLabs API key`);
+          try {
+            const freshKey = await this.securityService.getApiKey('deepgram');
+            if (!freshKey) {
+              console.error(`[Transcription] Cannot reconnect '${label}': no Deepgram API key`);
+              this.sessions.delete(sessionId);
+              this.reconnectAttempts.delete(sessionId);
+              this.emit('session:error', { sessionId, label, error: 'Reconnect failed: no Deepgram API key' });
+              this.emit('session:closed', { sessionId, label });
+              return;
+            }
+            await this.connectSession(sessionId, label, language, freshKey);
+          } catch (err) {
+            console.error(`[Transcription] Reconnect failed for '${label}':`, err);
             this.sessions.delete(sessionId);
+            this.reconnectAttempts.delete(sessionId);
+            this.emit('session:error', { sessionId, label, error: `Reconnect failed: ${err}` });
             this.emit('session:closed', { sessionId, label });
-            return;
           }
-          await this.connectSession(sessionId, label, language, freshKey);
         }
       } else {
         this.sessions.delete(sessionId);
@@ -162,73 +187,106 @@ export class TranscriptionService extends EventEmitter {
   }
 
   /**
-   * Handle incoming WebSocket messages from ElevenLabs.
-   * ElevenLabs uses `message_type` field for event types.
+   * Handle incoming WebSocket messages from Deepgram.
+   *
+   * Deepgram message types:
+   * - Results: transcript data (is_final + speech_final flags)
+   * - SpeechStarted: voice activity started
+   * - UtteranceEnd: silence after speech ended
+   * - Metadata: session info
+   * - Error: error messages
    */
   private handleMessage(sessionId: string, label: string, msg: any): void {
-    const msgType = msg.message_type || msg.type;
+    const msgType = msg.type;
 
     switch (msgType) {
-      case 'session_started':
-        console.log(`[Transcription] Session '${label}' started, server config:`, JSON.stringify(msg.config || {}).substring(0, 200));
-        break;
+      case 'Results': {
+        // Reset reconnect counter on real data
+        this.reconnectAttempts.set(sessionId, 0);
 
-      case 'partial_transcript':
-        if (msg.text?.trim()) {
-          // Reset reconnect counter — we're getting real data
-          this.reconnectAttempts.set(sessionId, 0);
-          this.emit('transcript', {
-            sessionId,
-            label,
-            text: msg.text,
-            isFinal: false,
-          } as TranscriptEvent);
+        const alt = msg.channel?.alternatives?.[0];
+        if (!alt || !alt.transcript?.trim()) {
+          // Log empty results occasionally for diagnostics
+          if (!this._emptyResultCount) this._emptyResultCount = new Map();
+          const count = (this._emptyResultCount.get(sessionId) || 0) + 1;
+          this._emptyResultCount.set(sessionId, count);
+          if (count <= 3 || count % 100 === 0) {
+            console.log(`[Transcription] Empty result #${count} for '${label}' (speech detected but no transcript)`);
+          }
+          break;
         }
-        break;
 
-      case 'committed_transcript':
-        if (msg.text?.trim()) {
-          this.reconnectAttempts.set(sessionId, 0);
-          this.emit('transcript', {
-            sessionId,
-            label,
-            text: msg.text,
-            isFinal: true,
-            speaker: msg.speaker_id,
-          } as TranscriptEvent);
+        console.log(`[Transcription] Got transcript from '${label}': "${alt.transcript.substring(0, 80)}" (is_final=${msg.is_final})`);
+
+        const transcript = alt.transcript;
+        const isFinal = msg.is_final === true;
+
+        // Extract speaker from words with diarization
+        let speaker: string | undefined;
+        const words: Array<{ text: string; start: number; end: number; speaker?: number }> = [];
+
+        if (alt.words && Array.isArray(alt.words)) {
+          // Determine dominant speaker for this utterance
+          const speakerCounts = new Map<number, number>();
+
+          for (const w of alt.words) {
+            words.push({
+              text: w.word || w.text,
+              start: w.start,
+              end: w.end,
+              speaker: w.speaker,
+            });
+            if (w.speaker !== undefined && w.speaker !== null) {
+              speakerCounts.set(w.speaker, (speakerCounts.get(w.speaker) || 0) + 1);
+            }
+          }
+
+          // Use majority speaker for the whole utterance
+          if (speakerCounts.size > 0) {
+            let maxCount = 0;
+            let dominantSpeaker = 0;
+            for (const [spk, count] of speakerCounts) {
+              if (count > maxCount) {
+                maxCount = count;
+                dominantSpeaker = spk;
+              }
+            }
+            speaker = String(dominantSpeaker);
+          }
         }
+
+        this.emit('transcript', {
+          sessionId,
+          label,
+          text: transcript,
+          isFinal,
+          speaker,
+          words: isFinal ? words : undefined,
+        } as TranscriptEvent);
+        break;
+      }
+
+      case 'SpeechStarted':
+        // Voice activity detected — useful for UI indicators
+        this.emit('speech:started', { sessionId, label, timestamp: msg.timestamp });
         break;
 
-      case 'committed_transcript_with_timestamps':
-        if (msg.text?.trim()) {
-          this.reconnectAttempts.set(sessionId, 0);
-          const words = msg.words
-            ?.filter((w: any) => w.type === 'word')
-            ?.map((w: any) => ({ text: w.text, start: w.start, end: w.end }));
-          this.emit('transcript', {
-            sessionId,
-            label,
-            text: msg.text,
-            isFinal: true,
-            speaker: msg.speaker_id,
-            words,
-          } as TranscriptEvent);
-        }
+      case 'UtteranceEnd':
+        // Silence after speech — utterance boundary
+        this.emit('utterance:end', { sessionId, label });
         break;
 
-      case 'input_error':
-        // ElevenLabs returns input_error when audio is sent after commit or in invalid state
-        // This is expected during shutdown — log but don't propagate as user-visible error
-        console.warn(`[Transcription] Input error in '${label}': ${msg.message || msg.error || 'unknown'}`);
+      case 'Metadata':
+        console.log(`[Transcription] Session '${label}' metadata:`, JSON.stringify(msg).substring(0, 200));
+        break;
+
+      case 'Error':
+        console.error(`[Transcription] Deepgram error in '${label}':`, msg.message || msg.description || msg);
+        this.emit('session:error', { sessionId, label, error: msg.message || msg.description || 'Deepgram error' });
         break;
 
       default:
-        // Handle error message types
-        if (msgType?.includes('error') || msgType?.includes('Error')) {
-          console.error(`[Transcription] Server error in '${label}': ${msgType}`, msg.message || msg);
-          this.emit('session:error', { sessionId, label, error: msg.message || msgType });
-        }
-        // Ignore unknown message types
+        // Ignore unknown message types (KeepAlive acks, etc.)
         break;
     }
   }
@@ -236,17 +294,45 @@ export class TranscriptionService extends EventEmitter {
   /**
    * Send a PCM audio chunk to a specific session.
    * Expected format: raw PCM 16-bit, 16kHz, mono.
-   * Converts to base64 and wraps in ElevenLabs JSON message format.
+   * Deepgram accepts raw binary audio data directly (no base64 wrapping needed).
    */
+  private chunkCounters: Map<string, number> = new Map();
+  private lastChunkLog: Map<string, number> = new Map();
+
   sendAudioChunk(sessionId: string, chunk: Buffer): void {
     const session = this.sessions.get(sessionId);
-    if (session?.ws && session.connected && session.ws.readyState === WebSocket.OPEN) {
-      const message = JSON.stringify({
-        message_type: 'input_audio_chunk',
-        audio_base_64: chunk.toString('base64'),
-        sample_rate: 16000,
-      });
-      session.ws.send(message);
+
+    // Count chunks for diagnostics
+    const count = (this.chunkCounters.get(sessionId) || 0) + 1;
+    this.chunkCounters.set(sessionId, count);
+
+    // Log every 500 chunks (~8s of audio at 128-sample frames @ 16kHz)
+    const now = Date.now();
+    const lastLog = this.lastChunkLog.get(sessionId) || 0;
+    if (now - lastLog > 10000) { // Log every 10 seconds
+      this.lastChunkLog.set(sessionId, now);
+      const connected = session?.connected ?? false;
+      const wsState = session?.ws?.readyState ?? -1;
+      console.log(`[Transcription] Audio stats '${sessionId}': ${count} chunks sent, connected=${connected}, ws.readyState=${wsState}, chunkSize=${chunk.length}bytes`);
+    }
+
+    if (!session) {
+      if (count === 1) console.warn(`[Transcription] No session found for '${sessionId}' — audio chunk dropped`);
+      return;
+    }
+    if (!session.connected) {
+      if (count === 1) console.warn(`[Transcription] Session '${sessionId}' not yet connected — audio chunk dropped`);
+      return;
+    }
+    if (!session.ws || session.ws.readyState !== WebSocket.OPEN) {
+      if (count <= 3) console.warn(`[Transcription] WebSocket not open for '${sessionId}' (state=${session.ws?.readyState}) — audio chunk dropped`);
+      return;
+    }
+
+    try {
+      session.ws.send(chunk);
+    } catch (err) {
+      console.warn(`[Transcription] ws.send failed for '${sessionId}':`, err);
     }
   }
 
@@ -260,10 +346,15 @@ export class TranscriptionService extends EventEmitter {
       return;
     }
 
+    if (session.keepAliveTimer) {
+      clearInterval(session.keepAliveTimer);
+      session.keepAliveTimer = null;
+    }
+
     try {
       if (session.ws.readyState === WebSocket.OPEN) {
-        // Send commit to get final transcripts before closing
-        session.ws.send(JSON.stringify({ message_type: 'commit' }));
+        // Send CloseStream to get final transcripts before closing
+        session.ws.send(JSON.stringify({ type: 'CloseStream' }));
         await new Promise(r => setTimeout(r, 800));
         session.ws.close(1000, 'Session ended');
       }

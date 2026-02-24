@@ -16,15 +16,9 @@ import * as os from 'os';
 import * as https from 'https';
 import { SecurityService } from './security';
 
-export interface TTSConfig {
-  enabled: boolean;
-  provider: 'elevenlabs' | 'openai' | 'web';
-  elevenLabsVoiceId: string;       // ElevenLabs voice ID
-  elevenLabsModel: string;         // ElevenLabs model
-  openaiVoice: string;             // OpenAI TTS voice (alloy, echo, fable, onyx, nova, shimmer)
-  openaiModel: string;             // OpenAI TTS model (tts-1, tts-1-hd)
-  maxChars: number;                // Max characters to speak (truncate longer text)
-}
+// Re-export from shared types (canonical source)
+export type { TTSConfig } from '../../shared/types/tts';
+import type { TTSConfig } from '../../shared/types/tts';
 
 const DEFAULT_CONFIG: TTSConfig = {
   enabled: true,

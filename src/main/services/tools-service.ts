@@ -1,5 +1,7 @@
 import { exec, execFile } from 'child_process';
+import * as dns from 'dns';
 import * as fs from 'fs';
+import * as net from 'net';
 import * as path from 'path';
 import { app, clipboard, shell } from 'electron';
 import { AutomationService } from './automation-service';
@@ -9,18 +11,9 @@ import { PluginService } from './plugin-service';
 import { SecurityGuard } from './security-guard';
 import { SystemMonitor } from './system-monitor';
 
-export interface ToolDefinition {
-  name: string;
-  description: string;
-  category: 'system' | 'web' | 'files' | 'automation' | 'memory' | 'cron' | 'browser' | 'rag' | 'coding' | 'agent' | 'observation';
-  parameters: Record<string, { type: string; description: string; required?: boolean }>;
-}
-
-export interface ToolResult {
-  success: boolean;
-  data?: any;
-  error?: string;
-}
+// Re-export from shared types (canonical source)
+export type { ToolDefinition, ToolResult, ToolCategory } from '../../shared/types/tools';
+import type { ToolDefinition, ToolResult } from '../../shared/types/tools';
 
 export class ToolsService {
   private toolRegistry: Map<string, (params: any) => Promise<ToolResult>> = new Map();
@@ -36,6 +29,108 @@ export class ToolsService {
     this.securityGuard = new SecurityGuard();
     this.systemMonitor = new SystemMonitor();
     this.registerBuiltinTools();
+  }
+
+  /**
+   * Shared SSRF validator — blocks localhost, private IPs, link-local,
+   * IPv6 loopback/ULA/link-local, and reserved TLDs.
+   * Performs DNS resolution to prevent DNS rebinding and numeric/IPv6-mapped bypasses.
+   */
+  private async validateSSRF(url: string): Promise<{ blocked: boolean; error?: string; parsed?: URL; resolvedIPs?: string[] }> {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return { blocked: true, error: '🛡️ Nieprawidłowy URL' };
+    }
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return { blocked: true, error: `🛡️ Dozwolone tylko http/https (otrzymano: ${parsed.protocol})` };
+    }
+    // Strip brackets from IPv6 for consistent matching
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    const blockedHostPatterns = [
+      /^localhost$/i, /\.local$/i, /\.internal$/i, /\.localhost$/i,
+    ];
+    for (const pattern of blockedHostPatterns) {
+      if (pattern.test(hostname)) {
+        return { blocked: true, error: '🛡️ Dostęp do adresów wewnętrznych zablokowany (SSRF protection)' };
+      }
+    }
+
+    // Resolve DNS and validate each resolved IP
+    let resolvedIPs: string[];
+    try {
+      // If hostname is already an IP literal, use it directly
+      if (net.isIP(hostname)) {
+        resolvedIPs = [hostname];
+      } else {
+        const results = await dns.promises.resolve4(hostname).catch(() => [] as string[]);
+        const results6 = await dns.promises.resolve6(hostname).catch(() => [] as string[]);
+        resolvedIPs = [...results, ...results6];
+        if (resolvedIPs.length === 0) {
+          // Fallback to lookup (respects /etc/hosts)
+          const lookupResult = await dns.promises.lookup(hostname, { all: true });
+          resolvedIPs = lookupResult.map(r => r.address);
+        }
+      }
+    } catch {
+      return { blocked: true, error: '🛡️ Nie można rozwiązać DNS dla podanego hosta' };
+    }
+
+    for (const ip of resolvedIPs) {
+      if (this.isPrivateIP(ip)) {
+        return {
+          blocked: true,
+          error: '🛡️ Dostęp do adresów wewnętrznych zablokowany (SSRF protection — DNS resolved to private IP)',
+          resolvedIPs,
+        };
+      }
+    }
+
+    return { blocked: false, parsed, resolvedIPs };
+  }
+
+  /**
+   * Check whether an IP address (IPv4 or IPv6) belongs to a private, loopback,
+   * link-local, or otherwise reserved range.
+   */
+  private isPrivateIP(ip: string): boolean {
+    // IPv4 checks
+    if (net.isIPv4(ip)) {
+      const parts = ip.split('.').map(Number);
+      // 127.0.0.0/8 — loopback
+      if (parts[0] === 127) return true;
+      // 10.0.0.0/8 — private
+      if (parts[0] === 10) return true;
+      // 172.16.0.0/12 — private
+      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+      // 192.168.0.0/16 — private
+      if (parts[0] === 192 && parts[1] === 168) return true;
+      // 169.254.0.0/16 — link-local
+      if (parts[0] === 169 && parts[1] === 254) return true;
+      // 0.0.0.0/8 — "this" network
+      if (parts[0] === 0) return true;
+      return false;
+    }
+
+    // IPv6 checks
+    const normalized = ip.toLowerCase();
+    // ::1 — loopback
+    if (normalized === '::1' || /^0*:0*:0*:0*:0*:0*:0*:0*1$/.test(normalized)) return true;
+    // :: — unspecified
+    if (normalized === '::' || /^0*:0*:0*:0*:0*:0*:0*:0*$/.test(normalized)) return true;
+    // fc00::/7 — unique local (ULA)
+    if (/^f[cd][0-9a-f]{2}:/i.test(normalized)) return true;
+    // fe80::/10 — link-local
+    if (/^fe[89ab][0-9a-f]:/i.test(normalized)) return true;
+    // ::ffff:x.x.x.x — IPv4-mapped IPv6
+    const v4mapped = normalized.match(/^::ffff:([\d.]+)$/);
+    if (v4mapped) return this.isPrivateIP(v4mapped[1]);
+    // ::x.x.x.x — IPv4-compatible IPv6 (deprecated but still possible)
+    const v4compat = normalized.match(/^::([\d.]+)$/);
+    if (v4compat) return this.isPrivateIP(v4compat[1]);
+
+    return false;
   }
 
   /**
@@ -258,23 +353,55 @@ export class ToolsService {
     }, async (params) => {
       try {
         const https = require('https');
-        const url = `https://api.duckduckgo.com/?q=${encodeURIComponent(params.query)}&format=json&no_html=1`;
+
+        // Use DuckDuckGo HTML endpoint which returns actual search results
+        const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(params.query)}`;
         const data = await new Promise<string>((resolve, reject) => {
-          https.get(url, (res: any) => {
+          const req = https.get(url, { headers: { 'User-Agent': 'KxAI/1.0' } }, (res: any) => {
             let body = '';
             res.on('data', (chunk: string) => body += chunk);
             res.on('end', () => resolve(body));
             res.on('error', reject);
-          }).on('error', reject);
+          });
+          req.on('error', reject);
+          req.setTimeout(10000, () => { req.destroy(); reject(new Error('Timeout')); });
         });
-        const json = JSON.parse(data);
-        const results = [];
-        if (json.AbstractText) results.push({ title: 'Summary', text: json.AbstractText, url: json.AbstractURL });
-        if (json.RelatedTopics) {
-          for (const t of json.RelatedTopics.slice(0, 5)) {
-            if (t.Text) results.push({ title: t.Text.slice(0, 100), text: t.Text, url: t.FirstURL });
+
+        // Parse HTML results — extract result blocks
+        const results: Array<{ title: string; text: string; url: string }> = [];
+        const resultBlocks = data.match(/<a[^>]+class="result__a"[^>]*>[\s\S]*?<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>[\s\S]*?<\/a>/g) || [];
+        for (const block of resultBlocks.slice(0, 8)) {
+          const titleMatch = block.match(/<a[^>]+class="result__a"[^>]*>([\s\S]*?)<\/a>/);
+          const snippetMatch = block.match(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
+          const urlMatch = block.match(/<a[^>]+class="result__a"[^>]+href="([^"]+)"/);
+          if (titleMatch && snippetMatch) {
+            const title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
+            const text = snippetMatch[1].replace(/<[^>]+>/g, '').trim();
+            const resultUrl = urlMatch ? decodeURIComponent(urlMatch[1].replace(/^\/\/duckduckgo\.com\/l\/\?uddg=/, '').split('&')[0]) : '';
+            if (title && text) results.push({ title, text, url: resultUrl });
           }
         }
+
+        // Fallback: try Instant Answer API if HTML parsing yielded nothing
+        if (results.length === 0) {
+          const iaUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(params.query)}&format=json&no_html=1`;
+          const iaData = await new Promise<string>((resolve, reject) => {
+            https.get(iaUrl, (res: any) => {
+              let body = '';
+              res.on('data', (chunk: string) => body += chunk);
+              res.on('end', () => resolve(body));
+              res.on('error', reject);
+            }).on('error', reject);
+          });
+          const json = JSON.parse(iaData);
+          if (json.AbstractText) results.push({ title: 'Summary', text: json.AbstractText, url: json.AbstractURL });
+          if (json.RelatedTopics) {
+            for (const t of json.RelatedTopics.slice(0, 5)) {
+              if (t.Text) results.push({ title: t.Text.slice(0, 100), text: t.Text, url: t.FirstURL });
+            }
+          }
+        }
+
         return { success: true, data: results.length ? results : 'Brak wyników' };
       } catch (err: any) {
         return { success: false, error: err.message };
@@ -291,38 +418,9 @@ export class ToolsService {
     }, async (params) => {
       try {
         // SSRF protection: validate URL and block internal addresses
-        let parsedUrl: URL;
-        try {
-          parsedUrl = new URL(params.url);
-        } catch {
-          return { success: false, error: '🛡️ Nieprawidłowy URL' };
-        }
-        if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
-          return { success: false, error: `🛡️ Dozwolone tylko http/https (otrzymano: ${parsedUrl.protocol})` };
-        }
-        const hostname = parsedUrl.hostname.toLowerCase();
-        // Block localhost and private IP ranges
-        const blockedPatterns = [
-          /^localhost$/i,
-          /^127\./,
-          /^10\./,
-          /^172\.(1[6-9]|2\d|3[01])\./,
-          /^192\.168\./,
-          /^0\./,
-          /^\[::1\]$/,
-          /^\[fc/i,
-          /^\[fd/i,
-          /^\[fe80/i,
-          /\.local$/i,
-          /\.internal$/i,
-          /\.localhost$/i,
-          /^169\.254\./,
-        ];
-        for (const pattern of blockedPatterns) {
-          if (pattern.test(hostname)) {
-            return { success: false, error: `🛡️ Dostęp do adresów wewnętrznych zablokowany (SSRF protection)` };
-          }
-        }
+        const ssrf = await this.validateSSRF(params.url);
+        if (ssrf.blocked) return { success: false, error: ssrf.error! };
+        const parsedUrl = ssrf.parsed!;
 
         const https = require('https');
         const http = require('http');
@@ -533,28 +631,8 @@ export class ToolsService {
       const { url, method = 'GET', headers = {}, body, timeout: reqTimeout = 30000 } = params;
 
       // SSRF protection
-      try {
-        const parsed = new URL(url);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-          return { success: false, error: `🛡️ Dozwolone tylko http/https` };
-        }
-        // Strip brackets from IPv6 for consistent matching
-        const rawHostname = parsed.hostname.toLowerCase();
-        const hostname = rawHostname.replace(/^\[|\]$/g, '');
-        const blockedPatterns = [
-          /^localhost$/i, /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./,
-          /^192\.168\./, /^0\./, /^::1$/, /^::$/, /^0+:0+:0+:0+:0+:0+:0+:[01]$/,
-          /^f[cd][0-9a-f]{2}:/i, /^fe[89ab][0-9a-f]:/i,
-          /\.local$/i, /\.internal$/i, /^169\.254\./,
-        ];
-        for (const pattern of blockedPatterns) {
-          if (pattern.test(hostname)) {
-            return { success: false, error: `🛡️ Dostęp do adresów wewnętrznych zablokowany (SSRF)` };
-          }
-        }
-      } catch {
-        return { success: false, error: '🛡️ Nieprawidłowy URL' };
-      }
+      const ssrf = await this.validateSSRF(url);
+      if (ssrf.blocked) return { success: false, error: ssrf.error! };
 
       return new Promise((resolve) => {
         try {
@@ -1336,6 +1414,20 @@ export class ToolsService {
       category: 'browser',
       parameters: {},
     }, async () => browser.getPageInfo());
+
+    this.register({
+      name: 'browser_reset_profile',
+      description: 'Resetuje profil przeglądarki KxAI — usuwa wszystkie zapisane dane. Przy następnym uruchomieniu cookies zostaną ponownie skopiowane z profilu użytkownika. Wymaga zamkniętej przeglądarki.',
+      category: 'browser',
+      parameters: {},
+    }, async () => browser.resetProfile());
+
+    this.register({
+      name: 'browser_refresh_cookies',
+      description: 'Odświeża cookies/sesje w profilu KxAI z profilu Chrome użytkownika (bez kasowania reszty danych). Wymaga zamkniętej przeglądarki.',
+      category: 'browser',
+      parameters: {},
+    }, async () => browser.refreshCookies());
   }
 
   // ─── RAG Tools ───

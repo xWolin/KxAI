@@ -3,30 +3,9 @@ import * as path from 'path';
 import { app } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
 
-export interface CronJob {
-  id: string;
-  name: string;
-  /** Cron expression (5-field: min hour dom month dow) or interval keyword */
-  schedule: string;
-  /** What the agent should do */
-  action: string;
-  /** Whether the agent created this itself vs user-created */
-  autoCreated: boolean;
-  enabled: boolean;
-  /** Category: routine, workflow, reminder, cleanup, health-check */
-  category: 'routine' | 'workflow' | 'reminder' | 'cleanup' | 'health-check' | 'custom';
-  createdAt: number;
-  lastRun?: number;
-  lastResult?: string;
-  runCount: number;
-}
-
-export interface CronExecution {
-  jobId: string;
-  timestamp: number;
-  result: string;
-  success: boolean;
-}
+// Re-export from shared types (canonical source)
+export type { CronJob, CronExecution } from '../../shared/types/cron';
+import type { CronJob, CronExecution } from '../../shared/types/cron';
 
 export class CronService {
   private jobsPath: string;

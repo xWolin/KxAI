@@ -3,13 +3,9 @@ import * as path from 'path';
 import { app } from 'electron';
 import { ConfigService } from './config';
 
-export interface ConversationMessage {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: number;
-  type?: 'chat' | 'proactive' | 'analysis';
-}
+// Re-export from shared types (canonical source)
+export type { ConversationMessage } from '../../shared/types/ai';
+import type { ConversationMessage } from '../../shared/types/ai';
 
 export class MemoryService {
   private workspacePath: string;

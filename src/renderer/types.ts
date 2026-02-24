@@ -38,6 +38,10 @@ export interface KxAIBridge {
   setWindowPosition: (x: number, y: number) => Promise<void>;
   getWindowPosition: () => Promise<[number, number]>;
   setWindowSize: (width: number, height: number) => Promise<void>;
+  setClickThrough: (enabled: boolean) => Promise<void>;
+
+  // Voice transcription (Whisper)
+  transcribeAudio: (audioBase64: string) => Promise<{ success: boolean; text?: string; error?: string }>;
 
   // Navigation
   onNavigate: (callback: (view: string) => void) => (() => void);
@@ -162,6 +166,9 @@ export interface KxAIBridge {
 
   // Agent status updates
   onAgentStatus: (callback: (data: AgentStatus) => void) => (() => void);
+
+  // Stop agent processing
+  agentStop: () => Promise<{ success: boolean }>;
 
   // RAG indexing progress
   onRagProgress: (callback: (data: IndexProgress) => void) => (() => void);
@@ -432,6 +439,7 @@ export interface MeetingBriefingParticipant {
   role?: string;
   company?: string;
   notes?: string;
+  photoBase64?: string;
 }
 
 export interface MeetingBriefingInfo {

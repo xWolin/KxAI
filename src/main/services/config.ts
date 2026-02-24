@@ -2,43 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 
-export interface KxAIConfig {
-  // User profile
-  userName?: string;
-  userRole?: string;
-  userDescription?: string;
-  userLanguage?: string;
-
-  // AI settings
-  aiProvider?: 'openai' | 'anthropic';
-  aiModel?: string;
-  embeddingModel?: string;
-  
-  // Proactive mode
-  proactiveMode?: boolean;
-  proactiveIntervalMs?: number;
-
-  // UI
-  widgetPosition?: { x: number; y: number };
-  theme?: 'dark' | 'light';
-
-  // Onboarding
-  onboarded?: boolean;
-
-  // Agent persona
-  agentName?: string;
-  agentEmoji?: string;
-
-  // Screen watching
-  screenWatchEnabled?: boolean;
-  monitorIndexes?: number[];
-
-  // Knowledge indexing
-  indexedFolders?: string[];
-  indexedExtensions?: string[];
-
-  [key: string]: any;
-}
+// Re-export from shared types (canonical source)
+export type { KxAIConfig } from '../../shared/types/config';
+import type { KxAIConfig } from '../../shared/types/config';
 
 const DEFAULT_CONFIG: KxAIConfig = {
   aiProvider: 'openai',

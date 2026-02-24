@@ -5,7 +5,16 @@ import { ScreenshotData } from './screen-capture';
 import { ContextManager } from './context-manager';
 import { RetryHandler, createAIRetryHandler } from './retry-handler';
 import { PromptService } from './prompt-service';
+import {
+  toOpenAITools,
+  toAnthropicTools,
+  type NativeToolCall,
+  type NativeToolStreamResult,
+} from './tool-schema-converter';
+import type { ToolDefinition } from '../../shared/types/tools';
 import { v4 as uuidv4 } from 'uuid';
+
+export type { NativeToolCall, NativeToolStreamResult } from './tool-schema-converter';
 
 interface AIMessage {
   role: 'system' | 'developer' | 'user' | 'assistant';
@@ -409,8 +418,10 @@ export class AIService {
     userMessage: string,
     extraContext?: string,
     onChunk?: (chunk: string) => void,
-    systemContextOverride?: string
+    systemContextOverride?: string,
+    options?: { skipHistory?: boolean }
   ): Promise<void> {
+    const skipHistory = options?.skipHistory ?? false;
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
     const model = this.config.get('aiModel') || 'gpt-5';
@@ -447,7 +458,7 @@ export class AIService {
 
     messages.push({ role: 'user', content: fullMessage });
 
-    if (this.memoryService) {
+    if (this.memoryService && !skipHistory) {
       this.memoryService.addMessage({
         id: uuidv4(),
         role: 'user',
@@ -498,7 +509,7 @@ export class AIService {
       throw new Error(`Klient AI nie jest zainicjalizowany (provider: ${provider}). Sprawdź klucz API w ustawieniach.`);
     }
 
-    if (this.memoryService && fullResponse) {
+    if (this.memoryService && fullResponse && !skipHistory) {
       this.memoryService.addMessage({
         id: uuidv4(),
         role: 'assistant',
@@ -507,6 +518,268 @@ export class AIService {
         type: 'chat',
       });
     }
+  }
+
+  // ─── Native Function Calling ───
+
+  /**
+   * Stream a message with native tool calling support (OpenAI function calling / Anthropic tool_use).
+   *
+   * Instead of the legacy ```tool code block approach, this passes tool definitions
+   * directly to the API and receives structured tool_calls in the response.
+   *
+   * Returns text content, any tool calls, and an internal messages array for continuation.
+   * If toolCalls is non-empty, execute the tools and call continueWithToolResults().
+   */
+  async streamMessageWithNativeTools(
+    userMessage: string,
+    tools: ToolDefinition[],
+    extraContext?: string,
+    onTextChunk?: (chunk: string) => void,
+    systemContextOverride?: string,
+  ): Promise<NativeToolStreamResult> {
+    await this.ensureClient();
+    const provider = this.config.get('aiProvider') || 'openai';
+    const model = this.config.get('aiModel') || 'gpt-5';
+
+    const systemContext = systemContextOverride
+      ?? (this.memoryService
+        ? await this.memoryService.buildSystemContext()
+        : 'You are KxAI, a helpful personal AI assistant.');
+
+    // Build optimized history via ContextManager
+    const fullHistory = this.memoryService
+      ? this.memoryService.getRecentContext(100)
+      : [];
+    const systemTokens = this.contextManager.estimateTokens(systemContext);
+    const contextWindow = this.contextManager.buildContextWindow(fullHistory, systemTokens);
+
+    const systemRole = this.getSystemRole(model);
+    const messages: any[] = [{ role: systemRole, content: systemContext }];
+
+    if (contextWindow.summary) {
+      messages.push({ role: systemRole, content: contextWindow.summary });
+    }
+
+    for (const msg of contextWindow.messages) {
+      messages.push({
+        role: msg.role as 'user' | 'assistant',
+        content: msg.content,
+      });
+    }
+
+    const fullMessage = extraContext
+      ? `${userMessage}\n\n--- Kontekst ---\n${extraContext}`
+      : userMessage;
+
+    messages.push({ role: 'user', content: fullMessage });
+
+    return this._callWithNativeTools(messages, tools, provider, model, onTextChunk);
+  }
+
+  /**
+   * Continue a native tool calling conversation after executing tool calls.
+   *
+   * Takes the _messages from the previous NativeToolStreamResult,
+   * appends the tool results, and calls the API again.
+   *
+   * @param previousMessages - The _messages array from the previous result
+   * @param toolResults - Results from executing the tool calls
+   * @param tools - Same tool definitions (for the next turn)
+   * @param onTextChunk - Callback for streaming text chunks
+   */
+  async continueWithToolResults(
+    previousMessages: any[],
+    toolResults: Array<{ callId: string; name: string; result: string; isError?: boolean }>,
+    tools: ToolDefinition[],
+    onTextChunk?: (chunk: string) => void,
+  ): Promise<NativeToolStreamResult> {
+    await this.ensureClient();
+    const provider = this.config.get('aiProvider') || 'openai';
+    const model = this.config.get('aiModel') || 'gpt-5';
+
+    const messages = [...previousMessages];
+
+    if (provider === 'openai') {
+      // OpenAI: each tool result is a separate message with role: 'tool'
+      for (const tr of toolResults) {
+        messages.push({
+          role: 'tool',
+          tool_call_id: tr.callId,
+          content: tr.result,
+        });
+      }
+    } else if (provider === 'anthropic') {
+      // Anthropic: tool results go in a single user message with tool_result content blocks
+      const resultBlocks = toolResults.map((tr) => ({
+        type: 'tool_result',
+        tool_use_id: tr.callId,
+        content: tr.result,
+        is_error: tr.isError || false,
+      }));
+      messages.push({ role: 'user', content: resultBlocks });
+    }
+
+    return this._callWithNativeTools(messages, tools, provider, model, onTextChunk);
+  }
+
+  /**
+   * Internal: call the AI API with native tool definitions and parse the response.
+   * Works for both initial calls and continuations.
+   */
+  private async _callWithNativeTools(
+    messages: any[],
+    tools: ToolDefinition[],
+    provider: string,
+    model: string,
+    onTextChunk?: (chunk: string) => void,
+  ): Promise<NativeToolStreamResult> {
+    let text = '';
+    const toolCalls: NativeToolCall[] = [];
+
+    if (provider === 'openai' && this.openaiClient) {
+      const openaiTools = toOpenAITools(tools);
+
+      const stream = await this.openaiClient.chat.completions.create({
+        model,
+        messages,
+        tools: openaiTools.length > 0 ? openaiTools : undefined,
+        tool_choice: openaiTools.length > 0 ? 'auto' : undefined,
+        parallel_tool_calls: true,
+        ...this.openaiTokenParam(4096),
+        temperature: 0.7,
+        stream: true,
+      });
+
+      // Accumulate tool call chunks — OpenAI streams them incrementally
+      const toolCallAccumulators: Map<number, { id: string; name: string; argsJson: string }> = new Map();
+
+      for await (const chunk of stream) {
+        const delta = chunk.choices[0]?.delta;
+        if (!delta) continue;
+
+        // Text content
+        if (delta.content) {
+          text += delta.content;
+          onTextChunk?.(delta.content);
+        }
+
+        // Tool call deltas
+        if (delta.tool_calls) {
+          for (const tc of delta.tool_calls) {
+            const idx = tc.index ?? 0;
+            if (!toolCallAccumulators.has(idx)) {
+              toolCallAccumulators.set(idx, { id: '', name: '', argsJson: '' });
+            }
+            const acc = toolCallAccumulators.get(idx)!;
+            if (tc.id) acc.id = tc.id;
+            if (tc.function?.name) acc.name = tc.function.name;
+            if (tc.function?.arguments) acc.argsJson += tc.function.arguments;
+          }
+        }
+      }
+
+      // Parse accumulated tool calls
+      for (const [, acc] of toolCallAccumulators) {
+        if (acc.id && acc.name) {
+          let args: Record<string, any> = {};
+          try {
+            args = JSON.parse(acc.argsJson || '{}');
+          } catch {
+            console.warn(`[AIService] Failed to parse tool call arguments for ${acc.name}:`, acc.argsJson);
+          }
+          toolCalls.push({ id: acc.id, name: acc.name, arguments: args });
+        }
+      }
+
+      // Build the assistant message to append to messages for continuation
+      if (toolCalls.length > 0) {
+        messages.push({
+          role: 'assistant',
+          content: text || null,
+          tool_calls: toolCalls.map((tc) => ({
+            id: tc.id,
+            type: 'function',
+            function: { name: tc.name, arguments: JSON.stringify(tc.arguments) },
+          })),
+        });
+      } else if (text) {
+        messages.push({ role: 'assistant', content: text });
+      }
+
+    } else if (provider === 'anthropic' && this.anthropicClient) {
+      const anthropicTools = toAnthropicTools(tools);
+
+      // Filter out system messages for Anthropic (system goes as separate param)
+      const systemContent = messages
+        .filter((m: any) => m.role === 'system' || m.role === 'developer')
+        .map((m: any) => m.content)
+        .join('\n\n');
+      const anthropicMessages = messages
+        .filter((m: any) => m.role !== 'system' && m.role !== 'developer')
+        .map((m: any) => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+      const stream = this.anthropicClient.messages.stream({
+        model,
+        max_tokens: 4096,
+        system: systemContent,
+        messages: anthropicMessages,
+        tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+      });
+
+      // Anthropic streams content blocks — text blocks and tool_use blocks
+      let currentToolUse: { id: string; name: string; inputJson: string } | null = null;
+
+      for await (const event of stream) {
+        if (event.type === 'content_block_start') {
+          const block = event.content_block;
+          if (block?.type === 'tool_use') {
+            currentToolUse = { id: block.id, name: block.name, inputJson: '' };
+          }
+        } else if (event.type === 'content_block_delta') {
+          if (event.delta?.type === 'text_delta') {
+            const t = event.delta.text || '';
+            text += t;
+            onTextChunk?.(t);
+          } else if (event.delta?.type === 'input_json_delta' && currentToolUse) {
+            currentToolUse.inputJson += event.delta.partial_json || '';
+          }
+        } else if (event.type === 'content_block_stop') {
+          if (currentToolUse) {
+            let args: Record<string, any> = {};
+            try {
+              args = JSON.parse(currentToolUse.inputJson || '{}');
+            } catch {
+              console.warn(`[AIService] Failed to parse Anthropic tool input for ${currentToolUse.name}:`, currentToolUse.inputJson);
+            }
+            toolCalls.push({ id: currentToolUse.id, name: currentToolUse.name, arguments: args });
+            currentToolUse = null;
+          }
+        }
+      }
+
+      // Build assistant message for continuation
+      const assistantContent: any[] = [];
+      if (text) {
+        assistantContent.push({ type: 'text', text });
+      }
+      for (const tc of toolCalls) {
+        assistantContent.push({
+          type: 'tool_use',
+          id: tc.id,
+          name: tc.name,
+          input: tc.arguments,
+        });
+      }
+      if (assistantContent.length > 0) {
+        messages.push({ role: 'assistant', content: assistantContent });
+      }
+
+    } else {
+      throw new Error(`Klient AI nie jest zainicjalizowany (provider: ${provider}). Sprawdź klucz API w ustawieniach.`);
+    }
+
+    return { text, toolCalls, _messages: messages };
   }
 
   async streamMessageWithScreenshots(

@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as fs from 'fs';
 import * as http from 'http';
 import * as net from 'net';
+import { app } from 'electron';
 
 /**
  * BrowserService — Playwright-based browser automation.
@@ -185,8 +186,9 @@ export class BrowserService {
   private userDataDir: string;
 
   constructor() {
-    // Will be set to user's real profile in launch() based on detected browser
-    this.userDataDir = path.join(os.tmpdir(), 'kxai-browser-profile');
+    // Persistent dedicated profile in app data — survives restarts,
+    // keeps cookies, sessions, extensions across launches
+    this.userDataDir = path.join(app.getPath('userData'), 'browser-profile');
   }
 
   // ════════════════════════════════════════════════════
@@ -215,7 +217,8 @@ export class BrowserService {
       else if (name.includes('brave')) profileDir = path.join(home, 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser');
     } else {
       const home = os.homedir();
-      if (name.includes('chrome') || name.includes('chromium')) profileDir = path.join(home, '.config', 'google-chrome');
+      if (name.includes('chromium')) profileDir = path.join(home, '.config', 'chromium');
+      else if (name.includes('chrome')) profileDir = path.join(home, '.config', 'google-chrome');
       else if (name.includes('edge')) profileDir = path.join(home, '.config', 'microsoft-edge');
       else if (name.includes('brave')) profileDir = path.join(home, '.config', 'BraveSoftware', 'Brave-Browser');
     }
@@ -225,8 +228,8 @@ export class BrowserService {
       return profileDir;
     }
 
-    console.log('[BrowserService] Brak profilu użytkownika, używam izolowanego profilu');
-    return path.join(os.tmpdir(), 'kxai-browser-profile');
+    console.log('[BrowserService] Brak profilu użytkownika, używam profilu KxAI');
+    return path.join(app.getPath('userData'), 'browser-profile');
   }
 
   /**
@@ -306,22 +309,122 @@ export class BrowserService {
 
   /**
    * Quick check if a CDP endpoint responds on a given port.
+   * Optionally verifies the owning process matches the expected browser executable.
    */
-  private checkCDPPort(port: number): Promise<string | null> {
+  private checkCDPPort(port: number, browserExe?: string): Promise<string | null> {
     return new Promise((resolve) => {
       const req = http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
         let data = '';
         res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
-        res.on('end', () => {
+        res.on('end', async () => {
           try {
-            const ws = JSON.parse(data).webSocketDebuggerUrl;
-            resolve(ws || null);
+            const info = JSON.parse(data);
+            const ws = info.webSocketDebuggerUrl;
+            if (!ws) { resolve(null); return; }
+
+            // If no browserExe provided, skip ownership check
+            if (!browserExe) { resolve(ws); return; }
+
+            // Verify process ownership of this port
+            const ownerMatch = await this.verifyPortOwner(port, browserExe, info);
+            if (ownerMatch) {
+              resolve(ws);
+            } else {
+              console.warn(`[BrowserService] CDP port ${port} belongs to a different process, skipping`);
+              resolve(null);
+            }
           } catch { resolve(null); }
         });
       });
       req.on('error', () => resolve(null));
       req.setTimeout(1500, () => { req.destroy(); resolve(null); });
     });
+  }
+
+  /**
+   * Verify that the process listening on a given port matches the expected browser executable.
+   * Uses OS-specific methods to determine the PID owning the port, then checks the process path.
+   * Falls back to checking the Browser field in /json/version response.
+   */
+  private async verifyPortOwner(port: number, browserExe: string, versionInfo: any): Promise<boolean> {
+    const expectedName = path.basename(browserExe).toLowerCase().replace(/\.exe$/i, '');
+
+    // OS-specific PID lookup
+    try {
+      if (process.platform === 'win32') {
+        // Use netstat to find PID listening on the port, then verify process name
+        const netstatResult = execSync(
+          `netstat -ano | findstr "LISTENING" | findstr ":${port} "`,
+          { encoding: 'utf-8', timeout: 5000, windowsHide: true }
+        ).trim();
+        const pidMatch = netstatResult.match(/\s(\d+)\s*$/m);
+        if (pidMatch) {
+          const pid = pidMatch[1];
+          try {
+            const wmicResult = execSync(
+              `wmic process where "ProcessId=${pid}" get ExecutablePath /FORMAT:LIST`,
+              { encoding: 'utf-8', timeout: 5000, windowsHide: true }
+            );
+            const exeMatch = wmicResult.match(/ExecutablePath=(.+)/);
+            if (exeMatch) {
+              const ownerExe = exeMatch[1].trim().toLowerCase();
+              if (ownerExe.includes(expectedName)) return true;
+              console.log(`[BrowserService] Port ${port} owned by ${ownerExe}, expected ${expectedName}`);
+              return false;
+            }
+          } catch { /* WMIC may fail for system processes */ }
+        }
+      } else if (process.platform === 'linux') {
+        // Use /proc/net/tcp or lsof
+        try {
+          const lsofResult = execSync(
+            `lsof -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null`,
+            { encoding: 'utf-8', timeout: 5000 }
+          ).trim();
+          const pid = lsofResult.split('\n')[0];
+          if (pid) {
+            try {
+              const exePath = fs.readlinkSync(`/proc/${pid}/exe`);
+              if (exePath.toLowerCase().includes(expectedName)) return true;
+              console.log(`[BrowserService] Port ${port} owned by ${exePath}, expected ${expectedName}`);
+              return false;
+            } catch { /* readlink may fail without permissions */ }
+          }
+        } catch { /* lsof may not be available */ }
+      } else if (process.platform === 'darwin') {
+        try {
+          const lsofResult = execSync(
+            `lsof -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null`,
+            { encoding: 'utf-8', timeout: 5000 }
+          ).trim();
+          const pid = lsofResult.split('\n')[0];
+          if (pid) {
+            const psResult = execSync(
+              `ps -p ${pid} -o comm= 2>/dev/null`,
+              { encoding: 'utf-8', timeout: 5000 }
+            ).trim().toLowerCase();
+            if (psResult.includes(expectedName)) return true;
+            console.log(`[BrowserService] Port ${port} owned by ${psResult}, expected ${expectedName}`);
+            return false;
+          }
+        } catch { /* lsof/ps may fail */ }
+      }
+    } catch { /* OS-level check failed, fall through to secondary check */ }
+
+    // Secondary fallback: check /json/version Browser field
+    const browser = (versionInfo?.Browser || versionInfo?.['User-Agent'] || '').toLowerCase();
+    if (browser && (browser.includes('chrome') || browser.includes('edge') || browser.includes('brave'))) {
+      // Check if the browser name in version info matches what we expect
+      if (expectedName.includes('chrome') && browser.includes('chrome')) return true;
+      if (expectedName.includes('msedge') && browser.includes('edge')) return true;
+      if (expectedName.includes('brave') && browser.includes('brave')) return true;
+      // Browser responded but doesn't match expected
+      console.log(`[BrowserService] CDP /json/version reports "${browser}", expected ${expectedName}`);
+      return false;
+    }
+
+    // If we can't determine ownership, accept the port (best-effort)
+    return true;
   }
 
   /**
@@ -343,7 +446,7 @@ export class BrowserService {
         if (match) {
           const port = parseInt(match[1], 10);
           if (port > 0) {
-            const wsUrl = await this.checkCDPPort(port);
+            const wsUrl = await this.checkCDPPort(port, browserExe);
             if (wsUrl) {
               console.log(`[BrowserService] Znaleziono CDP port ${port} w procesie ${name}`);
               return { port, wsUrl };
@@ -353,9 +456,9 @@ export class BrowserService {
       } catch { /* process not found */ }
     }
 
-    // Strategy 2: Scan common debug ports
+    // Strategy 2: Scan common debug ports (verify ownership against detected browser)
     for (const port of [9222, 9223, 9224, 9225, 9229]) {
-      const wsUrl = await this.checkCDPPort(port);
+      const wsUrl = await this.checkCDPPort(port, browserExe);
       if (wsUrl) {
         console.log(`[BrowserService] Znaleziono CDP na porcie ${port} (skan portów)`);
         return { port, wsUrl };
@@ -366,12 +469,75 @@ export class BrowserService {
   }
 
   /**
+   * Prevent "Chrome didn't shut down correctly" crash bar by marking the profile
+   * as cleanly exited. Mirrors OpenClaw's `ensureProfileCleanExit`.
+   */
+  private ensureProfileCleanExit(userDataDir: string): void {
+    const prefsPath = path.join(userDataDir, 'Default', 'Preferences');
+    try {
+      let prefs: Record<string, any> = {};
+      if (fs.existsSync(prefsPath)) {
+        const raw = fs.readFileSync(prefsPath, 'utf-8');
+        try { prefs = JSON.parse(raw); } catch { prefs = {}; }
+      } else {
+        fs.mkdirSync(path.join(userDataDir, 'Default'), { recursive: true });
+      }
+
+      // Mark as clean exit — prevents "Restore pages?" crash bar
+      prefs['exit_type'] = 'Normal';
+      prefs['exited_cleanly'] = true;
+
+      // Suppress "Your settings were changed by another application" popup
+      if (!prefs['browser']) prefs['browser'] = {};
+      prefs['browser']['check_default_browser'] = false;
+
+      fs.writeFileSync(prefsPath, JSON.stringify(prefs, null, 2), 'utf-8');
+      console.log('[BrowserService] ensureProfileCleanExit: Preferences patched');
+    } catch (err: any) {
+      console.warn(`[BrowserService] ensureProfileCleanExit failed: ${err.message}`);
+    }
+  }
+
+  /**
+   * Suppress the yellow "Unsupported command-line flag" warning bar by setting
+   * `commandLineFlagSecurityWarningsEnabled: false` in Chrome's Local State file.
+   */
+  private suppressCommandLineFlagWarning(userDataDir: string): void {
+    const localStatePath = path.join(userDataDir, 'Local State');
+    try {
+      let state: Record<string, any> = {};
+      if (fs.existsSync(localStatePath)) {
+        const raw = fs.readFileSync(localStatePath, 'utf-8');
+        try { state = JSON.parse(raw); } catch { state = {}; }
+      }
+
+      if (!state['browser']) state['browser'] = {};
+      state['browser']['enabled_labs_experiments'] = state['browser']['enabled_labs_experiments'] || [];
+      state['browser']['command_line_flag_security_warnings_enabled'] = false;
+
+      fs.writeFileSync(localStatePath, JSON.stringify(state, null, 2), 'utf-8');
+      console.log('[BrowserService] suppressCommandLineFlagWarning: Local State patched');
+    } catch (err: any) {
+      console.warn(`[BrowserService] suppressCommandLineFlagWarning failed: ${err.message}`);
+    }
+  }
+
+  /**
    * Copy key profile files (cookies, logins, preferences) from user's profile
    * to a target dir. Enables session sharing when the original profile is locked
    * by a running browser instance.
+   *
+   * WARNING: SQLite DB files (Cookies, Login Data, Web Data) may be open with WAL
+   * by the running Chrome process. Direct copy can produce inconsistent/corrupt DBs.
+   * We mitigate this by:
+   *   1. Attempting `sqlite3 ".backup"` subprocess for a consistent snapshot
+   *   2. Falling back to a short retry loop with delay before direct copy
+   * Non-DB files (Preferences, Local State) are safe to copy directly.
    */
   private copyProfileForSharing(userProfileDir: string, targetDir: string): boolean {
     const rootFiles = ['Local State'];
+    // SQLite DB files that Chrome may hold open with WAL — need safe copy
+    const sqliteFiles = ['Cookies', 'Login Data', 'Web Data', 'Extension Cookies'];
     const profileFiles = [
       'Cookies', 'Cookies-journal',
       'Login Data', 'Login Data-journal',
@@ -383,6 +549,7 @@ export class BrowserService {
     try { fs.mkdirSync(path.join(targetDir, 'Default'), { recursive: true }); } catch { /* exists */ }
 
     let copied = 0;
+    let warnings: string[] = [];
 
     for (const file of rootFiles) {
       try {
@@ -392,24 +559,80 @@ export class BrowserService {
           copied++;
         }
       } catch (err: any) {
-        console.warn(`[BrowserService] Nie skopiowano ${file}: ${err.message}`);
+        console.warn(`[copyProfileForSharing] Nie skopiowano ${file}: ${err.message}`);
       }
     }
 
     for (const file of profileFiles) {
-      try {
-        const src = path.join(userProfileDir, 'Default', file);
-        if (fs.existsSync(src)) {
-          fs.copyFileSync(src, path.join(targetDir, 'Default', file));
+      const src = path.join(userProfileDir, 'Default', file);
+      const dst = path.join(targetDir, 'Default', file);
+      if (!fs.existsSync(src)) continue;
+
+      const isSqliteDb = sqliteFiles.includes(file);
+
+      if (isSqliteDb) {
+        // Try sqlite3 .backup for a consistent snapshot
+        if (this.trySqliteBackup(src, dst)) {
+          console.log(`[copyProfileForSharing] ${file}: skopiowano przez sqlite3 backup (bezpieczne)`);
           copied++;
+          continue;
         }
-      } catch (err: any) {
-        console.warn(`[BrowserService] Nie skopiowano Default/${file}: ${err.message}`);
+
+        // Fallback: retry loop with short delay before direct copy
+        let directCopyOk = false;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            if (attempt > 0) {
+              // Synchronous sleep — acceptable here as this runs once at launch
+              const waitUntil = Date.now() + 200;
+              while (Date.now() < waitUntil) { /* busy wait */ }
+            }
+            fs.copyFileSync(src, dst);
+            directCopyOk = true;
+            break;
+          } catch { /* retry */ }
+        }
+
+        if (directCopyOk) {
+          console.warn(`[copyProfileForSharing] ${file}: skopiowano bezpośrednio (WAL może powodować niespójność)`);
+          warnings.push(file);
+          copied++;
+        } else {
+          console.warn(`[copyProfileForSharing] ${file}: nie udało się skopiować po 3 próbach`);
+        }
+      } else {
+        // Non-SQLite files — safe to copy directly
+        try {
+          fs.copyFileSync(src, dst);
+          copied++;
+        } catch (err: any) {
+          console.warn(`[copyProfileForSharing] Nie skopiowano Default/${file}: ${err.message}`);
+        }
       }
     }
 
-    console.log(`[BrowserService] Skopiowano ${copied} plików profilu → ${targetDir}`);
+    if (warnings.length > 0) {
+      console.warn(`[copyProfileForSharing] Pliki skopiowane bezpośrednio (ryzyko WAL): ${warnings.join(', ')}`);
+    }
+    console.log(`[copyProfileForSharing] Skopiowano ${copied} plików profilu → ${targetDir}`);
     return copied > 0;
+  }
+
+  /**
+   * Attempt a consistent SQLite backup via `sqlite3` CLI subprocess.
+   * Returns true if successful, false otherwise (sqlite3 not installed, locked, etc.).
+   */
+  private trySqliteBackup(srcDb: string, dstDb: string): boolean {
+    try {
+      execSync(
+        `sqlite3 "${srcDb}" ".backup '${dstDb}'"`,
+        { timeout: 5000, windowsHide: true, stdio: 'ignore' }
+      );
+      return fs.existsSync(dstDb);
+    } catch (err: any) {
+      console.log(`[copyProfileForSharing] sqlite3 backup niedostępny/błąd: ${err.message}`);
+      return false;
+    }
   }
 
   // ════════════════════════════════════════════════════
@@ -548,22 +771,59 @@ export class BrowserService {
       }
 
       // ── Strategy 3: Profile not locked → launch with user's real profile ──
+      // NOTE: TOCTOU race — profile may become locked between check and launch.
+      // If launchViaCDP fails (e.g. Chrome was started concurrently), fall through to Strategy 4.
       if (!this.isBrowserProfileLocked(realProfileDir, execPath)) {
-        this.userDataDir = realProfileDir;
-        if (!fs.existsSync(this.userDataDir)) fs.mkdirSync(this.userDataDir, { recursive: true });
-        await this.launchViaCDP(execPath, options);
-        console.log('[BrowserService] Uruchomiono z profilem użytkownika (przeglądarka nie działała)');
-        return this.afterConnect(execPath, options, 'profil użytkownika');
+        try {
+          this.userDataDir = realProfileDir;
+          if (!fs.existsSync(this.userDataDir)) fs.mkdirSync(this.userDataDir, { recursive: true });
+          await this.launchViaCDP(execPath, options);
+          console.log('[BrowserService] Uruchomiono z profilem użytkownika (przeglądarka nie działała)');
+          return this.afterConnect(execPath, options, 'profil użytkownika');
+        } catch (strategyErr: any) {
+          // TOCTOU: profile got locked between isBrowserProfileLocked and launchViaCDP
+          console.warn(`[BrowserService] Strategy 3 failed (TOCTOU race?): ${strategyErr.message}`);
+          console.warn('[BrowserService] Falling back to Strategy 4 (temporary profile with copied cookies)...');
+          // Clean up any partial state from the failed launch
+          this.browser = null;
+          this.context = null;
+          if (this.browserProcess) {
+            try { this.browserProcess.kill(); } catch { /* ignore */ }
+            this.browserProcess = null;
+          }
+        }
       }
 
-      // ── Strategy 4: Profile locked → copy cookies/sessions to KxAI profile ──
-      const kxaiProfileDir = path.join(os.tmpdir(), 'kxai-browser-profile');
-      console.log('[BrowserService] Przeglądarka działa — kopiuję sesje/cookies do profilu KxAI...');
-      const hasCookies = this.copyProfileForSharing(realProfileDir, kxaiProfileDir);
+      // ── Strategy 4: Profile locked → use persistent KxAI profile ──
+      // Dedicated persistent browser profile for KxAI agent.
+      // On first launch, attempts to copy cookies from user's Chrome profile.
+      // If copying fails (Chrome locks SQLite files), the profile starts fresh —
+      // user logs in once and sessions persist across restarts (like OpenClaw).
+      const kxaiProfileDir = path.join(app.getPath('userData'), 'browser-profile');
+      const isFirstLaunch = !fs.existsSync(path.join(kxaiProfileDir, 'Default', 'Preferences'));
+
+      let cookiesCopied = false;
+
+      if (isFirstLaunch) {
+        console.log('[BrowserService] Pierwsza sesja KxAI — próbuję skopiować cookies z profilu użytkownika...');
+        try {
+          cookiesCopied = this.copyProfileForSharing(realProfileDir, kxaiProfileDir);
+          console.log(`[BrowserService] Kopia cookies: ${cookiesCopied ? 'OK — cookies skopiowane' : 'BRAK — profil izolowany (zaloguj się ręcznie)'}`);
+        } catch (copyErr: any) {
+          console.warn(`[BrowserService] Kopia cookies nieudana: ${copyErr.message} — profil izolowany`);
+        }
+      } else {
+        console.log('[BrowserService] Używam istniejącego profilu KxAI (sesje zachowane z poprzednich uruchomień)');
+        cookiesCopied = true; // Reusing existing profile with saved sessions
+      }
+
       this.userDataDir = kxaiProfileDir;
       if (!fs.existsSync(this.userDataDir)) fs.mkdirSync(this.userDataDir, { recursive: true });
       await this.launchViaCDP(execPath, options);
-      const label = hasCookies ? 'kopia profilu (cookies skopiowane)' : 'nowy profil (brak cookies)';
+
+      const label = isFirstLaunch
+        ? (cookiesCopied ? 'profil KxAI (cookies skopiowane)' : 'profil KxAI — izolowany (zaloguj się raz, sesje zostaną zapamiętane)')
+        : 'profil KxAI (zachowane sesje)';
       console.log(`[BrowserService] Uruchomiono z ${label}`);
       return this.afterConnect(execPath, options, label);
     } catch (err: any) {
@@ -603,16 +863,34 @@ export class BrowserService {
     const height = options?.height || 900;
     const headless = options?.headless ?? false;
 
+    // ── Pre-launch: patch profile to suppress crash/warning bars ──
+    this.ensureProfileCleanExit(this.userDataDir);
+    this.suppressCommandLineFlagWarning(this.userDataDir);
+
     const args = [
       `--remote-debugging-port=${this.debugPort}`,
       `--user-data-dir=${this.userDataDir}`,
       `--window-size=${width},${height}`,
+      // ── Stealth: suppress all Chrome info bars, popups, crash bubbles ──
       '--no-first-run',
       '--no-default-browser-check',
       '--disable-sync',
       '--disable-background-networking',
-      '--disable-blink-features=AutomationControlled',
-      '--disable-infobars',
+      '--disable-session-crashed-bubble',
+      '--hide-crash-restore-bubble',
+      '--password-store=basic',
+      '--disable-features=Translate,MediaRouter,AutomationControlled',
+      '--disable-component-update',
+      '--disable-search-engine-choice-screen',
+      '--disable-default-apps',
+      '--disable-domain-reliability',
+      '--disable-client-side-phishing-detection',
+      '--disable-hang-monitor',
+      '--disable-popup-blocking',
+      '--disable-prompt-on-repost',
+      '--metrics-recording-only',
+      '--no-service-autorun',
+      '--safebrowsing-disable-auto-update',
     ];
 
     if (headless) {
@@ -622,6 +900,9 @@ export class BrowserService {
     if (process.platform === 'linux') {
       args.push('--disable-dev-shm-usage', '--no-sandbox');
     }
+
+    // Start with blank page — avoids restoring previous session
+    args.push('about:blank');
 
     this.browserProcess = spawn(execPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -1270,6 +1551,57 @@ export class BrowserService {
 
     this.activePageIdx = 0;
     console.log('[BrowserService] Browser closed');
+  }
+
+  /**
+   * Reset the KxAI browser profile — deletes persistent profile and reimports cookies
+   * from user's real browser profile on next launch.
+   */
+  async resetProfile(): Promise<BrowserResult> {
+    if (this.browser) {
+      return { success: false, error: 'Zamknij przeglądarkę (browser_close) przed resetem profilu.' };
+    }
+
+    const kxaiProfileDir = path.join(app.getPath('userData'), 'browser-profile');
+    try {
+      if (fs.existsSync(kxaiProfileDir)) {
+        fs.rmSync(kxaiProfileDir, { recursive: true, force: true });
+        console.log('[BrowserService] Profil KxAI usunięty — cookies zostaną skopiowane przy następnym uruchomieniu');
+      }
+      return { success: true, data: 'Profil przeglądarki KxAI został zresetowany. Przy następnym uruchomieniu cookies zostaną skopiowane z Twojego profilu Chrome.' };
+    } catch (err: any) {
+      return { success: false, error: `Błąd resetu profilu: ${err.message}` };
+    }
+  }
+
+  /**
+   * Refresh cookies in KxAI profile from user's real browser (without full reset).
+   * Must be called with browser closed.
+   */
+  async refreshCookies(): Promise<BrowserResult> {
+    if (this.browser) {
+      return { success: false, error: 'Zamknij przeglądarkę (browser_close) przed odświeżeniem cookies.' };
+    }
+
+    const execPath = this.detectBrowser();
+    if (!execPath) {
+      return { success: false, error: 'Nie znaleziono przeglądarki.' };
+    }
+
+    const realProfileDir = this.getUserProfileDir(execPath);
+    const kxaiProfileDir = path.join(app.getPath('userData'), 'browser-profile');
+
+    try {
+      const hasCookies = this.copyProfileForSharing(realProfileDir, kxaiProfileDir);
+      return {
+        success: true,
+        data: hasCookies
+          ? 'Cookies/sesje odświeżone z profilu Chrome. Uruchom przeglądarkę ponownie.'
+          : 'Nie udało się skopiować cookies — przeglądarka może być zablokowana.',
+      };
+    } catch (err: any) {
+      return { success: false, error: `Błąd odświeżania cookies: ${err.message}` };
+    }
   }
 
   closeAll(): void {

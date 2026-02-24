@@ -207,11 +207,12 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
 
     try {
       const result = await window.kxai.streamMessage(userMessage);
+      // Safety: ensure streaming is always reset after IPC completes
+      setIsStreaming(false);
       if (result.success) {
         // Sync with backend to get real IDs (replaces optimistic msg + stream msg)
         await loadHistory();
       } else {
-        setIsStreaming(false);
         setMessages((prev) => [
           ...prev,
           {
@@ -263,6 +264,8 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
       const result = await window.kxai.streamWithScreen(
         'Przeanalizuj mój obecny ekran. Co widzisz? Jakie masz obserwacje, porady, uwagi?'
       );
+      // Safety: always reset streaming state after IPC completes
+      setIsStreaming(false);
       if (result.success) {
         // Sync with backend to get real IDs
         await loadHistory();
@@ -299,7 +302,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
     }
   }
 
-  // ─── Voice Input (Web Speech API) ───
+  // ─── Voice Input (OpenAI Whisper via MediaRecorder) ───
 
   function toggleVoiceInput() {
     if (isRecording) {
@@ -309,68 +312,80 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
     }
   }
 
-  function startVoiceInput() {
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      console.warn('[ChatPanel] SpeechRecognition API niedostępne');
-      setInput(prev => prev || '⚠️ Rozpoznawanie mowy niedostępne w tej wersji');
-      return;
-    }
+  async function startVoiceInput() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : 'audio/webm',
+      });
 
-    const recognition = new SpeechRecognition();
-    recognition.lang = 'pl-PL';
-    recognition.interimResults = true;
-    recognition.continuous = true;
-    recognition.maxAlternatives = 1;
+      const chunks: Blob[] = [];
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunks.push(e.data);
+      };
 
-    let finalTranscript = '';
-    let hasReceivedResult = false;
+      mediaRecorder.onstop = async () => {
+        // Stop all tracks to release mic
+        stream.getTracks().forEach(t => t.stop());
 
-    recognition.onresult = (event: any) => {
-      hasReceivedResult = true;
-      let interim = '';
-      for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalTranscript += transcript + ' ';
-        } else {
-          interim += transcript;
+        if (chunks.length === 0) return;
+
+        setInput(prev => prev || '⏳ Transkrybuję...');
+
+        try {
+          const blob = new Blob(chunks, { type: 'audio/webm' });
+          // Convert to base64 (chunked to avoid O(n²) string concat)
+          const arrayBuffer = await blob.arrayBuffer();
+          const bytes = new Uint8Array(arrayBuffer);
+          let binary = '';
+          const chunkSize = 8192;
+          for (let i = 0; i < bytes.length; i += chunkSize) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+          }
+          const base64 = btoa(binary);
+
+          const result = await window.kxai.transcribeAudio(base64);
+          if (result.success && result.text) {
+            setInput(prev => {
+              const clean = prev === '⏳ Transkrybuję...' ? '' : prev;
+              return (clean ? clean + ' ' : '') + result.text;
+            });
+            inputRef.current?.focus();
+          } else {
+            setInput(prev => prev === '⏳ Transkrybuję...'
+              ? `⚠️ ${result.error || 'Transkrypcja nie powiodła się'}`
+              : prev);
+          }
+        } catch (err: any) {
+          console.error('[ChatPanel] Whisper transcription error:', err);
+          setInput(prev => prev === '⏳ Transkrybuję...'
+            ? '⚠️ Błąd transkrypcji'
+            : prev);
         }
-      }
-      // Show interim results in the input field
-      setInput(finalTranscript + interim);
-    };
+      };
 
-    recognition.onerror = (event: any) => {
-      console.error('[ChatPanel] Speech recognition error:', event.error);
-      setIsRecording(false);
-      recognitionRef.current = null;
-      if (event.error === 'not-allowed') {
-        setInput(prev => prev || '⚠️ Brak uprawnień do mikrofonu');
-      } else if (event.error === 'network') {
-        setInput(prev => prev || '⚠️ Błąd sieci — rozpoznawanie mowy wymaga połączenia z Google');
-      }
-    };
+      mediaRecorder.onerror = () => {
+        stream.getTracks().forEach(t => t.stop());
+        setIsRecording(false);
+        recognitionRef.current = null;
+      };
 
-    recognition.onend = () => {
-      setIsRecording(false);
-      recognitionRef.current = null;
-      // Keep the transcribed text in the input
-      if (finalTranscript.trim()) {
-        setInput(finalTranscript.trim());
-        inputRef.current?.focus();
-      }
-    };
-
-    recognition.start();
-    recognitionRef.current = recognition;
-    setIsRecording(true);
+      mediaRecorder.start();
+      recognitionRef.current = mediaRecorder;
+      setIsRecording(true);
+    } catch (err: any) {
+      console.error('[ChatPanel] Mic access failed:', err);
+      setInput(prev => prev || '⚠️ Brak uprawnień do mikrofonu');
+    }
   }
 
   function stopVoiceInput() {
-    if (recognitionRef.current) {
+    if (recognitionRef.current && recognitionRef.current.state !== 'inactive') {
       recognitionRef.current.stop();
     }
+    setIsRecording(false);
   }
 
   async function openDashboard() {
@@ -413,8 +428,15 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
             </div>
             <div className="chat-header__model">
               {config.aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI'} · {config.aiModel}
-              {agentStatus.state !== 'idle' && agentStatus.detail && (
-                <span className="chat-header__status-text"> · {agentStatus.detail}</span>
+              {agentStatus.state !== 'idle' && (
+                <span className="chat-header__status-text"> · {
+                  agentStatus.state === 'thinking' ? 'myślę...' :
+                  agentStatus.state === 'tool-calling' ? agentStatus.toolName || 'narzędzie...' :
+                  agentStatus.state === 'streaming' ? 'odpowiadam...' :
+                  agentStatus.state === 'heartbeat' ? 'heartbeat' :
+                  agentStatus.state === 'take-control' ? 'sterowanie' :
+                  agentStatus.state === 'sub-agent' ? 'sub-agent' : ''
+                }</span>
               )}
             </div>
           </div>
@@ -586,13 +608,26 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
           >
             {isRecording ? '⏹' : '🎤'}
           </button>
-          <button
-            onClick={sendMessage}
-            disabled={!input.trim() || isStreaming}
-            className={`chat-send ${input.trim() && !isStreaming ? 'chat-send--enabled' : 'chat-send--disabled'}`}
-          >
-            ➤
-          </button>
+          {isStreaming ? (
+            <button
+              onClick={async () => {
+                await window.kxai.agentStop();
+                setIsStreaming(false);
+              }}
+              title="Zatrzymaj agenta"
+              className="chat-send chat-send--stop"
+            >
+              ■
+            </button>
+          ) : (
+            <button
+              onClick={sendMessage}
+              disabled={!input.trim()}
+              className={`chat-send ${input.trim() ? 'chat-send--enabled' : 'chat-send--disabled'}`}
+            >
+              ➤
+            </button>
+          )}
         </div>
       </div>
     </div>

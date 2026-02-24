@@ -13,14 +13,9 @@ import { app } from 'electron';
  * 5. Input sanitization — walidacja parametrów narzędzi
  */
 
-export interface AuditEntry {
-  timestamp: number;
-  action: string;
-  params: Record<string, unknown>;
-  source: 'tool' | 'automation' | 'browser' | 'plugin' | 'cron';
-  result: 'allowed' | 'blocked' | 'rate-limited';
-  reason?: string;
-}
+// Re-export from shared types (canonical source)
+export type { AuditEntry } from '../../shared/types/security';
+import type { AuditEntry } from '../../shared/types/security';
 
 interface RateLimitBucket {
   count: number;

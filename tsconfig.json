@@ -12,8 +12,13 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@shared/*": ["src/shared/*"],
+      "@renderer/*": ["src/renderer/*"]
+    }
   },
-  "include": ["src/**/*"],
+  "include": ["src/shared/**/*", "src/renderer/**/*"],
   "exclude": ["node_modules"]
 }

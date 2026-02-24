@@ -3,7 +3,7 @@
  *
  * Architecture:
  * 1. Two audio channels: mic (user = "Ja") + system (others)
- * 2. ElevenLabs Scribe v2 Realtime with VAD commit for instant transcripts
+ * 2. Deepgram Nova-3 Realtime with diarization for instant transcripts with speaker IDs
  * 3. Event-driven question detection on each committed_transcript from system channel
  * 4. Streaming AI coaching responses with RAG context injection
  * 5. Speaker mapping via AI context analysis + manual labeling
@@ -84,6 +84,7 @@ export interface MeetingBriefingParticipant {
   role?: string;        // e.g. "Tech Lead", "Product Owner"
   company?: string;
   notes?: string;       // co o nim wiedzieć
+  photoBase64?: string; // zdjęcie uczestnika (base64 jpg/png)
 }
 
 export interface MeetingBriefing {
@@ -96,6 +97,23 @@ export interface MeetingBriefing {
   // Populated after processing
   urlContents?: Array<{ url: string; content: string; error?: string }>;
   ragIndexed?: boolean;
+}
+
+/** Result of OSINT research on a meeting participant */
+export interface ParticipantResearch {
+  name: string;
+  company?: string;
+  role?: string;
+  summary: string;          // executive summary
+  experience: string[];     // career highlights
+  interests: string[];      // topics, projects, passions
+  socialMedia: Array<{ platform: string; url: string; snippet?: string }>;
+  commonGround: string[];   // shared interests with user
+  talkingPoints: string[];  // icebreakers, topics to discuss
+  cautions: string[];       // things to avoid
+  sources: string[];        // URLs used for research
+  photoDescription?: string;
+  researchedAt: number;     // timestamp
 }
 
 export interface MeetingSummary {
@@ -221,10 +239,7 @@ export class MeetingCoachService extends EventEmitter {
   private readonly SCREEN_IDENTIFY_COOLDOWN = 8000; // Min 8s between screen captures for speaker ID
   private pendingScreenIdentify = false;
 
-  // PCM audio recording for post-meeting batch diarization
-  private systemAudioChunks: Buffer[] = [];
-  private micAudioChunks: Buffer[] = [];
-  private recordingActive = false;
+
 
   constructor(
     transcriptionService: TranscriptionService,
@@ -254,7 +269,7 @@ export class MeetingCoachService extends EventEmitter {
     // Wire transcription events
     this.transcriptionService.on('transcript', this.onTranscript.bind(this));
     this.transcriptionService.on('session:error', (data) => {
-      // Suppress errors during shutdown (e.g. input_error from ElevenLabs after commit)
+      // Suppress errors during shutdown
       if (this.isStopping) {
         console.log(`[MeetingCoach] Suppressed transcription error during shutdown (${data.label}):`, data.error);
         return;
@@ -271,9 +286,9 @@ export class MeetingCoachService extends EventEmitter {
       throw new Error('Spotkanie jest już w toku. Najpierw je zakończ.');
     }
 
-    const hasKey = await this.securityService.getApiKey('elevenlabs');
+    const hasKey = await this.securityService.getApiKey('deepgram');
     if (!hasKey) {
-      throw new Error('Brak klucza API ElevenLabs. Ustaw go w ustawieniach.');
+      throw new Error('Brak klucza API Deepgram. Ustaw go w ustawieniach.');
     }
 
     this.meetingId = uuid();
@@ -290,10 +305,6 @@ export class MeetingCoachService extends EventEmitter {
     this.lastCoachingTime = 0;
     this.recentSystemUtterances = [];
     this.recentMicUtterances = [];
-    this.systemAudioChunks = [];
-    this.micAudioChunks = [];
-    this.recordingActive = true;
-
     console.log(`[MeetingCoach] Starting meeting ${this.meetingId}: ${title || 'Untitled'}`);
 
     const lang = this.config.language || 'pl';
@@ -332,26 +343,14 @@ export class MeetingCoachService extends EventEmitter {
     if (this.durationTimer) { clearInterval(this.durationTimer); this.durationTimer = null; }
 
     // Signal renderer to stop audio capture BEFORE closing transcription sessions
-    // This prevents audio chunks arriving after ElevenLabs "commit" message → input_error
     this.emit('meeting:stop-capture');
 
     // Give renderer ~200ms to actually stop sending chunks
     await new Promise(r => setTimeout(r, 200));
 
-    this.recordingActive = false;
-
     await this.transcriptionService.stopAll();
 
     const summary = await this.generateSummary(meetingId);
-
-    // Run batch diarization in background — updates saved summary with speaker labels
-    this.runBatchDiarization(meetingId, summary).catch(err => {
-      console.error('[MeetingCoach] Batch diarization failed:', err);
-    });
-
-    // Free PCM buffers
-    this.systemAudioChunks = [];
-    this.micAudioChunks = [];
 
     this.meetingId = null;
     this.meetingStartTime = null;
@@ -362,25 +361,34 @@ export class MeetingCoachService extends EventEmitter {
     this.isStopping = false;
     this.coachingQueue = [];
     this.speakers = new Map();
+    this.recentSystemUtterances = [];
+    this.recentMicUtterances = [];
+    this.audioChunkCount = 0;
 
     this.emitState();
     this.emit('meeting:stopped', { meetingId, summary });
     return summary;
   }
 
+  private audioChunkCount = 0;
+  private lastAudioLog = 0;
+
   sendAudioChunk(source: 'mic' | 'system', chunk: Buffer): void {
-    if (!this.meetingId) return;
+    if (!this.meetingId) {
+      if (this.audioChunkCount === 0) console.warn('[MeetingCoach] sendAudioChunk called but no active meeting');
+      return;
+    }
+    this.audioChunkCount++;
+
+    // Log every 10 seconds
+    const now = Date.now();
+    if (now - this.lastAudioLog > 10000) {
+      this.lastAudioLog = now;
+      console.log(`[MeetingCoach] Audio: ${this.audioChunkCount} chunks received (source=${source}, size=${chunk.length}bytes)`);
+    }
+
     const sessionId = `${this.meetingId}-${source}`;
     this.transcriptionService.sendAudioChunk(sessionId, chunk);
-
-    // Record PCM for post-meeting batch diarization
-    if (this.recordingActive) {
-      if (source === 'system') {
-        this.systemAudioChunks.push(Buffer.from(chunk));
-      } else {
-        this.micAudioChunks.push(Buffer.from(chunk));
-      }
-    }
   }
 
   /**
@@ -388,6 +396,7 @@ export class MeetingCoachService extends EventEmitter {
    */
   mapSpeaker(speakerId: string, name: string): void {
     const existing = this.speakers.get(speakerId);
+    const oldName = existing?.name;
     if (existing) {
       existing.name = name;
       existing.isAutoDetected = false;
@@ -402,9 +411,9 @@ export class MeetingCoachService extends EventEmitter {
       });
     }
 
-    // Update existing transcript lines
+    // Update existing transcript lines — compare against old resolved name or raw speakerId
     for (const line of this.transcript) {
-      if (line.source === 'system' && line.speaker === speakerId) {
+      if (line.source === 'system' && (line.speaker === speakerId || (oldName && line.speaker === oldName))) {
         line.speaker = name;
       }
     }
@@ -484,6 +493,20 @@ export class MeetingCoachService extends EventEmitter {
     }
     if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
       throw new Error(`fetchUrlContent: unsupported scheme "${parsed.protocol}" — only http/https allowed`);
+    }
+
+    // SSRF protection: block private/internal addresses
+    const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    const blockedPatterns = [
+      /^localhost$/i, /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./,
+      /^192\.168\./, /^0\./, /^::1$/, /^::$/, /^0+:0+:0+:0+:0+:0+:0+:[01]$/,
+      /^f[cd][0-9a-f]{2}:/i, /^fe[89ab][0-9a-f]:/i,
+      /\.local$/i, /\.internal$/i, /\.localhost$/i, /^169\.254\./,
+    ];
+    for (const pattern of blockedPatterns) {
+      if (pattern.test(hostname)) {
+        throw new Error(`fetchUrlContent: blocked internal address (SSRF protection)`);
+      }
     }
 
     if (MAX_REDIRECTS < 0) {
@@ -624,6 +647,7 @@ export class MeetingCoachService extends EventEmitter {
     if (!this.meetingId) return;
 
     const source = event.label as 'mic' | 'system';
+    console.log(`[MeetingCoach] Transcript event: source=${source}, isFinal=${event.isFinal}, text="${event.text.substring(0, 80)}", speaker=${event.speaker || 'none'}`);
 
     if (event.isFinal) {
       const speakerName = this.resolveSpeakerName(source, event.speaker);
@@ -668,31 +692,76 @@ export class MeetingCoachService extends EventEmitter {
 
   /**
    * Evaluate a system audio utterance for coaching trigger.
-   * Replaces old timer-based approach with instant event-driven detection.
+   * Hybrid approach: fast regex pre-filter → AI classification for accuracy.
    */
   private async evaluateForCoaching(utterance: TranscriptLine): Promise<void> {
     const now = Date.now();
     if (this.isCoaching || (now - this.lastCoachingTime) < this.COACHING_COOLDOWN) return;
 
-    // Step 1: Fast regex-based question detection
-    const isLikelyQuestion = this.detectQuestionFast(utterance.text);
-    if (!isLikelyQuestion) return;
+    const text = utterance.text.trim();
+    if (text.length < 8) return; // Too short to be meaningful
 
-    // Step 2: Is the question directed at the user?
-    const isDirected = this.isQuestionDirected(utterance.text);
+    // Step 1: Fast regex pre-filter — cheaply eliminates obvious non-questions
+    const regexMatch = this.detectQuestionFast(text);
+    const isDirected = this.isQuestionDirected(text);
 
-    // Step 3: Apply sensitivity filter
+    // Step 2: AI classification for utterances that pass regex OR are long enough
+    // This catches questions without "?" and rhetorical patterns regex misses
     const sensitivity = this.config.questionDetectionSensitivity;
-    const shouldTrigger = sensitivity === 'high'
-      ? isLikelyQuestion
-      : sensitivity === 'medium'
-        ? isLikelyQuestion && (isDirected || this.isConversationContextFavorable())
-        : isDirected; // 'low' — only explicit questions directed at user
+    let shouldTrigger = false;
+
+    if (regexMatch || text.length > 20) {
+      // Use fast AI classification (tiny prompt, ~50 tokens response)
+      const aiResult = await this.classifyWithAI(text, isDirected);
+
+      if (aiResult === 'direct_question') {
+        shouldTrigger = true;
+      } else if (aiResult === 'indirect_question') {
+        shouldTrigger = sensitivity !== 'low';
+      } else if (aiResult === 'request') {
+        shouldTrigger = sensitivity === 'high' || (sensitivity === 'medium' && isDirected);
+      } else if (regexMatch && isDirected) {
+        // AI said no, but regex + directed = still trigger on high
+        shouldTrigger = sensitivity === 'high';
+      }
+
+      // Context boost: if user spoke recently, lower the threshold
+      if (!shouldTrigger && aiResult !== 'statement' && this.isConversationContextFavorable()) {
+        shouldTrigger = sensitivity !== 'low';
+      }
+    }
 
     if (!shouldTrigger) return;
 
-    console.log(`[MeetingCoach] 🎯 Question detected: "${utterance.text.substring(0, 80)}..."`);
-    this.triggerCoaching(utterance.text);
+    console.log(`[MeetingCoach] 🎯 Question detected: "${text.substring(0, 80)}..."`);
+    this.triggerCoaching(text);
+  }
+
+  /**
+   * Fast AI classification of utterance type.
+   * Uses minimal prompt for speed (~200ms with GPT-4o-mini / Haiku).
+   */
+  private async classifyWithAI(text: string, isDirected: boolean): Promise<'direct_question' | 'indirect_question' | 'request' | 'statement'> {
+    try {
+      const prompt = `Classify this meeting utterance. Reply with ONLY one word: direct_question, indirect_question, request, or statement.
+
+"${text.substring(0, 200)}"`;
+
+      const response = await this.aiService.sendMessage(
+        prompt, undefined, undefined, { skipHistory: true }
+      );
+      if (!response) return 'statement';
+
+      const lower = response.trim().toLowerCase().replace(/[^a-z_]/g, '');
+      if (lower.includes('direct_question')) return 'direct_question';
+      if (lower.includes('indirect_question')) return 'indirect_question';
+      if (lower.includes('request')) return 'request';
+      return 'statement';
+    } catch (err) {
+      // If AI fails, fall back to regex result
+      console.warn('[MeetingCoach] AI classification failed, using regex fallback:', err);
+      return isDirected ? 'direct_question' : 'statement';
+    }
   }
 
   private detectQuestionFast(text: string): boolean {
@@ -1081,6 +1150,12 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
       .map(l => `[${new Date(l.timestamp).toLocaleTimeString('pl')}] ${l.speaker}: ${l.text}`)
       .join('\n');
 
+    // Truncate transcript to avoid exceeding token limits (~50k chars ≈ 12k tokens)
+    const MAX_TRANSCRIPT_CHARS = 50000;
+    const truncatedTranscript = fullTranscript.length > MAX_TRANSCRIPT_CHARS
+      ? fullTranscript.slice(-MAX_TRANSCRIPT_CHARS) + '\n\n[...wcześniejsza część transkrypcji pominięta ze względu na długość]'
+      : fullTranscript;
+
     let aiSummary = '';
     let keyPoints: string[] = [];
     let actionItems: string[] = [];
@@ -1109,7 +1184,7 @@ UCZESTNICY:
 ${speakerDesc}
 ${briefingContext}
 TRANSKRYPCJA:
-${fullTranscript}
+${truncatedTranscript}
 
 Odpowiedz TYLKO JSON-em bez markdown:
 {
@@ -1155,6 +1230,7 @@ Odpowiedz TYLKO JSON-em bez markdown:
       speakers: speakersArray,
       detectedApp: this.detectedApp || undefined,
       briefing: this.briefing || undefined,
+      diarized: true,  // Deepgram Nova-3 provides real-time diarization
     };
 
     await this.saveSummary(summary);
@@ -1184,273 +1260,275 @@ Odpowiedz TYLKO JSON-em bez markdown:
    * Build a WAV file from raw PCM 16-bit 16kHz mono chunks.
    * Mixes system + mic channels into a single mono stream.
    */
-  private buildWavBuffer(systemChunks: Buffer[], micChunks: Buffer[]): Buffer {
-    // Determine total length from the longer channel
-    const systemTotal = systemChunks.reduce((sum, c) => sum + c.length, 0);
-    const micTotal = micChunks.reduce((sum, c) => sum + c.length, 0);
-    const totalBytes = Math.max(systemTotal, micTotal);
-
-    if (totalBytes === 0) throw new Error('No audio data recorded');
-
-    // Flatten chunks
-    const systemBuf = Buffer.concat(systemChunks);
-    const micBuf = Buffer.concat(micChunks);
-
-    // Mix both channels (average as int16) into mono
-    const numSamples = Math.floor(totalBytes / 2);
-    const mixed = Buffer.alloc(numSamples * 2);
-
-    for (let i = 0; i < numSamples; i++) {
-      const offset = i * 2;
-      const sysSample = offset + 1 < systemBuf.length ? systemBuf.readInt16LE(offset) : 0;
-      const micSample = offset + 1 < micBuf.length ? micBuf.readInt16LE(offset) : 0;
-      // Mix: clamp to int16 range
-      const sum = sysSample + micSample;
-      const clamped = Math.max(-32768, Math.min(32767, sum));
-      mixed.writeInt16LE(clamped, offset);
-    }
-
-    // WAV header (44 bytes)
-    const sampleRate = 16000;
-    const numChannels = 1;
-    const bitsPerSample = 16;
-    const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
-    const blockAlign = numChannels * (bitsPerSample / 8);
-    const dataSize = mixed.length;
-
-    const header = Buffer.alloc(44);
-    header.write('RIFF', 0);
-    header.writeUInt32LE(36 + dataSize, 4);
-    header.write('WAVE', 8);
-    header.write('fmt ', 12);
-    header.writeUInt32LE(16, 16);        // subchunk1 size
-    header.writeUInt16LE(1, 20);         // PCM format
-    header.writeUInt16LE(numChannels, 22);
-    header.writeUInt32LE(sampleRate, 24);
-    header.writeUInt32LE(byteRate, 28);
-    header.writeUInt16LE(blockAlign, 32);
-    header.writeUInt16LE(bitsPerSample, 34);
-    header.write('data', 36);
-    header.writeUInt32LE(dataSize, 40);
-
-    return Buffer.concat([header, mixed]);
-  }
-
   /**
-   * Run post-meeting batch diarization via ElevenLabs Scribe v2 (non-realtime).
-   * Sends recorded audio as WAV → gets back transcript with speaker_id per word.
-   * Updates the saved summary JSON with diarized transcript.
-   */
-  private async runBatchDiarization(meetingId: string, summary: MeetingSummary): Promise<void> {
-    if (this.systemAudioChunks.length === 0 && this.micAudioChunks.length === 0) {
-      console.log('[MeetingCoach] No audio recorded — skipping batch diarization');
-      return;
-    }
-
-    const apiKey = await this.securityService.getApiKey('elevenlabs');
-    if (!apiKey) {
-      console.warn('[MeetingCoach] No ElevenLabs key — skipping batch diarization');
-      return;
-    }
-
-    console.log(`[MeetingCoach] Starting batch diarization for meeting ${meetingId}...`);
-    const startTime = Date.now();
-
-    try {
-      const wavBuffer = this.buildWavBuffer(this.systemAudioChunks, this.micAudioChunks);
-      console.log(`[MeetingCoach] WAV built: ${(wavBuffer.length / 1024 / 1024).toFixed(1)} MB`);
-
-      // Multipart form POST to ElevenLabs STT using Node.js built-in fetch
-      const wavBlob = new Blob([wavBuffer.buffer.slice(wavBuffer.byteOffset, wavBuffer.byteOffset + wavBuffer.byteLength)] as BlobPart[], { type: 'audio/wav' });
-
-      const formData = new FormData();
-      formData.append('model_id', 'scribe_v2');
-      formData.append('file', wavBlob, 'meeting.wav');
-      formData.append('language_code', this.config.language || 'pl');
-      formData.append('diarize', 'true');
-      formData.append('tag_audio_events', 'false');
-      formData.append('timestamps_granularity', 'word');
-
-      // Determine max speakers from briefing if available
-      const expectedSpeakers = (this.briefing?.participants?.length || 0) + 1; // +1 for user
-      if (expectedSpeakers >= 2 && expectedSpeakers <= 32) {
-        formData.append('num_speakers', String(expectedSpeakers));
-      }
-
-      const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-        method: 'POST',
-        headers: {
-          'xi-api-key': apiKey,
-        },
-        body: formData,
-        signal: AbortSignal.timeout(300000), // 5 min timeout
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`STT batch API ${response.status}: ${errorText.substring(0, 500)}`);
-      }
-
-      const result = await response.json() as any;
-      const elapsedSec = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`[MeetingCoach] Batch diarization completed in ${elapsedSec}s`);
-
-      if (!result.words || result.words.length === 0) {
-        console.warn('[MeetingCoach] Batch diarization returned no words');
-        return;
-      }
-
-      // Parse diarized words into transcript lines grouped by speaker
-      const diarizedLines: TranscriptLine[] = [];
-      let currentSpeaker = '';
-      let currentText = '';
-      let currentTimestamp = summary.startTime;
-
-      for (const word of result.words) {
-        if (word.type !== 'word') continue;
-        const speaker = word.speaker_id || 'unknown';
-
-        if (speaker !== currentSpeaker && currentText.trim()) {
-          diarizedLines.push({
-            timestamp: currentTimestamp,
-            speaker: this.formatSpeakerId(currentSpeaker),
-            text: currentText.trim(),
-            source: 'system',
-          });
-          currentText = '';
-          currentTimestamp = summary.startTime + Math.round((word.start || 0) * 1000);
-        }
-        currentSpeaker = speaker;
-        currentText += word.text;
-      }
-      // Push last segment
-      if (currentText.trim()) {
-        diarizedLines.push({
-          timestamp: currentTimestamp,
-          speaker: this.formatSpeakerId(currentSpeaker),
-          text: currentText.trim(),
-          source: 'system',
-        });
-      }
-
-      if (diarizedLines.length === 0) {
-        console.warn('[MeetingCoach] Diarization produced no lines');
-        return;
-      }
-
-      // Build speaker map from diarized results
-      const speakerMap = new Map<string, SpeakerInfo>();
-      for (const line of diarizedLines) {
-        const existing = speakerMap.get(line.speaker);
-        if (existing) {
-          existing.utteranceCount++;
-          existing.lastSeen = line.timestamp;
-        } else {
-          speakerMap.set(line.speaker, {
-            id: line.speaker,
-            name: line.speaker,
-            source: 'system',
-            utteranceCount: 1,
-            lastSeen: line.timestamp,
-            isAutoDetected: true,
-          });
-        }
-      }
-
-      // Try to match briefing participant names to speaker IDs by utterance count
-      if (this.briefing?.participants && this.briefing.participants.length > 0) {
-        const sortedSpeakers = Array.from(speakerMap.values())
-          .filter(s => s.id !== 'Ja')
-          .sort((a, b) => b.utteranceCount - a.utteranceCount);
-        for (let i = 0; i < Math.min(this.briefing.participants.length, sortedSpeakers.length); i++) {
-          sortedSpeakers[i].name = this.briefing.participants[i].name;
-        }
-        // Update transcript lines with actual names
-        for (const line of diarizedLines) {
-          const speaker = speakerMap.get(line.speaker);
-          if (speaker && speaker.name !== line.speaker) {
-            line.speaker = speaker.name;
-          }
-        }
-      }
-
-      // Update summary with diarized data
-      summary.transcript = diarizedLines;
-      summary.participants = [...new Set(diarizedLines.map(l => l.speaker))];
-      summary.speakers = Array.from(speakerMap.values());
-
-      // Re-generate AI summary with diarized transcript for better quality
-      console.log(`[MeetingCoach] Re-generating summary with diarized transcript (${diarizedLines.length} lines, ${speakerMap.size} speakers)`);
-      try {
-        const fullTranscript = diarizedLines
-          .map(l => `[${new Date(l.timestamp).toLocaleTimeString('pl')}] ${l.speaker}: ${l.text}`)
-          .join('\n');
-
-        const speakerDesc = Array.from(speakerMap.values())
-          .map(s => `- ${s.name}: ${s.utteranceCount} wypowiedzi`)
-          .join('\n');
-
-        let briefingContext = '';
-        if (this.briefing) {
-          if (this.briefing.topic) briefingContext += `Temat: ${this.briefing.topic}\n`;
-          if (this.briefing.agenda) briefingContext += `Agenda: ${this.briefing.agenda}\n`;
-        }
-
-        const prompt = `Wygeneruj profesjonalne podsumowanie spotkania na podstawie diaryzowanej transkrypcji (rozdzieleni mówcy).
-
-UCZESTNICY:
-${speakerDesc}
-${briefingContext}
-TRANSKRYPCJA (z rozpoznanymi mówcami):
-${fullTranscript}
-
-Odpowiedz TYLKO JSON-em bez markdown:
-{
-  "summary": "Ogólne podsumowanie — kto o czym mówił, jakie wnioski (3-4 zdania)",
-  "keyPoints": ["punkt 1", "punkt 2"],
-  "actionItems": ["zadanie 1 (kto: osoba)", "zadanie 2 (kto: osoba)"],
-  "sentiment": "ogólna ocena atmosfery spotkania (1 zdanie)"
-}`;
-
-        const aiResponse = await this.aiService.sendMessage(prompt);
-        if (aiResponse) {
-          const jsonMatch = aiResponse.match(/\{[\s\S]*\}/);
-          if (jsonMatch) {
-            const parsed = JSON.parse(jsonMatch[0]);
-            summary.summary = parsed.summary || summary.summary;
-            summary.keyPoints = parsed.keyPoints || summary.keyPoints;
-            summary.actionItems = parsed.actionItems || summary.actionItems;
-            if (parsed.sentiment) summary.sentiment = parsed.sentiment;
-          }
-        }
-      } catch (err) {
-        console.error('[MeetingCoach] Re-summary with diarized transcript failed:', err);
-      }
-
-      summary.diarized = true;
-
-      // Save updated summary
-      await this.saveSummary(summary);
-      console.log(`[MeetingCoach] Summary updated with diarized transcript`);
-
-      // Notify dashboard
-      this.emit('meeting:diarized', { meetingId, speakers: Array.from(speakerMap.values()).map(s => s.name) });
-
-    } catch (err) {
-      console.error('[MeetingCoach] Batch diarization error:', err);
-    }
-  }
-
-  /**
-   * Format speaker_id from ElevenLabs (e.g. "speaker_0") into readable label.
+   * Format Deepgram speaker ID (e.g. "0", "1") into readable label.
    */
   private formatSpeakerId(speakerId: string): string {
     if (!speakerId || speakerId === 'unknown') return 'Uczestnik';
-    // "speaker_0" → "Mówca 1", "speaker_1" → "Mówca 2", etc.
-    const match = speakerId.match(/speaker_(\d+)/);
-    if (match) {
-      return `Mówca ${parseInt(match[1], 10) + 1}`;
+    const num = parseInt(speakerId, 10);
+    if (!isNaN(num)) {
+      return `Mówca ${num + 1}`;
     }
     return speakerId;
+  }
+
+  // ──────────────── Meeting Prep — Participant Research (OSINT) ────────────────
+
+  /**
+   * Research a meeting participant using web search + AI analysis.
+   * Searches multiple sources (LinkedIn, Twitter, company sites, etc.)
+   * and synthesizes findings into a structured profile.
+   * 
+   * @param participant - Participant info (name, company, role, optional photo)
+   * @param userContext - Optional context about the user for finding common ground
+   * @param onProgress - Optional callback for progress updates
+   */
+  async researchParticipant(
+    participant: MeetingBriefingParticipant,
+    userContext?: string,
+    onProgress?: (status: string) => void,
+  ): Promise<ParticipantResearch> {
+    const { name, company, role, photoBase64 } = participant;
+    console.log(`[MeetingCoach] Researching participant: ${name} (${company || 'unknown company'})`);
+
+    onProgress?.(`Szukam informacji o ${name}...`);
+
+    // Step 1: Generate search queries
+    const searchQueries = [
+      `${name}${company ? ' ' + company : ''}`,
+      `${name} LinkedIn`,
+      `${name}${company ? ' ' + company : ''} site:linkedin.com`,
+      `${name}${role ? ' ' + role : ''} interview OR article OR presentation`,
+    ];
+    if (company) {
+      searchQueries.push(`${company} ${role || 'team'}`);
+    }
+
+    // Step 2: Search the web for each query
+    const allSearchResults: Array<{ title: string; text: string; url: string }> = [];
+    const https = require('https');
+
+    for (const query of searchQueries) {
+      try {
+        onProgress?.(`Wyszukuję: "${query}"`);
+
+        // Use DuckDuckGo HTML search endpoint for actual web results
+        const htmlUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+        const htmlData = await new Promise<string>((resolve, reject) => {
+          const req = https.get(htmlUrl, { headers: { 'User-Agent': 'KxAI-MeetingCoach/1.0' } }, (res: any) => {
+            let body = '';
+            res.on('data', (chunk: string) => body += chunk);
+            res.on('end', () => resolve(body));
+            res.on('error', reject);
+          });
+          req.on('error', reject);
+          req.setTimeout(10000, () => { req.destroy(); reject(new Error('Timeout')); });
+        });
+
+        // Parse HTML result blocks
+        const resultBlocks = htmlData.match(/<a[^>]+class="result__a"[^>]*>[\s\S]*?<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>[\s\S]*?<\/a>/g) || [];
+        for (const block of resultBlocks.slice(0, 5)) {
+          const titleMatch = block.match(/<a[^>]+class="result__a"[^>]*>([\s\S]*?)<\/a>/);
+          const snippetMatch = block.match(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
+          const urlMatch = block.match(/<a[^>]+class="result__a"[^>]+href="([^"]+)"/);
+          if (titleMatch && snippetMatch) {
+            const title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
+            const text = snippetMatch[1].replace(/<[^>]+>/g, '').trim();
+            const resultUrl = urlMatch ? decodeURIComponent(urlMatch[1].replace(/^\/\/duckduckgo\.com\/l\/\?uddg=/, '').split('&')[0]) : '';
+            if (title && text) allSearchResults.push({ title: title.slice(0, 100), text, url: resultUrl });
+          }
+        }
+
+        // Fallback: try Instant Answer API for abstract/summary
+        if (allSearchResults.length === 0) {
+          const iaUrl = `https://api.duckduckgo.com/?q=${encodeURIComponent(query)}&format=json&no_html=1`;
+          const iaData = await new Promise<string>((resolve, reject) => {
+            const req = https.get(iaUrl, (res: any) => {
+              let body = '';
+              res.on('data', (chunk: string) => body += chunk);
+              res.on('end', () => resolve(body));
+              res.on('error', reject);
+            });
+            req.on('error', reject);
+            req.setTimeout(10000, () => { req.destroy(); reject(new Error('Timeout')); });
+          });
+          const json = JSON.parse(iaData);
+          if (json.AbstractText) {
+            allSearchResults.push({ title: 'Summary', text: json.AbstractText, url: json.AbstractURL });
+          }
+          if (json.RelatedTopics) {
+            for (const t of json.RelatedTopics.slice(0, 5)) {
+              if (t.Text && t.FirstURL) {
+                allSearchResults.push({ title: t.Text.slice(0, 100), text: t.Text, url: t.FirstURL });
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[MeetingCoach] Search failed for "${query}":`, err);
+      }
+    }
+
+    // Step 3: Fetch content from the most promising URLs
+    const uniqueUrls = [...new Set(allSearchResults.filter(r => r.url).map(r => r.url))].slice(0, 6);
+    const fetchedContent: Array<{ url: string; content: string }> = [];
+
+    for (const fetchUrl of uniqueUrls) {
+      try {
+        onProgress?.(`Czytam: ${fetchUrl.slice(0, 60)}...`);
+        const content = await this.fetchUrlContent(fetchUrl);
+        if (content && content.length > 50) {
+          fetchedContent.push({ url: fetchUrl, content: content.slice(0, 3000) });
+        }
+      } catch {
+        // Skip failed fetches
+      }
+    }
+
+    // Step 4: Describe photo if provided
+    let photoDescription = '';
+    if (photoBase64) {
+      try {
+        onProgress?.('Analizuję zdjęcie...');
+        const photoPrompt = `Opisz tę osobę na zdjęciu krótko (wygląd, przybliżony wiek, styl). To ${name}${company ? ' z ' + company : ''}.`;
+        const photoDataUrl = photoBase64.startsWith('data:') ? photoBase64 : `data:image/jpeg;base64,${photoBase64}`;
+        photoDescription = await this.aiService.sendMessageWithVision(
+          photoPrompt,
+          photoDataUrl,
+          'Jesteś asystentem opisującym osoby na zdjęciach. Bądź zwięzły i profesjonalny.',
+        ) || '';
+      } catch (err) {
+        console.warn('[MeetingCoach] Photo analysis failed:', err);
+      }
+    }
+
+    // Step 5: AI synthesis — compile all data into structured profile
+    onProgress?.('AI analizuje zebrane informacje...');
+
+    const searchContext = allSearchResults.map(r => `[${r.title}] ${r.text} (${r.url})`).join('\n\n');
+    const fetchedContext = fetchedContent.map(f => `=== ${f.url} ===\n${f.content}`).join('\n\n');
+    const photoCtx = photoDescription ? `\nOpis ze zdjęcia: ${photoDescription}` : '';
+
+    const synthesisPrompt = `Jesteś ekspertem od researchu osób. Na podstawie zebranych danych, stwórz szczegółowy profil osoby.
+
+OSOBA: ${name}
+${company ? `FIRMA: ${company}` : ''}
+${role ? `ROLA: ${role}` : ''}
+${photoCtx}
+
+WYNIKI WYSZUKIWANIA:
+${searchContext || '(brak wyników wyszukiwania)'}
+
+TREŚĆ STRON:
+${fetchedContext || '(brak pobranej treści)'}
+
+${userContext ? `KONTEKST UŻYTKOWNIKA (do znalezienia wspólnych punktów):\n${userContext}` : ''}
+
+Odpowiedz WYŁĄCZNIE poprawnym JSON (bez markdown code blocks):
+{
+  "summary": "2-3 zdania kim jest ta osoba i co jest najważniejsze",
+  "experience": ["stanowisko 1 - firma - lata", "stanowisko 2"],
+  "interests": ["zainteresowanie 1", "temat 2"],
+  "socialMedia": [{"platform": "LinkedIn", "url": "https://...", "snippet": "opis profilu"}],
+  "commonGround": ["wspólny punkt 1", "temat do rozmowy 2"],
+  "talkingPoints": ["icebreaker 1", "pytanie 2", "temat 3"],
+  "cautions": ["unikać tematu X", "wrażliwa kwestia Y"]
+}
+
+Jeśli nie masz wystarczających danych o danym polu, użyj pustej tablicy [].
+Pisz po polsku.`;
+
+    try {
+      const aiResponse = await this.aiService.sendMessage(
+        synthesisPrompt,
+        undefined,
+        'Jesteś ekspertem od researchu osób (OSINT). Odpowiadasz WYŁĄCZNIE poprawnym JSON bez markdown code blocks.',
+        { skipHistory: true },
+      );
+
+      // Parse AI response
+      let parsed: any;
+      try {
+        // Strip markdown code blocks if AI wrapped response
+        const raw = aiResponse ?? '';
+        const cleaned = raw
+          .replace(/```json\s*\n?/gi, '')
+          .replace(/```\s*$/gm, '')
+          .trim();
+        parsed = JSON.parse(cleaned);
+      } catch {
+        console.warn('[MeetingCoach] Failed to parse AI research response, using raw text');
+        parsed = {
+          summary: aiResponse.slice(0, 500),
+          experience: [],
+          interests: [],
+          socialMedia: [],
+          commonGround: [],
+          talkingPoints: [],
+          cautions: [],
+        };
+      }
+
+      const result: ParticipantResearch = {
+        name,
+        company,
+        role,
+        summary: parsed.summary || `Badanie ${name} zakończone, ale brak wystarczających danych.`,
+        experience: parsed.experience || [],
+        interests: parsed.interests || [],
+        socialMedia: parsed.socialMedia || [],
+        commonGround: parsed.commonGround || [],
+        talkingPoints: parsed.talkingPoints || [],
+        cautions: parsed.cautions || [],
+        sources: uniqueUrls,
+        photoDescription: photoDescription || undefined,
+        researchedAt: Date.now(),
+      };
+
+      console.log(`[MeetingCoach] Research complete for ${name}: ${result.summary.slice(0, 100)}...`);
+      onProgress?.(`✅ Research ${name} zakończony`);
+
+      return result;
+    } catch (err: any) {
+      console.error(`[MeetingCoach] AI synthesis failed for ${name}:`, err);
+      return {
+        name,
+        company,
+        role,
+        summary: `Nie udało się dokończyć researchu: ${err.message}`,
+        experience: [],
+        interests: [],
+        socialMedia: [],
+        commonGround: [],
+        talkingPoints: [],
+        cautions: [],
+        sources: uniqueUrls,
+        researchedAt: Date.now(),
+      };
+    }
+  }
+
+  /**
+   * Research all participants in a meeting prep batch.
+   * Returns results as they complete (via onResult callback).
+   */
+  async researchAllParticipants(
+    participants: MeetingBriefingParticipant[],
+    userContext?: string,
+    onResult?: (result: ParticipantResearch, index: number) => void,
+    onProgress?: (status: string) => void,
+  ): Promise<ParticipantResearch[]> {
+    const results: ParticipantResearch[] = [];
+
+    for (let i = 0; i < participants.length; i++) {
+      const p = participants[i];
+      onProgress?.(`Badam ${i + 1}/${participants.length}: ${p.name}...`);
+      const result = await this.researchParticipant(p, userContext, onProgress);
+      results.push(result);
+      onResult?.(result, i);
+    }
+
+    onProgress?.(`✅ Research zakończony — ${results.length} osób zbadanych`);
+    return results;
   }
 }

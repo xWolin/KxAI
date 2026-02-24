@@ -30,7 +30,7 @@ import * as path from 'path';
 import express, { Request, Response } from 'express';
 import * as http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
-import { MeetingCoachService } from './meeting-coach';
+import { MeetingCoachService, ParticipantResearch } from './meeting-coach';
 import { ToolsService } from './tools-service';
 import { CronService } from './cron-service';
 import { RAGService } from './rag-service';
@@ -217,6 +217,67 @@ export class DashboardServer {
       }
     });
 
+    // ─── API: Meeting Prep — Research participant ───
+    this.app.post('/api/meeting-prep/research', async (req: Request, res: Response) => {
+      try {
+        const { participants, userContext } = req.body as {
+          participants: Array<{ name: string; company?: string; role?: string; photoBase64?: string }>;
+          userContext?: string;
+        };
+
+        if (!participants || !Array.isArray(participants) || participants.length === 0) {
+          res.status(400).json({ success: false, error: 'Brak uczestników do zbadania' });
+          return;
+        }
+
+        if (participants.length > 10) {
+          res.status(400).json({ success: false, error: 'Maksymalnie 10 uczestników na raz' });
+          return;
+        }
+
+        // Research all participants sequentially
+        const results: ParticipantResearch[] = [];
+        for (const p of participants) {
+          if (!p.name || p.name.trim().length < 2) continue;
+          const result = await this.meetingCoach.researchParticipant(
+            { name: p.name.trim(), company: p.company, role: p.role, photoBase64: p.photoBase64 },
+            userContext,
+          );
+          results.push(result);
+        }
+
+        res.json({ success: true, data: results });
+      } catch (err: any) {
+        console.error('[Dashboard] Meeting prep research error:', err);
+        res.status(500).json({ success: false, error: err.message });
+      }
+    });
+
+    // ─── API: Meeting Prep — Research single participant (streaming progress via WebSocket) ───
+    this.app.post('/api/meeting-prep/research-one', async (req: Request, res: Response) => {
+      try {
+        const { name, company, role, photoBase64, userContext } = req.body as {
+          name: string; company?: string; role?: string; photoBase64?: string; userContext?: string;
+        };
+
+        if (!name || name.trim().length < 2) {
+          res.status(400).json({ success: false, error: 'Podaj imię i nazwisko (min 2 znaki)' });
+          return;
+        }
+
+        const result = await this.meetingCoach.researchParticipant(
+          { name: name.trim(), company, role, photoBase64 },
+          userContext,
+          (status: string) => this.broadcast({ type: 'meeting-prep:progress', data: { name, status } }),
+        );
+
+        res.json({ success: true, data: result });
+      } catch (err: any) {
+        console.error('[Dashboard] Meeting prep research-one error:', err);
+        res.status(500).json({ success: false, error: err.message });
+      }
+    });
+
     // ─── Dashboard SPA ───
     this.app.get('/', (_req: Request, res: Response) => {
       res.type('html').send(this.spaHtml);
@@ -248,13 +309,17 @@ export class DashboardServer {
         if (err.code === 'EADDRINUSE') {
           console.warn(`[Dashboard] Port ${this.port} zajęty, próbuję ${this.port + 1}...`);
           this.port++;
-          this.server = this.app.listen(this.port, '127.0.0.1', () => {
+          const retryServer = this.app.listen(this.port, '127.0.0.1', () => {
             console.log(`[Dashboard] Serwer uruchomiony: http://localhost:${this.port}`);
+            this.server = retryServer;
             this.wss = new WebSocketServer({ server: this.server! });
             this.wss.on('connection', (ws) => {
               ws.send(JSON.stringify({ type: 'agent:status', data: this.lastAgentStatus }));
             });
             resolve();
+          });
+          retryServer.on('error', (retryErr: any) => {
+            reject(retryErr);
           });
         } else {
           reject(err);

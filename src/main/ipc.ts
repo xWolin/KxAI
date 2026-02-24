@@ -73,6 +73,14 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   // ──────────────── AI Messages ────────────────
+
+  // Stop agent processing (cancel tool loop, heartbeat, take-control)
+  ipcMain.handle('agent:stop', async () => {
+    agentLoop.stopProcessing();
+    safeSend('ai:stream', { done: true });
+    return { success: true };
+  });
+
   ipcMain.handle('ai:send-message', async (_event, message: string, context?: string) => {
     try {
       const response = await aiService.sendMessage(message, context);
@@ -85,9 +93,13 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   ipcMain.handle('ai:stream-message', async (_event, message: string, context?: string) => {
     try {
       await agentLoop.streamWithTools(message, context, (chunk: string) => {
-        mainWindow.webContents.send('ai:stream', { chunk });
+        if (!mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('ai:stream', { chunk });
+        }
       });
-      mainWindow.webContents.send('ai:stream', { done: true });
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ai:stream', { done: true });
+      }
 
       // Check if AI requested take-control mode
       const pendingTask = agentLoop.consumePendingTakeControl();
@@ -132,7 +144,11 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
       return { success: true };
     } catch (error: any) {
-      mainWindow.webContents.send('ai:stream', { done: true });
+      console.error('ai:stream-message error:', error);
+      if (!mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ai:stream', { chunk: `\n❌ Błąd: ${error.message}\n` });
+        mainWindow.webContents.send('ai:stream', { done: true });
+      }
       return { success: false, error: error.message };
     }
   });
@@ -275,6 +291,46 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   ipcMain.handle('window:set-size', async (_event, width: number, height: number) => {
     mainWindow.setSize(width, height);
+  });
+
+  ipcMain.handle('window:set-clickthrough', async (_event, enabled: boolean) => {
+    mainWindow.setIgnoreMouseEvents(enabled, { forward: true });
+  });
+
+  // ──────────────── Voice Transcription (Whisper) ────────────────
+  ipcMain.handle('voice:transcribe', async (_event, audioBase64: string) => {
+    try {
+      const OpenAI = require('openai').default;
+      const { toFile } = require('openai');
+      const apiKey = await securityService.getApiKey('openai');
+      if (!apiKey) {
+        return { success: false, error: 'Brak klucza OpenAI — ustaw go w ustawieniach' };
+      }
+      const client = new OpenAI({ apiKey });
+
+      // Decode base64 to buffer
+      const audioBuffer = Buffer.from(audioBase64, 'base64');
+
+      // Whisper API limit: 25 MB
+      const MAX_WHISPER_SIZE = 25 * 1024 * 1024;
+      if (audioBuffer.length > MAX_WHISPER_SIZE) {
+        return { success: false, error: `Plik audio przekracza limit 25 MB (${(audioBuffer.length / 1024 / 1024).toFixed(1)} MB)` };
+      }
+
+      // Create a Node-compatible file object via OpenAI SDK helper
+      const file = await toFile(audioBuffer, 'voice.webm', { type: 'audio/webm' });
+
+      const transcription = await client.audio.transcriptions.create({
+        file,
+        model: 'whisper-1',
+        language: 'pl',
+      });
+
+      return { success: true, text: transcription.text };
+    } catch (error: any) {
+      console.error('[IPC] Whisper transcription failed:', error.message);
+      return { success: false, error: error.message };
+    }
   });
 
   // ──────────────── File Operations ────────────────
@@ -818,7 +874,15 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     });
 
     // Audio chunk from renderer (non-invoke, fire-and-forget)
+    let ipcAudioChunkCount = 0;
+    let lastIpcAudioLog = 0;
     ipcMain.on('meeting:audio-chunk', (_event, source: string, chunk: Uint8Array | Buffer) => {
+      ipcAudioChunkCount++;
+      const now = Date.now();
+      if (now - lastIpcAudioLog > 10000) {
+        lastIpcAudioLog = now;
+        console.log(`[IPC] meeting:audio-chunk: ${ipcAudioChunkCount} chunks received (source=${source}, size=${chunk.byteLength}bytes)`);
+      }
       // Renderer sends Uint8Array (safe across context isolation), convert to Buffer for service
       meetingCoach.sendAudioChunk(source as 'mic' | 'system', Buffer.from(chunk));
     });

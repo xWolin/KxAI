@@ -18,8 +18,6 @@ const MODELS = {
     { value: 'o3', label: 'o3 (Reasoning)' },
     { value: 'o4-mini', label: 'o4-mini (Reasoning)' },
     // GPT-4 family (legacy)
-    { value: 'gpt-4.1', label: 'GPT-4.1 (Legacy)' },
-    { value: 'gpt-4.1-mini', label: 'GPT-4.1 Mini (Legacy)' },
     { value: 'gpt-4o', label: 'GPT-4o (Legacy)' },
     { value: 'gpt-4o-mini', label: 'GPT-4o Mini (Legacy)' },
   ],
@@ -40,8 +38,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [model, setModel] = useState(config.aiModel || 'gpt-5');
   const [apiKey, setApiKey] = useState('');
   const [hasKey, setHasKey] = useState(false);
-  const [elevenLabsKey, setElevenLabsKey] = useState('');
-  const [hasElevenLabsKey, setHasElevenLabsKey] = useState(false);
+  const [deepgramKey, setDeepgramKey] = useState('');
+  const [hasDeepgramKey, setHasDeepgramKey] = useState(false);
   const [embeddingKey, setEmbeddingKey] = useState('');
   const [hasEmbeddingKey, setHasEmbeddingKey] = useState(false);
   const [embeddingModel, setEmbeddingModel] = useState(config.embeddingModel || 'text-embedding-3-small');
@@ -68,8 +66,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   async function checkApiKey() {
     const has = await window.kxai.hasApiKey(provider);
     setHasKey(has);
-    const hasEl = await window.kxai.hasApiKey('elevenlabs');
-    setHasElevenLabsKey(hasEl);
+    const hasEl = await window.kxai.hasApiKey('deepgram');
+    setHasDeepgramKey(hasEl);
     const hasEmb = await window.kxai.hasApiKey('openai-embeddings');
     setHasEmbeddingKey(hasEmb);
   }
@@ -99,11 +97,11 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         setHasKey(true);
       }
 
-      // Save ElevenLabs key if provided
-      if (elevenLabsKey.trim()) {
-        await window.kxai.setApiKey('elevenlabs', elevenLabsKey.trim());
-        setElevenLabsKey('');
-        setHasElevenLabsKey(true);
+      // Save Deepgram key if provided
+      if (deepgramKey.trim()) {
+        await window.kxai.setApiKey('deepgram', deepgramKey.trim());
+        setDeepgramKey('');
+        setHasDeepgramKey(true);
       }
 
       // Save embedding API key if provided
@@ -295,22 +293,22 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               </p>
             </div>
 
-            {/* ElevenLabs / Meeting Coach */}
+            {/* Deepgram / Meeting Coach */}
             <div className="settings-section">
-              <h3 className="settings-section__title">🎙️ Meeting Coach (ElevenLabs)</h3>
+              <h3 className="settings-section__title">🎙️ Meeting Coach (Deepgram)</h3>
 
               <label className={labelClass}>
-                Klucz API ElevenLabs {hasElevenLabsKey ? '✅' : '❌'}
+                Klucz API Deepgram {hasDeepgramKey ? '✅' : '❌'}
               </label>
               <input
                 type="password"
                 className={inputClass}
-                value={elevenLabsKey}
-                onChange={(e) => setElevenLabsKey(e.target.value)}
-                placeholder={hasElevenLabsKey ? '••••••••••• (zmień)' : 'Wklej klucz API ElevenLabs'}
+                value={deepgramKey}
+                onChange={(e) => setDeepgramKey(e.target.value)}
+                placeholder={hasDeepgramKey ? '••••••••••• (zmień)' : 'Wklej klucz API Deepgram'}
               />
               <p className="settings-hint">
-                Wymagany do transkrypcji w czasie rzeczywistym (Scribe v2). Plan Pro ($99/mies) daje 48h transkrypcji.
+                Wymagany do transkrypcji w czasie rzeczywistym (Nova-3 z diaryzacją). Pay-as-you-go: ~$0.0043/min.
               </p>
             </div>
 

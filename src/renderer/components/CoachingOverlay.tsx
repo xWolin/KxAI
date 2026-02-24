@@ -70,7 +70,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const [isStopping, setIsStopping] = useState(false);
-  const [hasElevenLabsKey, setHasElevenLabsKey] = useState(false);
+  const [hasDeepgramKey, setHasDeepgramKey] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
   // Briefing state
@@ -85,8 +85,6 @@ export function CoachingOverlay({ config, onBack }: Props) {
   const [briefingSaved, setBriefingSaved] = useState(false);
   const [newParticipantName, setNewParticipantName] = useState('');
   const [newParticipantRole, setNewParticipantRole] = useState('');
-  const [newParticipantCompany, setNewParticipantCompany] = useState('');
-  const [newParticipantNotes, setNewParticipantNotes] = useState('');
 
   // Last few transcript lines for compact display
   const [recentLines, setRecentLines] = useState<TranscriptLine[]>([]);
@@ -100,8 +98,8 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
   // Check API key on mount + load existing briefing
   useEffect(() => {
-    window.kxai.hasApiKey('elevenlabs').then(setHasElevenLabsKey).catch(err => {
-      console.error('[CoachingOverlay] Failed to check ElevenLabs API key:', err);
+    window.kxai.hasApiKey('deepgram').then(setHasDeepgramKey).catch(err => {
+      console.error('[CoachingOverlay] Failed to check Deepgram API key:', err);
     });
     window.kxai.meetingGetBriefing().then((b: MeetingBriefingInfo | null) => {
       if (b) {
@@ -217,13 +215,35 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
       const createPCMWorklet = (source: MediaStreamAudioSourceNode, label: 'mic' | 'system'): AudioWorkletNode => {
         const node = new AudioWorkletNode(ctx, 'pcm-forwarder');
+        let chunkCount = 0;
+        let silentChunks = 0;
+        let lastLogTime = Date.now();
         node.port.onmessage = (e) => {
           const float32: Float32Array = e.data;
+          chunkCount++;
+
+          // Check if chunk is silent (all near-zero values)
+          let maxAbs = 0;
+          for (let i = 0; i < float32.length; i++) {
+            const abs = Math.abs(float32[i]);
+            if (abs > maxAbs) maxAbs = abs;
+          }
+          if (maxAbs < 0.001) silentChunks++;
+
+          // Log diagnostics every 10 seconds
+          const now = Date.now();
+          if (now - lastLogTime > 10000) {
+            lastLogTime = now;
+            const silentPct = Math.round((silentChunks / chunkCount) * 100);
+            console.log(`[CoachingOverlay] PCM ${label}: ${chunkCount} chunks, ${silentPct}% silent, maxAmplitude=${maxAbs.toFixed(4)}`);
+          }
+
           const int16 = float32ToInt16(float32);
           window.kxai.meetingSendAudio(label, int16.buffer as ArrayBuffer);
         };
         source.connect(node);
-        node.connect(ctx.destination);
+        // Don't connect to ctx.destination — we only process PCM data,
+        // playing it back would cause mic feedback / double system audio
         return node;
       };
 
@@ -245,9 +265,29 @@ export function CoachingOverlay({ config, onBack }: Props) {
           audio: true,
           video: true,
         });
-        systemStream.getVideoTracks().forEach(t => t.stop());
+
+        const videoTracks = systemStream.getVideoTracks();
         const audioTracks = systemStream.getAudioTracks();
+        console.log(`[CoachingOverlay] getDisplayMedia: ${videoTracks.length} video tracks, ${audioTracks.length} audio tracks`);
+
+        // Stop video tracks — we only need audio
+        // NOTE: Don't remove them from stream, just stop to save resources
+        videoTracks.forEach(t => {
+          console.log(`[CoachingOverlay] Stopping video track: ${t.label} (state=${t.readyState})`);
+          t.stop();
+        });
+
         if (audioTracks.length > 0) {
+          console.log(`[CoachingOverlay] System audio track: ${audioTracks[0].label} (state=${audioTracks[0].readyState}, enabled=${audioTracks[0].enabled})`);
+
+          // Monitor audio track state
+          audioTracks[0].onended = () => {
+            console.warn('[CoachingOverlay] System audio track ENDED unexpectedly!');
+          };
+          audioTracks[0].onmute = () => {
+            console.warn('[CoachingOverlay] System audio track MUTED');
+          };
+
           systemStreamRef.current = systemStream;
           const sysSource = ctx.createMediaStreamSource(systemStream);
           systemWorkletRef.current = createPCMWorklet(sysSource, 'system');
@@ -284,8 +324,8 @@ export function CoachingOverlay({ config, onBack }: Props) {
   // ──────────── Handlers ────────────
 
   const handleStart = async () => {
-    if (!hasElevenLabsKey) {
-      setError('Ustaw klucz API ElevenLabs w ustawieniach');
+    if (!hasDeepgramKey) {
+      setError('Ustaw klucz API Deepgram w ustawieniach');
       return;
     }
     setIsStarting(true);
@@ -329,14 +369,14 @@ export function CoachingOverlay({ config, onBack }: Props) {
     setBriefingParticipants(prev => [...prev, {
       name: newParticipantName.trim(),
       role: newParticipantRole.trim() || undefined,
-      company: newParticipantCompany.trim() || undefined,
-      notes: newParticipantNotes.trim() || undefined,
     }]);
     setNewParticipantName('');
     setNewParticipantRole('');
-    setNewParticipantCompany('');
-    setNewParticipantNotes('');
     setBriefingSaved(false);
+  };
+
+  const handleCopyTip = (text: string) => {
+    navigator.clipboard.writeText(text).catch(() => {});
   };
 
   const handleRemoveParticipant = (index: number) => {
@@ -428,7 +468,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
               <div className="coaching-bar__tip-label">
                 💡 Sugestia
                 {activeCoaching.questionText && (
-                  <span className="coaching-bar__tip-question"> — „{activeCoaching.questionText.substring(0, 50)}..."</span>
+                <span className="coaching-bar__tip-question"> — „{activeCoaching.questionText.length > 50 ? activeCoaching.questionText.substring(0, 50) + '...' : activeCoaching.questionText}”</span>
                 )}
               </div>
               <div className="coaching-bar__tip-text coaching-bar__tip-text--streaming">
@@ -442,17 +482,36 @@ export function CoachingOverlay({ config, onBack }: Props) {
                 ✅ Ostatnia sugestia
                 <span className="coaching-bar__tip-time">{formatTime(coachingTips[coachingTips.length - 1].timestamp)}</span>
               </div>
-              <div className="coaching-bar__tip-text">{coachingTips[coachingTips.length - 1].tip}</div>
+              <div className="coaching-bar__tip-text-wrap">
+                <div className="coaching-bar__tip-text">{coachingTips[coachingTips.length - 1].tip}</div>
+                <button className="coaching-bar__btn coaching-bar__btn--copy" onClick={() => handleCopyTip(coachingTips[coachingTips.length - 1].tip)} title="Kopiuj">📋</button>
+              </div>
             </div>
           ) : meetingState.isCoaching ? (
             <div className="coaching-bar__generating">🧠 Generuję sugestię...</div>
           ) : (
             <div className="coaching-bar__waiting">
-              🎤 Nasłuchuję pytań...
-              <span className="coaching-bar__hint">Pełna transkrypcja na dashboardzie →</span>
+              <span>🎤 Nasłuchuję pytań...</span>
+              {recentLines.length > 0 && (
+                <span className="coaching-bar__last-utterance">
+                  <span className={recentLines[recentLines.length - 1].speaker === 'Ja' ? 'coaching-bar__speaker--me' : 'coaching-bar__speaker'}>{recentLines[recentLines.length - 1].speaker}:</span>
+                  {' '}{recentLines[recentLines.length - 1].text.substring(0, 60)}{recentLines[recentLines.length - 1].text.length > 60 ? '…' : ''}
+                </span>
+              )}
             </div>
           )}
         </div>
+
+        {/* P7: Speaker activity indicators */}
+        {meetingState.speakers.length > 0 && !expanded && (
+          <div className="coaching-bar__speakers-strip">
+            {meetingState.speakers.map(s => (
+              <span key={s.id} className={`coaching-bar__speaker-dot ${Date.now() - s.lastSeen < 3000 ? 'coaching-bar__speaker-dot--active' : ''}`} title={`${s.name} (${s.utteranceCount})`}>
+                {s.name.substring(0, 2).toUpperCase()}
+              </span>
+            ))}
+          </div>
+        )}
 
         {expanded && (
           <div className="coaching-bar__expanded">
@@ -559,7 +618,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
       <div className="coaching-overlay__idle-info">
         <p>Rozpocznij nagrywanie aby aktywować real-time coaching.</p>
-        {briefingSaved && <p style={{ fontSize: '0.75rem', color: '#4ade80', marginTop: '0.2rem' }}>✅ Briefing załadowany</p>}
+        {briefingSaved && <p style={{ fontSize: '0.75rem', color: 'var(--neon-green)', marginTop: '0.2rem' }}>✅ Briefing załadowany</p>}
         <p style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.3rem' }}>
           Po starcie okno zmieni się w kompaktowy pasek z podpowiedziami.<br />
           Transkrypcja live dostępna na dashboardzie.

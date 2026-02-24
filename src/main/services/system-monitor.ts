@@ -16,66 +16,9 @@ import { exec } from 'child_process';
  * Dane są cachowane z TTL żeby nie odpytywać co chwilę.
  */
 
-export interface SystemSnapshot {
-  timestamp: number;
-  cpu: CpuInfo;
-  memory: MemoryInfo;
-  disk: DiskInfo[];
-  battery: BatteryInfo | null;
-  network: NetworkInfo;
-  system: SystemInfo;
-  topProcesses: ProcessInfo[];
-}
-
-interface CpuInfo {
-  model: string;
-  cores: number;
-  usagePercent: number;
-  loadAvg: number[];
-}
-
-interface MemoryInfo {
-  totalGB: number;
-  usedGB: number;
-  freeGB: number;
-  usagePercent: number;
-}
-
-interface DiskInfo {
-  mount: string;
-  totalGB: number;
-  usedGB: number;
-  freeGB: number;
-  usagePercent: number;
-}
-
-interface BatteryInfo {
-  percent: number;
-  charging: boolean;
-  timeRemaining: string;
-}
-
-interface NetworkInfo {
-  connected: boolean;
-  interfaces: { name: string; ip: string; mac: string }[];
-}
-
-interface SystemInfo {
-  hostname: string;
-  platform: string;
-  arch: string;
-  osVersion: string;
-  uptimeHours: number;
-  nodeVersion: string;
-  electronVersion: string;
-}
-
-interface ProcessInfo {
-  name: string;
-  pid: number;
-  cpuPercent: number;
-  memoryMB: number;
-}
+// Re-export from shared types (canonical source)
+export type { SystemSnapshot, CpuInfo, MemoryInfo, DiskInfo, BatteryInfo, NetworkInfo, SystemInfo, ProcessInfo } from '../../shared/types/system';
+import type { SystemSnapshot, CpuInfo, MemoryInfo, DiskInfo, BatteryInfo, NetworkInfo, SystemInfo, ProcessInfo } from '../../shared/types/system';
 
 // Cache for expensive operations
 interface CacheEntry<T> {

@@ -23,7 +23,9 @@ import { AIService } from './ai-service';
 import { ToolsService, ToolResult } from './tools-service';
 import { ToolLoopDetector, LoopCheckResult } from './tool-loop-detector';
 
-export type SubAgentStatus = 'pending' | 'running' | 'completed' | 'failed' | 'killed';
+// Re-export from shared types (canonical source)
+export type { SubAgentStatus, SubAgentInfo, SubAgentResult } from '../../shared/types/agent';
+import type { SubAgentStatus, SubAgentResult, SubAgentInfo } from '../../shared/types/agent';
 
 export interface SubAgentTask {
   /** Opis zadania w języku naturalnym */
@@ -38,26 +40,6 @@ export interface SubAgentTask {
   onProgress?: (message: string) => void;
   /** Max iteracji (override global) */
   maxIterations?: number;
-}
-
-export interface SubAgentResult {
-  id: string;
-  task: string;
-  status: SubAgentStatus;
-  output: string;
-  toolsUsed: string[];
-  iterations: number;
-  durationMs: number;
-  error?: string;
-}
-
-export interface SubAgentInfo {
-  id: string;
-  task: string;
-  status: SubAgentStatus;
-  startedAt: number;
-  iterations: number;
-  toolsUsed: string[];
 }
 
 interface RunningAgent {

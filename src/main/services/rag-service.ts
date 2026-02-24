@@ -5,33 +5,11 @@ import { EmbeddingService } from './embedding-service';
 import { ConfigService } from './config';
 import { PDFParse } from 'pdf-parse';
 
-/**
- * Chunk  fragment pliku z metadanymi.
- */
-export interface RAGChunk {
-  id: string;
-  filePath: string;        // Relative path within source folder
-  fileName: string;
-  section: string;
-  content: string;
-  embedding?: number[];
-  charCount: number;
-  sourceFolder?: string;   // Which indexed folder this came from
-  fileType?: string;       // Extension: 'md', 'ts', 'py', etc.
-  mtime?: number;          // File modification time for incremental reindex
-}
-
-export interface RAGSearchResult {
-  chunk: RAGChunk;
-  score: number;
-}
-
-export interface IndexedFolderInfo {
-  path: string;
-  fileCount: number;
-  chunkCount: number;
-  lastIndexed: number;
-}
+// Re-export from shared types (canonical source)
+export type { RAGChunk, RAGSearchResult, IndexProgress } from '../../shared/types/rag';
+export type { RAGFolderInfo as IndexedFolderInfo } from '../../shared/types/rag';
+import type { RAGChunk, RAGSearchResult, IndexProgress } from '../../shared/types/rag';
+import type { RAGFolderInfo as IndexedFolderInfo } from '../../shared/types/rag';
 
 // --- File type configuration ---
 
@@ -108,27 +86,6 @@ const MAX_TOTAL_FILES = 10000;
  * 4. Semantic search via cosine similarity
  * 5. File watching dla incremental reindex
  */
-/**
- * Progress callback for indexing operations.
- * Emitted periodically so the UI can show a loading bar.
- */
-export interface IndexProgress {
-  phase: 'scanning' | 'chunking' | 'embedding' | 'saving' | 'done' | 'error';
-  /** Current file being processed (for chunking phase) */
-  currentFile?: string;
-  /** Files processed so far */
-  filesProcessed: number;
-  /** Total files discovered */
-  filesTotal: number;
-  /** Chunks created so far */
-  chunksCreated: number;
-  /** Embedding progress (0-100) */
-  embeddingPercent: number;
-  /** Overall percent 0-100 */
-  overallPercent: number;
-  /** Error message if phase === 'error' */
-  error?: string;
-}
 
 export class RAGService {
   private embeddingService: EmbeddingService;
@@ -142,6 +99,9 @@ export class RAGService {
   private watcherDebounce: NodeJS.Timeout | null = null;
   private pendingChanges = new Set<string>();
   private folderStats = new Map<string, IndexedFolderInfo>();
+  private embeddingsRestored = false;
+  private lastProgressTime = 0;
+  private static readonly PROGRESS_THROTTLE_MS = 500;
 
   /** Progress callback — set from outside (e.g. IPC handler) */
   onProgress?: (progress: IndexProgress) => void;
@@ -319,6 +279,12 @@ export class RAGService {
     this.indexed = false;
 
     const emitProgress = (p: Partial<IndexProgress> & { phase: IndexProgress['phase'] }) => {
+      // Throttle progress events to avoid flooding IPC/renderer
+      const now = Date.now();
+      if (p.phase !== 'done' && p.phase !== 'error' && now - this.lastProgressTime < RAGService.PROGRESS_THROTTLE_MS) {
+        return;
+      }
+      this.lastProgressTime = now;
       this.onProgress?.({
         filesProcessed: 0,
         filesTotal: 0,
@@ -374,17 +340,16 @@ export class RAGService {
 
         filesProcessed++;
 
-        // Yield to event loop every 50 files to keep Electron responsive
-        if (filesProcessed % 50 === 0) {
+        // Yield to event loop every 20 files to keep Electron responsive
+        if (filesProcessed % 20 === 0) {
           await this.yieldToEventLoop();
-          const chunkPercent = Math.round((filesProcessed / totalFiles) * 45) + 5; // 5-50%
           emitProgress({
             phase: 'chunking',
             currentFile: file.relativePath,
             filesProcessed,
             filesTotal: totalFiles,
             chunksCreated: allChunks.length,
-            overallPercent: chunkPercent,
+            overallPercent: Math.round((filesProcessed / totalFiles) * 45) + 5,
           });
         }
       }
@@ -412,7 +377,7 @@ export class RAGService {
       }
 
       if (allChunks.length > 0) {
-        const EMBED_BATCH = 200; // Process embeddings in small batches
+        const EMBED_BATCH = 100; // Smaller batches for better UI responsiveness
         for (let i = 0; i < allTexts.length; i += EMBED_BATCH) {
           const batchTexts = allTexts.slice(i, i + EMBED_BATCH);
           const embeddings = await this.embeddingService.embedBatch(batchTexts);
@@ -446,6 +411,7 @@ export class RAGService {
 
       this.chunks = allChunks;
       this.indexed = true;
+      this.embeddingsRestored = true; // fresh embeddings in memory
       this.saveIndex();
 
       console.log(`[RAG] Indexing complete. ${this.chunks.length} chunks indexed.`);
@@ -643,6 +609,9 @@ export class RAGService {
         throw new Error('RAG service not indexed: reindex failed');
       }
     }
+
+    // Restore embeddings from cache if loaded from disk (no embeddings in index file)
+    this.restoreEmbeddingsFromCache();
 
     const queryEmbedding = await this.embeddingService.embed(query);
 
@@ -1287,6 +1256,36 @@ export class RAGService {
     let current = '';
 
     for (const para of paragraphs) {
+      // If a single paragraph exceeds maxChars, split it by sentences or hard limit
+      if (para.length > maxChars) {
+        // Flush current buffer first
+        if (current.trim().length > 0) {
+          chunks.push(current.trim());
+          current = '';
+        }
+        // Split oversized paragraph by sentences
+        const sentences = para.split(/(?<=[.!?])\s+/);
+        let sentBuf = '';
+        for (const sent of sentences) {
+          if (sentBuf.length + sent.length + 1 > maxChars && sentBuf.length > 0) {
+            chunks.push(sentBuf.trim());
+            sentBuf = '';
+          }
+          // If a single sentence still exceeds maxChars, hard-split it
+          if (sent.length > maxChars) {
+            for (let i = 0; i < sent.length; i += maxChars) {
+              chunks.push(sent.slice(i, i + maxChars));
+            }
+          } else {
+            sentBuf += sent + ' ';
+          }
+        }
+        if (sentBuf.trim().length > 0) {
+          chunks.push(sentBuf.trim());
+        }
+        continue;
+      }
+
       if (current.length + para.length + 2 > maxChars && current.length > 0) {
         chunks.push(current.trim());
         current = '';
@@ -1384,9 +1383,11 @@ export class RAGService {
         if (Array.isArray(data.chunks)) {
           this.chunks = data.chunks;
           this.indexed = true;
+          this.embeddingsRestored = false; // embeddings stripped from index file, will restore from cache
           if (data.folderStats) {
             this.folderStats = new Map(Object.entries(data.folderStats));
           }
+          console.log(`[RAG] Loaded index: ${this.chunks.length} chunks (embeddings will be restored from cache)`);
           return true;
         }
       }
@@ -1396,17 +1397,71 @@ export class RAGService {
     return false;
   }
 
+  /**
+   * Restore embeddings from EmbeddingService cache.
+   * Called lazily before search — runs once after index load.
+   */
+  private restoreEmbeddingsFromCache(): void {
+    if (this.embeddingsRestored) return;
+    this.embeddingsRestored = true;
+
+    let restored = 0;
+    let missing = 0;
+
+    for (const chunk of this.chunks) {
+      if (!chunk.embedding) {
+        const cached = this.embeddingService.getCachedEmbedding(chunk.content);
+        if (cached) {
+          chunk.embedding = cached;
+          restored++;
+        } else {
+          missing++;
+        }
+      }
+    }
+
+    console.log(`[RAG] Restored ${restored} embeddings from cache, ${missing} missing`);
+    if (missing > 0) {
+      console.log('[RAG] Missing embeddings will be skipped in search. Run reindex to regenerate.');
+    }
+  }
+
+  /**
+   * Save index to disk.
+   * Strips embeddings from chunks to keep index file small (~100MB vs ~2GB).
+   * Embeddings live in EmbeddingService cache and are restored on load.
+   * Uses buffered streaming write for large indexes.
+   */
   private saveIndex(): void {
     try {
       const dir = path.dirname(this.indexPath);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      fs.writeFileSync(this.indexPath, JSON.stringify({
-        timestamp: Date.now(),
-        chunks: this.chunks,
-        folderStats: Object.fromEntries(this.folderStats),
-      }), 'utf8');
+
+      const tmpPath = this.indexPath + '.tmp';
+      const fd = fs.openSync(tmpPath, 'w');
+      const FLUSH_SIZE = 1024 * 1024; // 1MB buffer
+      let buffer = '{"timestamp":' + Date.now() + ',"chunks":[';
+
+      for (let i = 0; i < this.chunks.length; i++) {
+        if (i > 0) buffer += ',';
+        // Strip embedding from saved data — kept only in embedding cache
+        const { embedding, ...rest } = this.chunks[i];
+        buffer += JSON.stringify(rest);
+        if (buffer.length >= FLUSH_SIZE) {
+          fs.writeSync(fd, buffer);
+          buffer = '';
+        }
+      }
+
+      buffer += '],"folderStats":' + JSON.stringify(Object.fromEntries(this.folderStats)) + '}';
+      fs.writeSync(fd, buffer);
+      fs.closeSync(fd);
+
+      // Atomic rename
+      if (fs.existsSync(this.indexPath)) fs.unlinkSync(this.indexPath);
+      fs.renameSync(tmpPath, this.indexPath);
     } catch (err) {
       console.error('[RAG] Failed to save index:', err);
     }

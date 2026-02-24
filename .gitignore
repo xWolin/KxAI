@@ -6,5 +6,6 @@ release/
 .kxai-key
 .kxai-secrets/
 *.log
+*.bak
 .DS_Store
 Thumbs.db

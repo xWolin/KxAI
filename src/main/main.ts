@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Tray, Menu, screen, nativeImage, globalShortcut, shell, session, desktopCapturer } from 'electron';
+import { app, BrowserWindow, Tray, Menu, screen, nativeImage, globalShortcut, shell, session, desktopCapturer } from 'electron';
 import * as path from 'path';
 import { ScreenCaptureService } from './services/screen-capture';
 import { MemoryService } from './services/memory';
@@ -23,6 +23,19 @@ import { MeetingCoachService } from './services/meeting-coach';
 import { DashboardServer } from './services/dashboard-server';
 import { DiagnosticService } from './services/diagnostic-service';
 import { setupIPC } from './ipc';
+import { createLogger } from './services/logger';
+
+const log = createLogger('Main');
+
+// ─── Global error handlers ───
+process.on('unhandledRejection', (reason, promise) => {
+  log.error('Unhandled promise rejection:', { reason, promise });
+});
+
+process.on('uncaughtException', (error) => {
+  log.error('Uncaught exception:', error);
+  // Don't exit — try to keep running for user experience
+});
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
@@ -93,7 +106,7 @@ function startCompanionMonitor(win: BrowserWindow): void {
     // T2: Vision needed — full AI analysis
     async (ctx, screenshots) => {
       try {
-        console.log('[Proactive] T2 callback triggered — starting AI analysis...');
+        log.info('T2 callback triggered — starting AI analysis...');
         const screenshotData = screenshots.map(s => ({
           base64: s.base64.startsWith('data:') ? s.base64 : `data:image/png;base64,${s.base64}`,
           width: 1024,
@@ -103,7 +116,7 @@ function startCompanionMonitor(win: BrowserWindow): void {
           timestamp: Date.now(),
         }));
         const analysis = await aiService.analyzeScreens(screenshotData);
-        console.log('[Proactive] AI analysis result:', analysis ? `hasInsight=${analysis.hasInsight}` : 'null');
+        log.info('AI analysis result:', analysis ? `hasInsight=${analysis.hasInsight}` : 'null');
         if (analysis && analysis.hasInsight) {
           agentLoop.logScreenActivity(analysis.context, analysis.message);
 
@@ -123,18 +136,18 @@ function startCompanionMonitor(win: BrowserWindow): void {
           });
         }
       } catch (err) {
-        console.error('[Proactive] Vision analysis error:', err);
+        log.error('Vision analysis error:', err);
       }
     },
     // Idle start — user went AFK
     () => {
-      console.log('[Companion] User is now AFK');
+      log.info('User is now AFK');
       agentLoop.setAfkState(true);
       safeSend('agent:companion-state', { isAfk: true });
     },
     // Idle end — user is back
     () => {
-      console.log('[Companion] User is back from AFK');
+      log.info('User is back from AFK');
       agentLoop.setAfkState(false);
       safeSend('agent:companion-state', { isAfk: false });
     }
@@ -187,6 +200,20 @@ function createMainWindow(): BrowserWindow {
     win.loadFile(path.join(__dirname, '../renderer/index.html'));
   }
 
+  // ─── Content Security Policy ───
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          isDev
+            ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws://localhost:* http://localhost:* https://*.openai.com https://*.anthropic.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:;"
+            : "default-src 'self' 'unsafe-inline'; connect-src 'self' https://*.openai.com https://*.anthropic.com wss://*.deepgram.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:;",
+        ],
+      },
+    });
+  });
+
   // ─── Auto-grant media permissions (mic, screen, desktop audio) ───
   session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
     const allowed = ['media', 'mediaKeySystem', 'display-capture', 'audioCapture'];
@@ -206,23 +233,23 @@ function createMainWindow(): BrowserWindow {
       if (sources.length > 0) {
         callback({ video: sources[0], audio: 'loopback' });
       } else {
-        console.warn('[Main] No display sources found for getDisplayMedia');
-        // @ts-ignore — Electron types don't reflect null but it correctly rejects the request
+        log.warn('No display sources found for getDisplayMedia');
+        // @ts-expect-error — Electron types don't reflect null but it correctly rejects the request
         callback(null);
       }
     }).catch((err) => {
-      console.error('[Main] desktopCapturer.getSources failed:', err);
-      // @ts-ignore
+      log.error('desktopCapturer.getSources failed:', err);
+      // @ts-expect-error — Electron types don't reflect null but it correctly rejects the request
       callback(null);
     });
   });
 
   // ─── Renderer crash recovery ───
   win.webContents.on('render-process-gone', (_event, details) => {
-    console.error(`[Main] Renderer crashed: ${details.reason} (exit code: ${details.exitCode})`);
+    log.error(`Renderer crashed: ${details.reason} (exit code: ${details.exitCode})`);
     setTimeout(() => {
       if (win && !win.isDestroyed()) {
-        console.log('[Main] Reloading renderer after crash...');
+        log.info('Reloading renderer after crash...');
         if (isDev) {
           win.loadURL('http://localhost:5173');
         } else {
@@ -374,7 +401,7 @@ async function initializeServices(): Promise<void> {
   });
   // Start dashboard server in background (non-blocking)
   dashboardServer.start().catch(err => {
-    console.error('[KxAI] Dashboard server failed to start:', err);
+    log.error('Dashboard server failed to start:', err);
   });
 
   // Forward meeting events to dashboard WebSocket for live updates
@@ -457,7 +484,7 @@ app.whenReady().then(async () => {
   // Auto-restore proactive mode (smart companion) if it was enabled before restart
   const proactiveSaved = configService.get('proactiveMode');
   if (proactiveSaved) {
-    console.log('[KxAI] Proactive mode was enabled — auto-starting screen monitor...');
+    log.info('Proactive mode was enabled — auto-starting screen monitor...');
     startCompanionMonitor(mainWindow);
     agentLoop.startHeartbeat(5 * 60 * 1000); // 5 min
   }
@@ -503,7 +530,7 @@ app.whenReady().then(async () => {
         safeSend('ai:stream', { done: true });
         safeSend('agent:control-state', { active: false });
       } catch (err: any) {
-        console.error('Take-control shortcut error:', err);
+        log.error('Take-control shortcut error:', err);
         safeSend('ai:stream', { chunk: `\n❌ Błąd: ${err.message}\n` });
         safeSend('ai:stream', { done: true });
         safeSend('agent:control-state', { active: false });
@@ -551,7 +578,7 @@ Bądź pomocny, krótki i konkretny. Mów po polsku.`;
       // Clear companion state
       safeSend('agent:companion-state', { hasSuggestion: false, wantsToSpeak: false });
     } catch (err: any) {
-      console.error('Ctrl+Shift+P error:', err);
+      log.error('Ctrl+Shift+P error:', err);
       safeSend('ai:stream', { chunk: `\n❌ Błąd: ${err.message}\n` });
       safeSend('ai:stream', { done: true });
     }
@@ -564,20 +591,34 @@ app.on('window-all-closed', () => {
   }
 });
 
-app.on('will-quit', async () => {
-  globalShortcut.unregisterAll();
-  // Graceful shutdown of browser automation
-  if (browserService) {
-    await browserService.close().catch((err: any) =>
-      console.error('[KxAI] Browser service shutdown error:', err)
-    );
-  }
-  // Graceful shutdown of dashboard server
-  if (dashboardServer) {
-    await dashboardServer.stop().catch((err: any) =>
-      console.error('[KxAI] Dashboard server shutdown error:', err)
-    );
-  }
+let isQuitting = false;
+app.on('will-quit', (event) => {
+  if (isQuitting) return;
+  event.preventDefault();
+  isQuitting = true;
+
+  (async () => {
+    globalShortcut.unregisterAll();
+    // Graceful shutdown of browser automation
+    if (browserService) {
+      await browserService.close().catch((err: any) =>
+        log.error('Browser service shutdown error:', err)
+      );
+    }
+    // Graceful shutdown of dashboard server
+    if (dashboardServer) {
+      await dashboardServer.stop().catch((err: any) =>
+        log.error('Dashboard server shutdown error:', err)
+      );
+    }
+    // Flush embedding cache to disk
+    if (embeddingService) {
+      try { embeddingService.flushCache(); } catch (err) {
+        log.error('Embedding cache flush error:', err);
+      }
+    }
+    app.exit();
+  })();
 });
 
 app.on('activate', () => {
