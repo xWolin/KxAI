@@ -1,5 +1,6 @@
 import { app, BrowserWindow, Tray, Menu, screen, nativeImage, globalShortcut, shell, session, desktopCapturer } from 'electron';
 import * as path from 'path';
+import { Ev } from '../shared/ipc-schema';
 import { ScreenCaptureService } from './services/screen-capture';
 import { MemoryService } from './services/memory';
 import { AIService } from './services/ai-service';
@@ -301,7 +302,7 @@ function createTray(): void {
       label: 'Ustawienia',
       click: () => {
         mainWindow?.show();
-        mainWindow?.webContents.send('navigate', 'settings');
+        mainWindow?.webContents.send(Ev.NAVIGATE, 'settings');
       },
     },
     { type: 'separator' },

@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow, desktopCapturer, screen, dialog } from 'electro
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
+import { Ch, ChSend, Ev } from '../shared/ipc-schema';
 import { ScreenCaptureService, ScreenshotData } from './services/screen-capture';
 import { MemoryService } from './services/memory';
 import { AIService } from './services/ai-service';
@@ -57,7 +58,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   // ─── Agent status → renderer + dashboard ───
   const dashboardSrv = services.dashboardServer;
   agentLoop.onAgentStatus = (status) => {
-    safeSend('agent:status', status);
+    safeSend(Ev.AGENT_STATUS, status);
     dashboardSrv?.pushAgentStatus(status);
   };
 
@@ -68,20 +69,20 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   );
 
   // Dashboard URL handler
-  ipcMain.handle('dashboard:get-url', () => {
+  ipcMain.handle(Ch.DASHBOARD_GET_URL, () => {
     return dashboardSrv?.getUrl() || 'http://localhost:5678';
   });
 
   // ──────────────── AI Messages ────────────────
 
   // Stop agent processing (cancel tool loop, heartbeat, take-control)
-  ipcMain.handle('agent:stop', async () => {
+  ipcMain.handle(Ch.AGENT_STOP, async () => {
     agentLoop.stopProcessing();
-    safeSend('ai:stream', { done: true });
+    safeSend(Ev.AI_STREAM, { done: true });
     return { success: true };
   });
 
-  ipcMain.handle('ai:send-message', async (_event, message: string, context?: string) => {
+  ipcMain.handle(Ch.AI_SEND_MESSAGE, async (_event, message: string, context?: string) => {
     try {
       const response = await aiService.sendMessage(message, context);
       return { success: true, data: response };
@@ -90,15 +91,15 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('ai:stream-message', async (_event, message: string, context?: string) => {
+  ipcMain.handle(Ch.AI_STREAM_MESSAGE, async (_event, message: string, context?: string) => {
     try {
       await agentLoop.streamWithTools(message, context, (chunk: string) => {
         if (!mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('ai:stream', { chunk });
+          mainWindow.webContents.send(Ev.AI_STREAM, { chunk });
         }
       });
       if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ai:stream', { done: true });
+        mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
       }
 
       // Check if AI requested take-control mode
@@ -122,22 +123,22 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
             result: 'allowed',
           });
           // Run take-control in background (don't block the IPC response)
-          mainWindow.webContents.send('agent:control-state', { active: true });
+          mainWindow.webContents.send(Ev.AGENT_CONTROL_STATE, { active: true });
           // Open a new stream in the UI so chunks are visible
-          mainWindow.webContents.send('ai:stream', { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie...\n' });
+          mainWindow.webContents.send(Ev.AI_STREAM, { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie...\n' });
           agentLoop.startTakeControl(
             pendingTask,
-            (status) => mainWindow.webContents.send('automation:status-update', status),
-            (chunk) => mainWindow.webContents.send('ai:stream', { chunk }),
+            (status) => mainWindow.webContents.send(Ev.AUTOMATION_STATUS_UPDATE, status),
+            (chunk) => mainWindow.webContents.send(Ev.AI_STREAM, { chunk }),
             true
           ).then(() => {
-            mainWindow.webContents.send('ai:stream', { done: true });
-            mainWindow.webContents.send('agent:control-state', { active: false });
+            mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
+            mainWindow.webContents.send(Ev.AGENT_CONTROL_STATE, { active: false });
           }).catch((err) => {
             console.error('Take-control error:', err);
-            mainWindow.webContents.send('ai:stream', { chunk: `\n❌ Błąd: ${err.message}\n` });
-            mainWindow.webContents.send('ai:stream', { done: true });
-            mainWindow.webContents.send('agent:control-state', { active: false });
+            mainWindow.webContents.send(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${err.message}\n` });
+            mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
+            mainWindow.webContents.send(Ev.AGENT_CONTROL_STATE, { active: false });
           });
         }
       }
@@ -146,14 +147,14 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     } catch (error: any) {
       console.error('ai:stream-message error:', error);
       if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ai:stream', { chunk: `\n❌ Błąd: ${error.message}\n` });
-        mainWindow.webContents.send('ai:stream', { done: true });
+        mainWindow.webContents.send(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${error.message}\n` });
+        mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
       }
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('ai:stream-with-screen', async (_event, message: string) => {
+  ipcMain.handle(Ch.AI_STREAM_WITH_SCREEN, async (_event, message: string) => {
     try {
       // Capture screenshots first
       const screenshots = await screenCapture.captureAllScreens();
@@ -164,19 +165,19 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
       // Build vision message with screenshots
       await aiService.streamMessageWithScreenshots(message, screenshots, (chunk: string) => {
-        mainWindow.webContents.send('ai:stream', { chunk });
+        mainWindow.webContents.send(Ev.AI_STREAM, { chunk });
       });
-      mainWindow.webContents.send('ai:stream', { done: true });
+      mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
       return { success: true };
     } catch (error: any) {
       console.error('ai:stream-with-screen error:', error);
-      mainWindow.webContents.send('ai:stream', { done: true });
+      mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
       return { success: false, error: error.message };
     }
   });
 
   // ──────────────── Screen Capture ────────────────
-  ipcMain.handle('screen:capture', async () => {
+  ipcMain.handle(Ch.SCREEN_CAPTURE, async () => {
     try {
       const screenshot = await screenCapture.captureAllScreens();
       return { success: true, data: screenshot };
@@ -186,7 +187,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   // Desktop sources for system audio capture — returns source IDs needed by getUserMedia
-  ipcMain.handle('screen:get-desktop-sources', async () => {
+  ipcMain.handle(Ch.SCREEN_GET_DESKTOP_SOURCES, async () => {
     try {
       const sources = await desktopCapturer.getSources({ types: ['screen'] });
       return { success: true, data: sources.map(s => ({ id: s.id, name: s.name })) };
@@ -195,12 +196,12 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('screen:start-watch', async (_event, intervalMs: number) => {
+  ipcMain.handle(Ch.SCREEN_START_WATCH, async (_event, intervalMs: number) => {
     screenCapture.startWatching(intervalMs, async (screenshots: ScreenshotData[]) => {
       // Send to AI for analysis
       const analysis = await aiService.analyzeScreens(screenshots);
       if (analysis && analysis.hasInsight) {
-        mainWindow.webContents.send('ai:proactive', {
+        mainWindow.webContents.send(Ev.AI_PROACTIVE, {
           type: 'screen-analysis',
           message: analysis.message,
           context: analysis.context,
@@ -210,46 +211,46 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     return { success: true };
   });
 
-  ipcMain.handle('screen:stop-watch', async () => {
+  ipcMain.handle(Ch.SCREEN_STOP_WATCH, async () => {
     screenCapture.stopWatching();
     return { success: true };
   });
 
   // ──────────────── Memory ────────────────
-  ipcMain.handle('memory:get', async (_event, key: string) => {
+  ipcMain.handle(Ch.MEMORY_GET, async (_event, key: string) => {
     return memoryService.get(key);
   });
 
-  ipcMain.handle('memory:set', async (_event, key: string, value: string) => {
+  ipcMain.handle(Ch.MEMORY_SET, async (_event, key: string, value: string) => {
     await memoryService.set(key, value);
     return { success: true };
   });
 
-  ipcMain.handle('memory:get-history', async () => {
+  ipcMain.handle(Ch.MEMORY_GET_HISTORY, async () => {
     return memoryService.getConversationHistory();
   });
 
-  ipcMain.handle('memory:clear-history', async () => {
+  ipcMain.handle(Ch.MEMORY_CLEAR_HISTORY, async () => {
     memoryService.clearConversationHistory();
     agentLoop.resetSessionState();
     return { success: true };
   });
 
   // ──────────────── Config ────────────────
-  ipcMain.handle('config:get', async () => {
+  ipcMain.handle(Ch.CONFIG_GET, async () => {
     return configService.getAll();
   });
 
-  ipcMain.handle('config:set', async (_event, key: string, value: any) => {
+  ipcMain.handle(Ch.CONFIG_SET, async (_event, key: string, value: any) => {
     configService.set(key, value);
     return { success: true };
   });
 
-  ipcMain.handle('config:is-onboarded', async () => {
+  ipcMain.handle(Ch.CONFIG_IS_ONBOARDED, async () => {
     return configService.isOnboarded();
   });
 
-  ipcMain.handle('config:complete-onboarding', async (_event, data: any) => {
+  ipcMain.handle(Ch.CONFIG_COMPLETE_ONBOARDING, async (_event, data: any) => {
     await configService.completeOnboarding(data);
     // Reinitialize AI service with new config
     await aiService.reinitialize();
@@ -257,48 +258,48 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   // ──────────────── Security ────────────────
-  ipcMain.handle('security:set-api-key', async (_event, provider: string, key: string) => {
+  ipcMain.handle(Ch.SECURITY_SET_API_KEY, async (_event, provider: string, key: string) => {
     await securityService.setApiKey(provider, key);
     await aiService.reinitialize();
     return { success: true };
   });
 
-  ipcMain.handle('security:has-api-key', async (_event, provider: string) => {
+  ipcMain.handle(Ch.SECURITY_HAS_API_KEY, async (_event, provider: string) => {
     return securityService.hasApiKey(provider);
   });
 
-  ipcMain.handle('security:delete-api-key', async (_event, provider: string) => {
+  ipcMain.handle(Ch.SECURITY_DELETE_API_KEY, async (_event, provider: string) => {
     await securityService.deleteApiKey(provider);
     return { success: true };
   });
 
   // ──────────────── Window Control ────────────────
-  ipcMain.handle('window:hide', async () => {
+  ipcMain.handle(Ch.WINDOW_HIDE, async () => {
     mainWindow.hide();
   });
 
-  ipcMain.handle('window:minimize', async () => {
+  ipcMain.handle(Ch.WINDOW_MINIMIZE, async () => {
     mainWindow.minimize();
   });
 
-  ipcMain.handle('window:set-position', async (_event, x: number, y: number) => {
+  ipcMain.handle(Ch.WINDOW_SET_POSITION, async (_event, x: number, y: number) => {
     mainWindow.setPosition(x, y);
   });
 
-  ipcMain.handle('window:get-position', async () => {
+  ipcMain.handle(Ch.WINDOW_GET_POSITION, async () => {
     return mainWindow.getPosition();
   });
 
-  ipcMain.handle('window:set-size', async (_event, width: number, height: number) => {
+  ipcMain.handle(Ch.WINDOW_SET_SIZE, async (_event, width: number, height: number) => {
     mainWindow.setSize(width, height);
   });
 
-  ipcMain.handle('window:set-clickthrough', async (_event, enabled: boolean) => {
+  ipcMain.handle(Ch.WINDOW_SET_CLICKTHROUGH, async (_event, enabled: boolean) => {
     mainWindow.setIgnoreMouseEvents(enabled, { forward: true });
   });
 
   // ──────────────── Voice Transcription (Whisper) ────────────────
-  ipcMain.handle('voice:transcribe', async (_event, audioBase64: string) => {
+  ipcMain.handle(Ch.VOICE_TRANSCRIBE, async (_event, audioBase64: string) => {
     try {
       const OpenAI = require('openai').default;
       const { toFile } = require('openai');
@@ -334,7 +335,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   // ──────────────── File Operations ────────────────
-  ipcMain.handle('files:organize', async (_event, directory: string, rules?: any) => {
+  ipcMain.handle(Ch.FILES_ORGANIZE, async (_event, directory: string, rules?: any) => {
     try {
       const result = await aiService.organizeFiles(directory, rules);
       return { success: true, data: result };
@@ -343,7 +344,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('files:list', async (_event, directory: string) => {
+  ipcMain.handle(Ch.FILES_LIST, async (_event, directory: string) => {
     try {
       // Validate and sanitize directory path
       const resolved = path.resolve(directory);
@@ -371,7 +372,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   // ──────────────── Proactive Engine ────────────────
-  ipcMain.handle('proactive:set-mode', async (_event, enabled: boolean) => {
+  ipcMain.handle(Ch.PROACTIVE_SET_MODE, async (_event, enabled: boolean) => {
     configService.set('proactiveMode', enabled);
     if (enabled) {
       // Start smart companion monitoring (tiered: T0 free/2s, T1 OCR free/12s, T2 vision periodic/3min)
@@ -381,7 +382,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
         // T1: Content change
         (ctx) => {
           if (ctx.contentChanged && ctx.ocrText.length > 50) {
-            mainWindow.webContents.send('agent:companion-state', { wantsToSpeak: true });
+            mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { wantsToSpeak: true });
           }
         },
         // T2: Vision needed — full AI analysis on significant changes or periodic
@@ -424,8 +425,8 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
                 type: 'proactive',
               });
 
-              mainWindow.webContents.send('agent:companion-state', { hasSuggestion: true });
-              mainWindow.webContents.send('ai:proactive', {
+              mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+              mainWindow.webContents.send(Ev.AI_PROACTIVE, {
                 type: 'screen-analysis',
                 message: analysis.message,
                 context: analysis.context,
@@ -438,12 +439,12 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
         // Idle start — user went AFK
         () => {
           agentLoop.setAfkState(true);
-          mainWindow.webContents.send('agent:companion-state', { isAfk: true });
+          mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { isAfk: true });
         },
         // Idle end — user is back
         () => {
           agentLoop.setAfkState(false);
-          mainWindow.webContents.send('agent:companion-state', { isAfk: false });
+          mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { isAfk: false });
         }
       );
 
@@ -456,8 +457,8 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
           timestamp: Date.now(),
           type: 'proactive',
         });
-        mainWindow.webContents.send('agent:companion-state', { hasSuggestion: true });
-        mainWindow.webContents.send('ai:proactive', {
+        mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+        mainWindow.webContents.send(Ev.AI_PROACTIVE, {
           type: 'heartbeat',
           message,
         });
@@ -472,16 +473,16 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     return { success: true };
   });
 
-  ipcMain.handle('proactive:get-mode', async () => {
+  ipcMain.handle(Ch.PROACTIVE_GET_MODE, async () => {
     return configService.get('proactiveMode') || false;
   });
 
   // ──────────────── Cron Jobs ────────────────
-  ipcMain.handle('cron:get-jobs', async () => {
+  ipcMain.handle(Ch.CRON_GET_JOBS, async () => {
     return cronService.getJobs();
   });
 
-  ipcMain.handle('cron:add-job', async (_event, job: any) => {
+  ipcMain.handle(Ch.CRON_ADD_JOB, async (_event, job: any) => {
     try {
       const newJob = cronService.addJob(job);
       return { success: true, data: newJob };
@@ -490,28 +491,28 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('cron:update-job', async (_event, id: string, updates: any) => {
+  ipcMain.handle(Ch.CRON_UPDATE_JOB, async (_event, id: string, updates: any) => {
     const updated = cronService.updateJob(id, updates);
     return updated
       ? { success: true, data: updated }
       : { success: false, error: 'Job nie znaleziony' };
   });
 
-  ipcMain.handle('cron:remove-job', async (_event, id: string) => {
+  ipcMain.handle(Ch.CRON_REMOVE_JOB, async (_event, id: string) => {
     const removed = cronService.removeJob(id);
     return { success: true, data: removed };
   });
 
-  ipcMain.handle('cron:get-history', async (_event, jobId?: string) => {
+  ipcMain.handle(Ch.CRON_GET_HISTORY, async (_event, jobId?: string) => {
     return cronService.getHistory(jobId);
   });
 
   // ──────────────── Tools ────────────────
-  ipcMain.handle('tools:list', async () => {
+  ipcMain.handle(Ch.TOOLS_LIST, async () => {
     return toolsService.getDefinitions();
   });
 
-  ipcMain.handle('tools:execute', async (_event, name: string, params: any) => {
+  ipcMain.handle(Ch.TOOLS_EXECUTE, async (_event, name: string, params: any) => {
     try {
       const result = await toolsService.execute(name, params);
       return result;
@@ -521,20 +522,20 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   // ──────────────── Workflow ────────────────
-  ipcMain.handle('workflow:get-activity', async (_event, limit?: number) => {
+  ipcMain.handle(Ch.WORKFLOW_GET_ACTIVITY, async (_event, limit?: number) => {
     return workflowService.getActivityLog(limit || 50);
   });
 
-  ipcMain.handle('workflow:get-patterns', async () => {
+  ipcMain.handle(Ch.WORKFLOW_GET_PATTERNS, async () => {
     return workflowService.getPatterns();
   });
 
-  ipcMain.handle('workflow:get-time-context', async () => {
+  ipcMain.handle(Ch.WORKFLOW_GET_TIME_CONTEXT, async () => {
     return workflowService.buildTimeContext();
   });
 
   // ──────────────── RAG ────────────────
-  ipcMain.handle('rag:search', async (_event, query: string, topK?: number) => {
+  ipcMain.handle(Ch.RAG_SEARCH, async (_event, query: string, topK?: number) => {
     try {
       const results = await ragService.search(query, topK || 5);
       return { success: true, data: results.map((r) => ({ fileName: r.chunk.fileName, section: r.chunk.section, content: r.chunk.content, score: r.score })) };
@@ -543,11 +544,11 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('rag:reindex', async () => {
+  ipcMain.handle(Ch.RAG_REINDEX, async () => {
     try {
       // Wire progress reporting to renderer
       ragService.onProgress = (progress) => {
-        mainWindow.webContents.send('rag:indexing-progress', progress);
+        mainWindow.webContents.send(Ev.RAG_INDEXING_PROGRESS, progress);
       };
       await ragService.reindex();
       ragService.onProgress = undefined;
@@ -558,11 +559,11 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('rag:stats', async () => {
+  ipcMain.handle(Ch.RAG_STATS, async () => {
     return ragService.getStats();
   });
 
-  ipcMain.handle('rag:add-folder', async (_event, folderPath: string) => {
+  ipcMain.handle(Ch.RAG_ADD_FOLDER, async (_event, folderPath: string) => {
     try {
       const result = await ragService.addFolder(folderPath);
       return result;
@@ -571,7 +572,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('rag:pick-folder', async () => {
+  ipcMain.handle(Ch.RAG_PICK_FOLDER, async () => {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openDirectory'],
       title: 'Wybierz folder do zaindeksowania',
@@ -588,7 +589,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('rag:remove-folder', async (_event, folderPath: string) => {
+  ipcMain.handle(Ch.RAG_REMOVE_FOLDER, async (_event, folderPath: string) => {
     try {
       ragService.removeFolder(folderPath);
       return { success: true };
@@ -597,26 +598,26 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('rag:get-folders', async () => {
+  ipcMain.handle(Ch.RAG_GET_FOLDERS, async () => {
     return ragService.getIndexedFolders();
   });
 
-  ipcMain.handle('rag:folder-stats', async () => {
+  ipcMain.handle(Ch.RAG_FOLDER_STATS, async () => {
     return ragService.getFolderStats();
   });
 
   // ──────────────── Automation ────────────────
-  ipcMain.handle('automation:enable', async () => {
+  ipcMain.handle(Ch.AUTOMATION_ENABLE, async () => {
     automationService.enable();
     return { success: true };
   });
 
-  ipcMain.handle('automation:disable', async () => {
+  ipcMain.handle(Ch.AUTOMATION_DISABLE, async () => {
     automationService.disable();
     return { success: true };
   });
 
-  ipcMain.handle('automation:unlock-safety', async () => {
+  ipcMain.handle(Ch.AUTOMATION_UNLOCK_SAFETY, async () => {
     // Require explicit user confirmation via dialog
     const result = await dialog.showMessageBox(mainWindow, {
       type: 'warning',
@@ -640,7 +641,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     return { success: true };
   });
 
-  ipcMain.handle('automation:status', async () => {
+  ipcMain.handle(Ch.AUTOMATION_STATUS, async () => {
     return {
       enabled: automationService.isEnabled(),
       safetyLocked: automationService.isSafetyLocked(),
@@ -649,7 +650,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   let lastTakeControlTime = 0;
-  ipcMain.handle('automation:take-control', async (_event, task: string) => {
+  ipcMain.handle(Ch.AUTOMATION_TAKE_CONTROL, async (_event, task: string) => {
     // Rate limiting: minimum 30s between take-control requests
     const now = Date.now();
     if (now - lastTakeControlTime < 30000) {
@@ -679,43 +680,43 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     });
 
     try {
-      mainWindow.webContents.send('ai:stream', { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie...\n' });
+      mainWindow.webContents.send(Ev.AI_STREAM, { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie...\n' });
       const result = await agentLoop.startTakeControl(
         task,
-        (status) => mainWindow.webContents.send('automation:status-update', status),
-        (chunk) => mainWindow.webContents.send('ai:stream', { chunk }),
+        (status) => mainWindow.webContents.send(Ev.AUTOMATION_STATUS_UPDATE, status),
+        (chunk) => mainWindow.webContents.send(Ev.AI_STREAM, { chunk }),
         true // confirmed via dialog above
       );
-      mainWindow.webContents.send('ai:stream', { done: true });
+      mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
       return { success: true, data: result };
     } catch (error: any) {
-      mainWindow.webContents.send('ai:stream', { chunk: `\n❌ Błąd: ${error.message}\n` });
-      mainWindow.webContents.send('ai:stream', { done: true });
+      mainWindow.webContents.send(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${error.message}\n` });
+      mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
       return { success: false, error: error.message };
     }
   });
 
-  ipcMain.handle('automation:stop-control', async () => {
+  ipcMain.handle(Ch.AUTOMATION_STOP_CONTROL, async () => {
     agentLoop.stopTakeControl();
     return { success: true };
   });
 
   // ──────────────── Browser ────────────────
-  ipcMain.handle('browser:status', async () => {
+  ipcMain.handle(Ch.BROWSER_STATUS, async () => {
     return { running: browserService.isRunning() };
   });
 
-  ipcMain.handle('browser:close-all', async () => {
+  ipcMain.handle(Ch.BROWSER_CLOSE_ALL, async () => {
     browserService.closeAll();
     return { success: true };
   });
 
   // ──────────────── Plugins ────────────────
-  ipcMain.handle('plugins:list', async () => {
+  ipcMain.handle(Ch.PLUGINS_LIST, async () => {
     return pluginService.listPlugins();
   });
 
-  ipcMain.handle('plugins:reload', async () => {
+  ipcMain.handle(Ch.PLUGINS_RELOAD, async () => {
     await pluginService.reload();
     // Re-register plugin tools
     toolsService.setServices({
@@ -727,21 +728,21 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     return { success: true, data: pluginService.listPlugins() };
   });
 
-  ipcMain.handle('plugins:get-dir', async () => {
+  ipcMain.handle(Ch.PLUGINS_GET_DIR, async () => {
     return pluginService.getPluginsDir();
   });
 
   // ──────────────── Security & Audit ────────────────
-  ipcMain.handle('security:audit-log', async (_event, limit?: number) => {
+  ipcMain.handle(Ch.SECURITY_AUDIT_LOG, async (_event, limit?: number) => {
     return securityGuardService.getAuditLog(limit || 50);
   });
 
-  ipcMain.handle('security:stats', async () => {
+  ipcMain.handle(Ch.SECURITY_STATS, async () => {
     return securityGuardService.getSecurityStats();
   });
 
   // ──────────────── System Monitor ────────────────
-  ipcMain.handle('system:snapshot', async () => {
+  ipcMain.handle(Ch.SYSTEM_SNAPSHOT, async () => {
     try {
       return { success: true, data: await systemMonitorService.getSnapshot() };
     } catch (error: any) {
@@ -749,16 +750,16 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('system:status', async () => {
+  ipcMain.handle(Ch.SYSTEM_STATUS, async () => {
     return systemMonitorService.getStatusSummary();
   });
 
-  ipcMain.handle('system:warnings', async () => {
+  ipcMain.handle(Ch.SYSTEM_WARNINGS, async () => {
     return systemMonitorService.getWarnings();
   });
 
   // ──────────────── TTS (ElevenLabs / OpenAI / Web Speech fallback) ────────────────
-  ipcMain.handle('tts:speak', async (_event, text: string) => {
+  ipcMain.handle(Ch.TTS_SPEAK, async (_event, text: string) => {
     try {
       const audioPath = await ttsService.speak(text);
       if (!audioPath) {
@@ -779,37 +780,37 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('tts:stop', async () => {
+  ipcMain.handle(Ch.TTS_STOP, async () => {
     ttsService.stop();
     return { success: true };
   });
 
-  ipcMain.handle('tts:get-config', async () => {
+  ipcMain.handle(Ch.TTS_GET_CONFIG, async () => {
     return ttsService.getConfig();
   });
 
-  ipcMain.handle('tts:set-config', async (_event, updates: Record<string, any>) => {
+  ipcMain.handle(Ch.TTS_SET_CONFIG, async (_event, updates: Record<string, any>) => {
     ttsService.setConfig(updates);
     return { success: true };
   });
 
   // ──────────────── Bootstrap ────────────────
-  ipcMain.handle('bootstrap:is-pending', async () => {
+  ipcMain.handle(Ch.BOOTSTRAP_IS_PENDING, async () => {
     return memoryService.isBootstrapPending();
   });
 
-  ipcMain.handle('bootstrap:complete', async () => {
+  ipcMain.handle(Ch.BOOTSTRAP_COMPLETE, async () => {
     await memoryService.completeBootstrap();
     return { success: true };
   });
 
   // ──────────────── HEARTBEAT.md ────────────────
-  ipcMain.handle('heartbeat:get-config', async () => {
+  ipcMain.handle(Ch.HEARTBEAT_GET_CONFIG, async () => {
     const content = await memoryService.get('HEARTBEAT.md');
     return { content: content || '' };
   });
 
-  ipcMain.handle('heartbeat:set-config', async (_event, content: string) => {
+  ipcMain.handle(Ch.HEARTBEAT_SET_CONFIG, async (_event, content: string) => {
     await memoryService.set('HEARTBEAT.md', content);
     return { success: true };
   });
@@ -820,14 +821,18 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     const meetingDashboard = services.dashboardServer;
 
     // Forward meeting events to renderer
-    const meetingEvents = ['meeting:state', 'meeting:transcript', 'meeting:coaching', 'meeting:coaching-chunk', 'meeting:coaching-done', 'meeting:error', 'meeting:stop-capture', 'meeting:detected', 'meeting:briefing-updated'];
+    const meetingEvents = [
+      Ev.MEETING_STATE, Ev.MEETING_TRANSCRIPT, Ev.MEETING_COACHING,
+      Ev.MEETING_COACHING_CHUNK, Ev.MEETING_COACHING_DONE, Ev.MEETING_ERROR,
+      Ev.MEETING_STOP_CAPTURE, Ev.MEETING_DETECTED, Ev.MEETING_BRIEFING_UPDATED,
+    ];
     for (const event of meetingEvents) {
       meetingCoach.on(event, (data: any) => {
         safeSend(event, data);
       });
     }
 
-    ipcMain.handle('meeting:start', async (_event, title?: string) => {
+    ipcMain.handle(Ch.MEETING_START, async (_event, title?: string) => {
       try {
         const id = await meetingCoach.startMeeting(title);
         return { success: true, data: { id } };
@@ -836,7 +841,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
       }
     });
 
-    ipcMain.handle('meeting:stop', async () => {
+    ipcMain.handle(Ch.MEETING_STOP, async () => {
       try {
         const summary = await meetingCoach.stopMeeting();
         if (summary) {
@@ -848,35 +853,35 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
       }
     });
 
-    ipcMain.handle('meeting:get-state', async () => {
+    ipcMain.handle(Ch.MEETING_GET_STATE, async () => {
       return meetingCoach.getState();
     });
 
-    ipcMain.handle('meeting:get-config', async () => {
+    ipcMain.handle(Ch.MEETING_GET_CONFIG, async () => {
       return meetingCoach.getConfig();
     });
 
-    ipcMain.handle('meeting:set-config', async (_event, updates: Record<string, any>) => {
+    ipcMain.handle(Ch.MEETING_SET_CONFIG, async (_event, updates: Record<string, any>) => {
       meetingCoach.setConfig(updates);
       return { success: true };
     });
 
-    ipcMain.handle('meeting:get-summaries', async () => {
+    ipcMain.handle(Ch.MEETING_GET_SUMMARIES, async () => {
       return meetingCoach.getSummaries();
     });
 
-    ipcMain.handle('meeting:get-summary', async (_event, id: string) => {
+    ipcMain.handle(Ch.MEETING_GET_SUMMARY, async (_event, id: string) => {
       return meetingCoach.getSummary(id);
     });
 
-    ipcMain.handle('meeting:get-dashboard-url', async () => {
+    ipcMain.handle(Ch.MEETING_GET_DASHBOARD_URL, async () => {
       return meetingDashboard?.getUrl() || `http://localhost:5678`;
     });
 
     // Audio chunk from renderer (non-invoke, fire-and-forget)
     let ipcAudioChunkCount = 0;
     let lastIpcAudioLog = 0;
-    ipcMain.on('meeting:audio-chunk', (_event, source: string, chunk: Uint8Array | Buffer) => {
+    ipcMain.on(ChSend.MEETING_AUDIO_CHUNK, (_event, source: string, chunk: Uint8Array | Buffer) => {
       ipcAudioChunkCount++;
       const now = Date.now();
       if (now - lastIpcAudioLog > 10000) {
@@ -888,12 +893,12 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     });
 
     // Speaker mapping (non-invoke, fire-and-forget)
-    ipcMain.on('meeting:map-speaker', (_event, speakerId: string, name: string) => {
+    ipcMain.on(ChSend.MEETING_MAP_SPEAKER, (_event, speakerId: string, name: string) => {
       meetingCoach.mapSpeaker(speakerId, name);
     });
 
     // Briefing
-    ipcMain.handle('meeting:set-briefing', async (_event, briefing: any) => {
+    ipcMain.handle(Ch.MEETING_SET_BRIEFING, async (_event, briefing: any) => {
       try {
         await meetingCoach.setBriefing(briefing);
         return { success: true };
@@ -902,11 +907,11 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
       }
     });
 
-    ipcMain.handle('meeting:get-briefing', async () => {
+    ipcMain.handle(Ch.MEETING_GET_BRIEFING, async () => {
       return meetingCoach.getBriefing();
     });
 
-    ipcMain.handle('meeting:clear-briefing', async () => {
+    ipcMain.handle(Ch.MEETING_CLEAR_BRIEFING, async () => {
       meetingCoach.clearBriefing();
       return { success: true };
     });
@@ -914,12 +919,12 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   // ─── Sub-agents ───
 
-  ipcMain.handle('subagent:spawn', async (_event, task: string, allowedTools?: string[]) => {
+  ipcMain.handle(Ch.SUBAGENT_SPAWN, async (_event, task: string, allowedTools?: string[]) => {
     try {
       const id = await agentLoop.getSubAgentManager().spawn({
         task,
         allowedTools: allowedTools || undefined,
-        onProgress: (msg) => safeSend('subagent:progress', { msg }),
+        onProgress: (msg) => safeSend(Ev.SUBAGENT_PROGRESS, { msg }),
       });
       return { success: true, data: { id } };
     } catch (err: any) {
@@ -927,27 +932,27 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('subagent:kill', async (_event, agentId: string) => {
+  ipcMain.handle(Ch.SUBAGENT_KILL, async (_event, agentId: string) => {
     const killed = agentLoop.getSubAgentManager().kill(agentId);
     return { success: killed };
   });
 
-  ipcMain.handle('subagent:steer', async (_event, agentId: string, instruction: string) => {
+  ipcMain.handle(Ch.SUBAGENT_STEER, async (_event, agentId: string, instruction: string) => {
     const steered = await agentLoop.getSubAgentManager().steer(agentId, instruction);
     return { success: steered };
   });
 
-  ipcMain.handle('subagent:list', async () => {
+  ipcMain.handle(Ch.SUBAGENT_LIST, async () => {
     return agentLoop.getSubAgentManager().listActive();
   });
 
-  ipcMain.handle('subagent:results', async () => {
+  ipcMain.handle(Ch.SUBAGENT_RESULTS, async () => {
     return agentLoop.getSubAgentManager().consumeCompletedResults();
   });
 
   // ─── Background Exec ───
 
-  ipcMain.handle('background:exec', async (_event, task: string) => {
+  ipcMain.handle(Ch.BACKGROUND_EXEC, async (_event, task: string) => {
     try {
       const id = await agentLoop.executeInBackground(task);
       return { success: true, data: { id } };
@@ -956,13 +961,13 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
   });
 
-  ipcMain.handle('background:list', async () => {
+  ipcMain.handle(Ch.BACKGROUND_LIST, async () => {
     return agentLoop.getBackgroundTasks();
   });
 
   // ─── Active Hours ───
 
-  ipcMain.handle('agent:set-active-hours', async (_event, start: number | null, end: number | null) => {
+  ipcMain.handle(Ch.AGENT_SET_ACTIVE_HOURS, async (_event, start: number | null, end: number | null) => {
     agentLoop.setActiveHours(start, end);
     return { success: true };
   });
