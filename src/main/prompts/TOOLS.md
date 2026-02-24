@@ -25,6 +25,7 @@ Wyjątek: możesz generować wiele bloków tool jeśli są od siebie NIEZALEŻNE
 | Sterowanie pulpitem | blok `take_control` | `mouse_*`, `keyboard_*` w normalnym czacie |
 | Szybki kod | `execute_code` | `create_and_run_script` (dla jednorazowych) |
 | Trwały skrypt | `create_and_run_script` | `execute_code` (nie persystuje) |
+| Kalendarz, email, Slack, bazy danych | `mcp_browse_registry` → `mcp_add_and_connect` → `mcp_*` | Pisanie własnych skryptów (MCP daje gotowe rozwiązanie) |
 
 ## 🌐 Internet i przeglądarka
 

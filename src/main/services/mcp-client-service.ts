@@ -210,11 +210,12 @@ export class McpClientService {
   }
 
   /**
-   * Initialize — load saved configs and auto-connect.
+   * Initialize — load saved configs, register management tools, and auto-connect.
    */
   async initialize(): Promise<void> {
     log.info('Initializing MCP Client Service...');
     await this.loadConfigs();
+    this.registerManagementTools();
 
     // Auto-connect enabled servers
     const autoConnectServers = this.configs.filter((c) => c.autoConnect && c.enabled);
@@ -444,6 +445,243 @@ export class McpClientService {
       await this.disconnect(id).catch(() => {});
     }
     log.info('MCP Client Service shut down');
+  }
+
+  // ─── Agent Self-Management Tools ───
+
+  /**
+   * Register MCP management tools so the AI agent can autonomously
+   * discover, add, connect and manage MCP servers.
+   *
+   * This is what makes the agent proactive — when user asks about
+   * calendar, email, etc., the agent can:
+   * 1. Browse the MCP registry
+   * 2. Add and connect the right server
+   * 3. Use the newly discovered tools
+   */
+  private registerManagementTools(): void {
+    if (!this.toolsService) {
+      log.warn('ToolsService not available — MCP management tools will not be registered');
+      return;
+    }
+
+    // ── 1. Browse MCP registry ──
+    this.toolsService.register(
+      {
+        name: 'mcp_browse_registry',
+        description:
+          'Przeglądaj rejestr dostępnych serwerów MCP (integracji). Użyj gdy potrzebujesz nowej ' +
+          'zdolności — np. dostęp do kalendarza, emaila, bazy danych, Slack, GitHub, Notion itp. ' +
+          'Zwraca listę dostępnych serwerów z opisami i wymaganiami. Po znalezieniu odpowiedniego ' +
+          'serwera, użyj mcp_add_and_connect żeby go podłączyć.',
+        category: 'mcp',
+        parameters: {
+          category: {
+            type: 'string',
+            description: 'Filtruj po kategorii (np. "Komunikacja", "Developer", "Produktywność", "Web", "Bazy danych", "System", "AI"). Puste = wszystkie.',
+            required: false,
+          },
+        },
+      },
+      async (params: { category?: string }): Promise<ToolResult> => {
+        const registry = this.getRegistry();
+        const filtered = params.category
+          ? registry.filter((r) => r.category.toLowerCase().includes(params.category!.toLowerCase()))
+          : registry;
+
+        if (filtered.length === 0) {
+          return {
+            success: true,
+            data: `Brak serwerów MCP w kategorii "${params.category}". Dostępne kategorie: ${[...new Set(registry.map((r) => r.category))].join(', ')}`,
+          };
+        }
+
+        const list = filtered
+          .map((r) => {
+            const setup = r.requiresSetup ? ' ⚠️ wymaga konfiguracji (env vars/API key)' : ' ✅ gotowy do użycia';
+            return `• ${r.icon} **${r.name}** [${r.id}] — ${r.description}${setup}`;
+          })
+          .join('\n');
+
+        return {
+          success: true,
+          data: `Dostępne serwery MCP (${filtered.length}):\n\n${list}\n\nAby dodać serwer, użyj narzędzia mcp_add_and_connect z parametrem registry_id.`,
+        };
+      },
+    );
+
+    // ── 2. Add and connect MCP server from registry ──
+    this.toolsService.register(
+      {
+        name: 'mcp_add_and_connect',
+        description:
+          'Dodaj i podłącz serwer MCP z rejestru — automatycznie instaluje i uruchamia serwer, ' +
+          'odkrywa jego narzędzia i rejestruje je do użytku. Po podłączeniu nowe narzędzia będą ' +
+          'natychmiast dostępne (prefiks mcp_). Użyj po znalezieniu serwera w mcp_browse_registry.',
+        category: 'mcp',
+        parameters: {
+          registry_id: {
+            type: 'string',
+            description: 'ID serwera z rejestru (np. "caldav", "github", "slack", "notion", "brave-search")',
+            required: true,
+          },
+          env_vars: {
+            type: 'string',
+            description: 'Opcjonalne zmienne środowiskowe w formacie JSON: {"KEY": "value"}. Wymagane dla serwerów oznaczonych jako "wymaga konfiguracji".',
+            required: false,
+          },
+        },
+      },
+      async (params: { registry_id: string; env_vars?: string }): Promise<ToolResult> => {
+        const registry = this.getRegistry();
+        const entry = registry.find((r) => r.id === params.registry_id);
+        if (!entry) {
+          return {
+            success: false,
+            error: `Nie znaleziono serwera "${params.registry_id}" w rejestrze. Użyj mcp_browse_registry żeby zobaczyć dostępne serwery.`,
+          };
+        }
+
+        // Check if already added
+        const existing = this.configs.find((c) => c.name === entry.name);
+        if (existing) {
+          const conn = this.connections.get(existing.id);
+          if (conn?.status === 'connected') {
+            return {
+              success: true,
+              data: `Serwer "${entry.name}" jest już podłączony z ${conn.tools.length} narzędziami: ${conn.tools.map((t) => t.name).join(', ')}`,
+            };
+          }
+          // Reconnect existing
+          try {
+            await this.connect(existing.id);
+            const reconnConn = this.connections.get(existing.id);
+            return {
+              success: true,
+              data: `Ponownie podłączono "${entry.name}" — ${reconnConn?.tools.length ?? 0} narzędzi dostępnych: ${reconnConn?.tools.map((t) => t.name).join(', ') ?? 'brak'}`,
+            };
+          } catch (err: any) {
+            return { success: false, error: `Błąd połączenia z "${entry.name}": ${err.message}` };
+          }
+        }
+
+        // Parse env vars
+        let env: Record<string, string> | undefined;
+        if (params.env_vars) {
+          try {
+            env = JSON.parse(params.env_vars);
+          } catch {
+            return { success: false, error: 'Nieprawidłowy format env_vars — oczekiwany JSON: {"KEY": "value"}' };
+          }
+        }
+
+        // Add server
+        try {
+          const config = {
+            name: entry.name,
+            transport: entry.transport,
+            command: entry.command,
+            args: entry.args,
+            url: entry.url,
+            env: { ...entry.env, ...env },
+            autoConnect: true,
+            enabled: true,
+            icon: entry.icon,
+            category: entry.category,
+          };
+          const server = await this.addServer(config);
+
+          // Connect
+          await this.connect(server.id);
+          const conn = this.connections.get(server.id);
+          const toolNames = conn?.tools.map((t) => t.name) ?? [];
+
+          return {
+            success: true,
+            data: `✅ Serwer "${entry.name}" dodany i podłączony!\n` +
+              `Odkryto ${toolNames.length} narzędzi: ${toolNames.join(', ')}\n` +
+              `Narzędzia są teraz dostępne z prefiksem mcp_${entry.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}_`,
+          };
+        } catch (err: any) {
+          return {
+            success: false,
+            error: `Błąd dodawania serwera "${entry.name}": ${err.message}. ` +
+              (entry.requiresSetup ? 'Ten serwer wymaga konfiguracji — upewnij się że podałeś env_vars z wymaganymi kluczami API.' : ''),
+          };
+        }
+      },
+    );
+
+    // ── 3. Check MCP status ──
+    this.toolsService.register(
+      {
+        name: 'mcp_status',
+        description:
+          'Sprawdź status podłączonych serwerów MCP i dostępnych narzędzi. Pokaże które serwery ' +
+          'są połączone, ile mają narzędzi i ile razy zostały użyte.',
+        category: 'mcp',
+        parameters: {},
+      },
+      async (): Promise<ToolResult> => {
+        const status = this.getStatus();
+
+        if (status.servers.length === 0) {
+          return {
+            success: true,
+            data: 'Brak skonfigurowanych serwerów MCP. Użyj mcp_browse_registry żeby znaleźć i dodać serwer.',
+          };
+        }
+
+        const statusLabels: Record<string, string> = {
+          connected: '🟢 połączony',
+          connecting: '🟡 łączenie...',
+          error: '🔴 błąd',
+          disconnected: '⚪ rozłączony',
+        };
+
+        const list = status.servers
+          .map((s) => {
+            const state = statusLabels[s.status] || s.status;
+            const tools = s.tools.length > 0 ? `(${s.tools.length} tools: ${s.tools.map((t) => t.name).join(', ')})` : '(brak narzędzi)';
+            const error = s.error ? ` — ${s.error}` : '';
+            return `• ${s.icon || '🔌'} ${s.name}: ${state} ${tools}${error}`;
+          })
+          .join('\n');
+
+        return {
+          success: true,
+          data: `MCP Hub — ${status.connectedCount}/${status.servers.length} połączonych, ${status.totalTools} narzędzi łącznie:\n\n${list}`,
+        };
+      },
+    );
+
+    // ── 4. Disconnect MCP server ──
+    this.toolsService.register(
+      {
+        name: 'mcp_disconnect_server',
+        description: 'Rozłącz serwer MCP. Narzędzia z tego serwera przestaną być dostępne.',
+        category: 'mcp',
+        parameters: {
+          server_name: {
+            type: 'string',
+            description: 'Nazwa serwera MCP do rozłączenia (np. "CalDAV Calendar", "GitHub")',
+            required: true,
+          },
+        },
+      },
+      async (params: { server_name: string }): Promise<ToolResult> => {
+        const server = this.configs.find(
+          (c) => c.name.toLowerCase().includes(params.server_name.toLowerCase()),
+        );
+        if (!server) {
+          return { success: false, error: `Nie znaleziono serwera "${params.server_name}"` };
+        }
+        await this.disconnect(server.id);
+        return { success: true, data: `Rozłączono serwer "${server.name}"` };
+      },
+    );
+
+    log.info('Registered 4 MCP management tools (browse_registry, add_and_connect, status, disconnect)');
   }
 
   // ─── Private Methods ───

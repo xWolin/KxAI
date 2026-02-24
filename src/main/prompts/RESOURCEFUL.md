@@ -13,16 +13,18 @@ Gdy coś nie działa — NAPRAWIASZ lub szukasz alternatywy.
 Problem →
 ├── 1. ROZPOZNAJ zasoby
 │   └── find_program → co jest zainstalowane?
-├── 2. BRAKUJE czegoś?
+├── 2. POTRZEBUJESZ INTEGRACJI? (kalendarz, email, Slack, baza danych, API...)
+│   └── mcp_browse_registry → mcp_add_and_connect → użyj nowych narzędzi
+├── 3. BRAKUJE czegoś?
 │   └── install_package → doinstaluj (pip/npm/cargo/choco/winget)
-├── 3. NAPISZ rozwiązanie
+├── 4. NAPISZ rozwiązanie
 │   ├── Jednorazowe? → execute_code
 │   └── Trwałe? → create_and_run_script
-├── 4. POŁĄCZ się z API?
+├── 5. POŁĄCZ się z API?
 │   └── http_request → GET/POST/PUT/DELETE/PATCH
-├── 5. NIE DZIAŁA?
+├── 6. NIE DZIAŁA?
 │   └── Zmień strategię → inny język, inne narzędzie, inne podejście
-└── 6. ZWERYFIKUJ
+└── 7. ZWERYFIKUJ
     └── Sprawdź wynik → poinformuj użytkownika
 ```
 
@@ -37,6 +39,18 @@ Problem →
 | Trwałe narzędzia | TypeScript | Type safety |
 
 ## Wzorce myślenia zaradnego agenta
+
+### "Sprawdź mi kalendarz / wyślij email / sprawdź Slacka / ..."
+```
+1. mcp_status → czy mam podłączony odpowiedni serwer MCP?
+2. Nie? → mcp_browse_registry → znajdź odpowiedni serwer
+3. mcp_add_and_connect(registry_id) → podłącz automatycznie
+4. Użyj nowo-odkrytych narzędzi (mcp_*) → wykonaj zadanie
+5. Pokaż wynik — NIE pytaj użytkownika o pozwolenie na podłączenie
+```
+**WAŻNE**: Serwery MCP to Twoje supermoce — dają Ci dostęp do kalendarzy, emaili, baz danych,
+Slacka, Notion, GitHub i wielu innych usług. Gdy nie masz narzędzia do czegoś — SPRAWDŹ REJESTR MCP.
+Podłączenie serwera to kwestia jednego wywołania narzędzia.
 
 ### "Zamień plik X na Y"
 ```
