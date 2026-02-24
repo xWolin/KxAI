@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
 import { ConfigService } from './config';
@@ -81,7 +82,12 @@ export class MemoryService {
    */
   async isBootstrapPending(): Promise<boolean> {
     const bootstrapPath = path.join(this.workspacePath, 'BOOTSTRAP.md');
-    return fs.existsSync(bootstrapPath);
+    try {
+      await fsp.access(bootstrapPath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -89,9 +95,10 @@ export class MemoryService {
    */
   async completeBootstrap(): Promise<void> {
     const bootstrapPath = path.join(this.workspacePath, 'BOOTSTRAP.md');
-    if (fs.existsSync(bootstrapPath)) {
-      fs.unlinkSync(bootstrapPath);
-    }
+    try {
+      await fsp.access(bootstrapPath);
+      await fsp.unlink(bootstrapPath);
+    } catch { /* file does not exist, nothing to do */ }
   }
 
   private async ensureFile(name: string, defaultContent: string): Promise<void> {
@@ -112,10 +119,11 @@ export class MemoryService {
       throw new Error('Access denied: path traversal detected');
     }
 
-    if (fs.existsSync(filePath)) {
-      return fs.readFileSync(filePath, 'utf8');
+    try {
+      return await fsp.readFile(filePath, 'utf8');
+    } catch {
+      return null;
     }
-    return null;
   }
 
   async set(key: string, value: string): Promise<void> {
@@ -128,10 +136,8 @@ export class MemoryService {
     }
 
     const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(filePath, value, 'utf8');
+    await fsp.mkdir(dir, { recursive: true });
+    await fsp.writeFile(filePath, value, 'utf8');
   }
 
   // ─── Conversation History ───
@@ -238,15 +244,14 @@ export class MemoryService {
       this.getTodayFileName()
     );
 
-    try {
-      fs.writeFileSync(
-        sessionPath,
-        JSON.stringify(this.conversationHistory, null, 2),
-        'utf8'
-      );
-    } catch (error) {
+    // Fire-and-forget async write
+    fsp.writeFile(
+      sessionPath,
+      JSON.stringify(this.conversationHistory, null, 2),
+      'utf8'
+    ).catch((error) => {
       log.error('Failed to save session:', error);
-    }
+    });
   }
 
   // ─── Build Context for AI ───

@@ -900,7 +900,8 @@ export class AIService {
       ? await this.memoryService.buildSystemContext()
       : '';
 
-    const analysisPrompt = `${this.promptService.load('SCREEN_ANALYSIS.md')}\n\n${systemContext}`;
+    const screenAnalysisPrompt = await this.promptService.load('SCREEN_ANALYSIS.md');
+    const analysisPrompt = `${screenAnalysisPrompt}\n\n${systemContext}`;
 
     try {
       if (provider === 'openai' && this.openaiClient) {

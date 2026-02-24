@@ -232,7 +232,7 @@ export class HeartbeatEngine {
 Masz pełny dostęp do narzędzi. Jeśli chcesz coś ZROBIĆ (sprawdzić, wyszukać, pobrać) — użyj narzędzia.
 Nie mów "mogę to zrobić" — PO PROSTU TO ZRÓB.
 
-${this.promptService.load('HEARTBEAT.md')}`;
+${await this.promptService.load('HEARTBEAT.md')}`;
 
     try {
       this.emitStatus({ state: 'heartbeat', detail: 'Heartbeat...' });

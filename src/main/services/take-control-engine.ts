@@ -192,7 +192,7 @@ export class TakeControlEngine {
     let totalActions = 0;
     const actionLog: string[] = [];
 
-    const takeControlPrompt = this.promptService.render('TAKE_CONTROL.md', {
+    const takeControlPrompt = await this.promptService.render('TAKE_CONTROL.md', {
       maxSteps: String(maxActions),
     });
 
@@ -455,7 +455,7 @@ export class TakeControlEngine {
     const takeControlSystemCtx = [
       await this.memory.buildSystemContext(),
       '',
-      this.promptService.render('TAKE_CONTROL.md', { maxSteps: String(maxActions) }),
+      await this.promptService.render('TAKE_CONTROL.md', { maxSteps: String(maxActions) }),
       '',
       `Zadanie: ${task}`,
     ].join('\n');

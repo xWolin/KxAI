@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
 import { v4 as uuidv4 } from 'uuid';
@@ -39,27 +40,26 @@ export class CronService {
     }
   }
 
-  private saveJobs(): void {
+  private async saveJobs(): Promise<void> {
     // Atomic write: write to temp file then rename
     const tmpPath = this.jobsPath + '.tmp';
-    fs.writeFileSync(tmpPath, JSON.stringify(this.jobs, null, 2), 'utf8');
-    fs.renameSync(tmpPath, this.jobsPath);
+    await fsp.writeFile(tmpPath, JSON.stringify(this.jobs, null, 2), 'utf8');
+    await fsp.rename(tmpPath, this.jobsPath);
   }
 
-  private saveExecution(exec: CronExecution): void {
+  private async saveExecution(exec: CronExecution): Promise<void> {
     let history: CronExecution[] = [];
     try {
-      if (fs.existsSync(this.historyPath)) {
-        history = JSON.parse(fs.readFileSync(this.historyPath, 'utf8'));
-      }
-    } catch { /* ignore */ }
+      const data = await fsp.readFile(this.historyPath, 'utf8');
+      history = JSON.parse(data);
+    } catch { /* ignore — file may not exist yet */ }
     history.push(exec);
     // Keep last 500 executions
     if (history.length > 500) history = history.slice(-500);
     // Atomic write
     const tmpPath = this.historyPath + '.tmp';
-    fs.writeFileSync(tmpPath, JSON.stringify(history, null, 2), 'utf8');
-    fs.renameSync(tmpPath, this.historyPath);
+    await fsp.writeFile(tmpPath, JSON.stringify(history, null, 2), 'utf8');
+    await fsp.rename(tmpPath, this.historyPath);
   }
 
   // ─── CRUD ───
@@ -72,7 +72,7 @@ export class CronService {
       runCount: 0,
     };
     this.jobs.push(newJob);
-    this.saveJobs();
+    void this.saveJobs();
     if (newJob.enabled) this.scheduleJob(newJob);
     return newJob;
   }
@@ -81,7 +81,7 @@ export class CronService {
     const idx = this.jobs.findIndex((j) => j.id === id);
     if (idx === -1) return null;
     this.jobs[idx] = { ...this.jobs[idx], ...updates };
-    this.saveJobs();
+    void this.saveJobs();
     // Reschedule
     this.unscheduleJob(id);
     if (this.jobs[idx].enabled) this.scheduleJob(this.jobs[idx]);
@@ -92,7 +92,7 @@ export class CronService {
     this.unscheduleJob(id);
     const before = this.jobs.length;
     this.jobs = this.jobs.filter((j) => j.id !== id);
-    this.saveJobs();
+    void this.saveJobs();
     return this.jobs.length < before;
   }
 
@@ -104,12 +104,11 @@ export class CronService {
     return this.jobs.find((j) => j.id === id) || null;
   }
 
-  getHistory(jobId?: string): CronExecution[] {
+  async getHistory(jobId?: string): Promise<CronExecution[]> {
     try {
-      if (fs.existsSync(this.historyPath)) {
-        const history: CronExecution[] = JSON.parse(fs.readFileSync(this.historyPath, 'utf8'));
-        return jobId ? history.filter((h) => h.jobId === jobId) : history;
-      }
+      const data = await fsp.readFile(this.historyPath, 'utf8');
+      const history: CronExecution[] = JSON.parse(data);
+      return jobId ? history.filter((h) => h.jobId === jobId) : history;
     } catch { /* ignore */ }
     return [];
   }
@@ -170,8 +169,8 @@ export class CronService {
       job.lastRun = Date.now();
       job.lastResult = result.slice(0, 500);
       job.runCount++;
-      this.saveJobs();
-      this.saveExecution({
+      await this.saveJobs();
+      await this.saveExecution({
         jobId: job.id,
         timestamp: Date.now(),
         result: result.slice(0, 1000),
@@ -180,8 +179,8 @@ export class CronService {
     } catch (error: any) {
       job.lastRun = Date.now();
       job.lastResult = `Error: ${error.message}`;
-      this.saveJobs();
-      this.saveExecution({
+      await this.saveJobs();
+      await this.saveExecution({
         jobId: job.id,
         timestamp: Date.now(),
         result: `Error: ${error.message}`,

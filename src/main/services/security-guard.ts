@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
 
@@ -434,12 +435,12 @@ export class SecurityGuard {
   }
 
   private saveAuditLog(): void {
-    try {
-      const dir = path.dirname(this.auditFilePath);
-      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(this.auditFilePath, JSON.stringify(this.auditLog), 'utf8');
-    } catch (error) {
-      console.error('Failed to save audit log:', error);
-    }
+    // Fire-and-forget async write — audit log save should not block event loop
+    const dir = path.dirname(this.auditFilePath);
+    fsp.mkdir(dir, { recursive: true })
+      .then(() => fsp.writeFile(this.auditFilePath, JSON.stringify(this.auditLog), 'utf8'))
+      .catch((error) => {
+        console.error('Failed to save audit log:', error);
+      });
   }
 }

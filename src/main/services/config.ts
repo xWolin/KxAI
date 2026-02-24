@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
 
@@ -41,13 +42,11 @@ export class ConfigService {
     return { ...DEFAULT_CONFIG };
   }
 
-  private saveConfig(): void {
+  private async saveConfig(): Promise<void> {
     try {
       const dir = path.dirname(this.configPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2));
+      await fsp.mkdir(dir, { recursive: true });
+      await fsp.writeFile(this.configPath, JSON.stringify(this.config, null, 2));
     } catch (error) {
       console.error('Failed to save config:', error);
     }
@@ -59,7 +58,8 @@ export class ConfigService {
 
   set(key: string, value: any): void {
     this.config[key] = value;
-    this.saveConfig();
+    // Fire-and-forget — config save should not block callers
+    void this.saveConfig();
   }
 
   getAll(): KxAIConfig {
@@ -84,6 +84,6 @@ export class ConfigService {
       ...data,
       onboarded: true,
     };
-    this.saveConfig();
+    await this.saveConfig();
   }
 }

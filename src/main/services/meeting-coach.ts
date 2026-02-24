@@ -851,7 +851,7 @@ export class MeetingCoachService extends EventEmitter {
               fullText: tip.tip,
             });
           },
-          this.promptService.load('MEETING_COACH.md'),
+          await this.promptService.load('MEETING_COACH.md'),
         );
       } else {
         const response = await this.aiService.sendMessage(coachingPrompt);

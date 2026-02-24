@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { app } from 'electron';
@@ -69,37 +70,38 @@ export class SecurityService {
     const sanitizedProvider = provider.replace(/[^a-zA-Z0-9_-]/g, '');
     const filePath = path.join(this.secretsPath, `${sanitizedProvider}.enc`);
     const encrypted = this.encrypt(apiKey);
-    fs.writeFileSync(filePath, encrypted, { mode: 0o600 });
+    await fsp.writeFile(filePath, encrypted, { mode: 0o600 });
   }
 
   async getApiKey(provider: string): Promise<string | null> {
     const sanitizedProvider = provider.replace(/[^a-zA-Z0-9_-]/g, '');
     const filePath = path.join(this.secretsPath, `${sanitizedProvider}.enc`);
-    
-    if (!fs.existsSync(filePath)) {
-      return null;
-    }
 
     try {
-      const encrypted = fs.readFileSync(filePath, 'utf8');
+      const encrypted = await fsp.readFile(filePath, 'utf8');
       return this.decrypt(encrypted);
     } catch {
       return null;
     }
   }
 
-  hasApiKey(provider: string): boolean {
+  async hasApiKey(provider: string): Promise<boolean> {
     const sanitizedProvider = provider.replace(/[^a-zA-Z0-9_-]/g, '');
     const filePath = path.join(this.secretsPath, `${sanitizedProvider}.enc`);
-    return fs.existsSync(filePath);
+    try {
+      await fsp.access(filePath);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   async deleteApiKey(provider: string): Promise<void> {
     const sanitizedProvider = provider.replace(/[^a-zA-Z0-9_-]/g, '');
     const filePath = path.join(this.secretsPath, `${sanitizedProvider}.enc`);
-    
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
-    }
+
+    try {
+      await fsp.unlink(filePath);
+    } catch { /* file does not exist, nothing to do */ }
   }
 }

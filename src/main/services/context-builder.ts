@@ -276,11 +276,11 @@ export class ContextBuilder {
       : '';
 
     // Load instructions from markdown prompt files
-    const agentsCapabilities = this.promptService.load('AGENTS.md');
-    const reasoningPrompt = this.promptService.load('REASONING.md');
-    const guardrailsPrompt = this.promptService.load('GUARDRAILS.md');
-    const resourcefulPrompt = this.promptService.load('RESOURCEFUL.md');
-    const toolsInstructions = this.promptService.load('TOOLS.md');
+    const agentsCapabilities = await this.promptService.load('AGENTS.md');
+    const reasoningPrompt = await this.promptService.load('REASONING.md');
+    const guardrailsPrompt = await this.promptService.load('GUARDRAILS.md');
+    const resourcefulPrompt = await this.promptService.load('RESOURCEFUL.md');
+    const toolsInstructions = await this.promptService.load('TOOLS.md');
 
     // System health warnings
     let systemCtx = '';

@@ -1033,7 +1033,7 @@ export class AgentLoop {
 Masz pełny dostęp do narzędzi. Jeśli chcesz coś ZROBIĆ (sprawdzić, wyszukać, pobrać) — użyj narzędzia.
 Nie mów "mogę to zrobić" — PO PROSTU TO ZRÓB.
 
-${this.promptService.load('HEARTBEAT.md')}`;
+${await this.promptService.load('HEARTBEAT.md')}`;
 
     try {
       this.emitStatus({ state: 'heartbeat', detail: 'Heartbeat...' });
@@ -1705,11 +1705,11 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
 
     // Load instructions from markdown files instead of inline strings
     // Order matters: identity → reasoning → guardrails → capabilities → tools
-    const agentsCapabilities = this.promptService.load('AGENTS.md');
-    const reasoningPrompt = this.promptService.load('REASONING.md');
-    const guardrailsPrompt = this.promptService.load('GUARDRAILS.md');
-    const resourcefulPrompt = this.promptService.load('RESOURCEFUL.md');
-    const toolsInstructions = this.promptService.load('TOOLS.md');
+    const agentsCapabilities = await this.promptService.load('AGENTS.md');
+    const reasoningPrompt = await this.promptService.load('REASONING.md');
+    const guardrailsPrompt = await this.promptService.load('GUARDRAILS.md');
+    const resourcefulPrompt = await this.promptService.load('RESOURCEFUL.md');
+    const toolsInstructions = await this.promptService.load('TOOLS.md');
 
     // System health warnings
     let systemCtx = '';
@@ -1881,7 +1881,7 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
     let totalActions = 0;
     const log: string[] = [];
 
-    const takeControlPrompt = this.promptService.render('TAKE_CONTROL.md', {
+    const takeControlPrompt = await this.promptService.render('TAKE_CONTROL.md', {
       maxSteps: String(maxActions),
     });
 
@@ -2160,7 +2160,7 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
     const takeControlSystemCtx = [
       await this.memory.buildSystemContext(),
       '',
-      this.promptService.render('TAKE_CONTROL.md', { maxSteps: String(maxActions) }),
+      await this.promptService.render('TAKE_CONTROL.md', { maxSteps: String(maxActions) }),
       '',
       `Zadanie: ${task}`,
     ].join('\n');

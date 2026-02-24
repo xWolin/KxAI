@@ -13,6 +13,7 @@
  */
 
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
 
@@ -52,17 +53,17 @@ export class PromptService {
    * User overrides take priority over bundled defaults.
    * Returns empty string if file doesn't exist.
    */
-  load(filename: string): string {
+  async load(filename: string): Promise<string> {
     // Check user override first
     const userPath = path.join(this.userDir, filename);
-    const userContent = this.readWithCache(userPath);
+    const userContent = await this.readWithCache(userPath);
     if (userContent !== null) {
       return userContent;
     }
 
     // Fall back to bundled
     const bundledPath = path.join(this.bundledDir, filename);
-    const bundledContent = this.readWithCache(bundledPath);
+    const bundledContent = await this.readWithCache(bundledPath);
     return bundledContent ?? '';
   }
 
@@ -72,8 +73,8 @@ export class PromptService {
    * 
    * Example: load('HEARTBEAT.md', { maxSteps: '20', task: 'check email' })
    */
-  render(filename: string, vars?: Record<string, string>): string {
-    let content = this.load(filename);
+  async render(filename: string, vars?: Record<string, string>): Promise<string> {
+    let content = await this.load(filename);
     if (vars) {
       for (const [key, value] of Object.entries(vars)) {
         content = content.replace(new RegExp(`\\{${key}\\}`, 'g'), value);
@@ -85,23 +86,32 @@ export class PromptService {
   /**
    * Check if a prompt file exists (either user or bundled).
    */
-  exists(filename: string): boolean {
-    return fs.existsSync(path.join(this.userDir, filename))
-      || fs.existsSync(path.join(this.bundledDir, filename));
+  async exists(filename: string): Promise<boolean> {
+    try {
+      await fsp.access(path.join(this.userDir, filename));
+      return true;
+    } catch {
+      try {
+        await fsp.access(path.join(this.bundledDir, filename));
+        return true;
+      } catch {
+        return false;
+      }
+    }
   }
 
   /**
    * List all available prompt files (merged user + bundled).
    */
-  list(): string[] {
+  async list(): Promise<string[]> {
     const files = new Set<string>();
     try {
-      for (const f of fs.readdirSync(this.bundledDir)) {
+      for (const f of await fsp.readdir(this.bundledDir)) {
         if (f.endsWith('.md')) files.add(f);
       }
     } catch { /* bundled dir may not exist in some setups */ }
     try {
-      for (const f of fs.readdirSync(this.userDir)) {
+      for (const f of await fsp.readdir(this.userDir)) {
         if (f.endsWith('.md')) files.add(f);
       }
     } catch { /* user dir may be empty */ }
@@ -112,17 +122,18 @@ export class PromptService {
    * Copy a bundled prompt to user dir for customization.
    * Returns the user-side file path.
    */
-  copyToUser(filename: string): string | null {
+  async copyToUser(filename: string): Promise<string | null> {
     const bundledPath = path.join(this.bundledDir, filename);
     const userPath = path.join(this.userDir, filename);
 
-    if (fs.existsSync(userPath)) {
+    try {
+      await fsp.access(userPath);
       return userPath; // Already exists
-    }
+    } catch { /* does not exist, proceed to copy */ }
 
     try {
-      const content = fs.readFileSync(bundledPath, 'utf-8');
-      fs.writeFileSync(userPath, content, 'utf-8');
+      const content = await fsp.readFile(bundledPath, 'utf-8');
+      await fsp.writeFile(userPath, content, 'utf-8');
       return userPath;
     } catch (err) {
       console.error(`[PromptService] Failed to copy ${filename} to user dir:`, err);
@@ -155,13 +166,15 @@ export class PromptService {
 
   // ─── Private ───
 
-  private readWithCache(filePath: string): string | null {
-    if (!fs.existsSync(filePath)) {
+  private async readWithCache(filePath: string): Promise<string | null> {
+    try {
+      await fsp.access(filePath);
+    } catch {
       return null;
     }
 
     try {
-      const stat = fs.statSync(filePath);
+      const stat = await fsp.stat(filePath);
       const mtime = stat.mtimeMs;
 
       // Check cache
@@ -173,7 +186,7 @@ export class PromptService {
       }
 
       // Read and cache
-      const content = fs.readFileSync(filePath, 'utf-8');
+      const content = await fsp.readFile(filePath, 'utf-8');
       if (this.cacheEnabled) {
         this.cache.set(filePath, { content, mtime });
       }

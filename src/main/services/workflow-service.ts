@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as path from 'path';
 import { app } from 'electron';
 
@@ -39,8 +40,9 @@ export class WorkflowService {
     if (this.activityLog.length > 2000) {
       this.activityLog = this.activityLog.slice(-2000);
     }
-    fs.writeFileSync(this.logPath, JSON.stringify(this.activityLog, null, 2), 'utf8');
-    fs.writeFileSync(this.patternsPath, JSON.stringify(this.patterns, null, 2), 'utf8');
+    // Fire-and-forget async writes — activity logging should not block event loop
+    fsp.writeFile(this.logPath, JSON.stringify(this.activityLog, null, 2), 'utf8').catch(() => {});
+    fsp.writeFile(this.patternsPath, JSON.stringify(this.patterns, null, 2), 'utf8').catch(() => {});
   }
 
   /**
