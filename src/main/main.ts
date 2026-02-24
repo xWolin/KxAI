@@ -1,28 +1,7 @@
 import { app, BrowserWindow, Tray, Menu, screen, nativeImage, globalShortcut, shell, session, desktopCapturer } from 'electron';
 import * as path from 'path';
 import { Ev } from '../shared/ipc-schema';
-import { ScreenCaptureService } from './services/screen-capture';
-import { MemoryService } from './services/memory';
-import { AIService } from './services/ai-service';
-import { ConfigService } from './services/config';
-import { SecurityService } from './services/security';
-import { CronService } from './services/cron-service';
-import { ToolsService } from './services/tools-service';
-import { WorkflowService } from './services/workflow-service';
-import { AgentLoop } from './services/agent-loop';
-import { EmbeddingService } from './services/embedding-service';
-import { RAGService } from './services/rag-service';
-import { AutomationService } from './services/automation-service';
-import { BrowserService } from './services/browser-service';
-import { PluginService } from './services/plugin-service';
-import { SecurityGuard } from './services/security-guard';
-import { SystemMonitor } from './services/system-monitor';
-import { TTSService } from './services/tts-service';
-import { ScreenMonitorService } from './services/screen-monitor';
-import { TranscriptionService } from './services/transcription-service';
-import { MeetingCoachService } from './services/meeting-coach';
-import { DashboardServer } from './services/dashboard-server';
-import { DiagnosticService } from './services/diagnostic-service';
+import { ServiceContainer } from './services/service-container';
 import { setupIPC } from './ipc';
 import { createLogger } from './services/logger';
 
@@ -40,6 +19,7 @@ process.on('uncaughtException', (error) => {
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+const container = new ServiceContainer();
 
 // ─── Single Instance Lock ───
 const gotLock = app.requestSingleInstanceLock();
@@ -57,29 +37,6 @@ if (!gotLock) {
 }
 
 // Services
-let screenCapture: ScreenCaptureService;
-let memoryService: MemoryService;
-let aiService: AIService;
-let configService: ConfigService;
-let securityService: SecurityService;
-let cronService: CronService;
-let toolsService: ToolsService;
-let workflowService: WorkflowService;
-let agentLoop: AgentLoop;
-let embeddingService: EmbeddingService;
-let ragService: RAGService;
-let automationService: AutomationService;
-let browserService: BrowserService;
-let pluginService: PluginService;
-let securityGuardService: SecurityGuard;
-let systemMonitorService: SystemMonitor;
-let ttsService: TTSService;
-let screenMonitorService: ScreenMonitorService;
-let transcriptionService: TranscriptionService;
-let meetingCoachService: MeetingCoachService;
-let dashboardServer: DashboardServer;
-let diagnosticService: DiagnosticService;
-
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 /**
@@ -93,6 +50,11 @@ function startCompanionMonitor(win: BrowserWindow): void {
     }
   };
 
+  const screenMonitorService = container.get('screenMonitor');
+  const aiService = container.get('ai');
+  const agentLoop = container.get('agentLoop');
+  const memoryService = container.get('memory');
+
   screenMonitorService.start(
     // T0: Window change
     (_info) => {
@@ -101,7 +63,7 @@ function startCompanionMonitor(win: BrowserWindow): void {
     // T1: Content change (OCR detected significant text change)
     (ctx) => {
       if (ctx.contentChanged && ctx.ocrText.length > 50) {
-        safeSend('agent:companion-state', { wantsToSpeak: true });
+        safeSend(Ev.AGENT_COMPANION_STATE, { wantsToSpeak: true });
       }
     },
     // T2: Vision needed — full AI analysis
@@ -129,8 +91,8 @@ function startCompanionMonitor(win: BrowserWindow): void {
             type: 'proactive',
           });
 
-          safeSend('agent:companion-state', { hasSuggestion: true });
-          safeSend('ai:proactive', {
+          safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+          safeSend(Ev.AI_PROACTIVE, {
             type: 'screen-analysis',
             message: analysis.message,
             context: analysis.context,
@@ -144,13 +106,13 @@ function startCompanionMonitor(win: BrowserWindow): void {
     () => {
       log.info('User is now AFK');
       agentLoop.setAfkState(true);
-      safeSend('agent:companion-state', { isAfk: true });
+      safeSend(Ev.AGENT_COMPANION_STATE, { isAfk: true });
     },
     // Idle end — user is back
     () => {
       log.info('User is back from AFK');
       agentLoop.setAfkState(false);
-      safeSend('agent:companion-state', { isAfk: false });
+      safeSend(Ev.AGENT_COMPANION_STATE, { isAfk: false });
     }
   );
 
@@ -163,8 +125,8 @@ function startCompanionMonitor(win: BrowserWindow): void {
       timestamp: Date.now(),
       type: 'proactive',
     });
-    safeSend('agent:companion-state', { hasSuggestion: true });
-    safeSend('ai:proactive', {
+    safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+    safeSend(Ev.AI_PROACTIVE, {
       type: 'heartbeat',
       message,
     });
@@ -328,129 +290,7 @@ function createTray(): void {
 }
 
 async function initializeServices(): Promise<void> {
-  configService = new ConfigService();
-  securityService = new SecurityService();
-  memoryService = new MemoryService(configService);
-  aiService = new AIService(configService, securityService);
-  screenCapture = new ScreenCaptureService();
-  cronService = new CronService();
-  toolsService = new ToolsService();
-  workflowService = new WorkflowService();
-
-  // New services
-  embeddingService = new EmbeddingService(securityService, configService);
-  automationService = new AutomationService();
-  browserService = new BrowserService();
-  pluginService = new PluginService();
-  securityGuardService = new SecurityGuard();
-  systemMonitorService = new SystemMonitor();
-  ttsService = new TTSService(securityService);
-
-  await memoryService.initialize();
-  await embeddingService.initialize();
-
-  // RAG — semantic search over memory
-  ragService = new RAGService(embeddingService, configService);
-  await ragService.initialize();
-
-  // Plugin system
-  await pluginService.initialize();
-
-  // Wire memory into AI service
-  aiService.setMemoryService(memoryService);
-
-  // Wire external services into tools
-  toolsService.setServices({
-    automation: automationService,
-    browser: browserService,
-    rag: ragService,
-    plugins: pluginService,
-  });
-
-  // Create agent loop
-  agentLoop = new AgentLoop(
-    aiService,
-    toolsService,
-    cronService,
-    workflowService,
-    memoryService,
-    configService
-  );
-  agentLoop.setRAGService(ragService);
-  agentLoop.setAutomationService(automationService);
-  agentLoop.setScreenCaptureService(screenCapture);
-
-  // Screen monitor — tiered smart companion
-  screenMonitorService = new ScreenMonitorService();
-  screenMonitorService.setScreenCapture(screenCapture);
-  agentLoop.setScreenMonitorService(screenMonitorService);
-
-  // Meeting Coach — transcription + AI coaching (with RAG for context-aware answers + screen capture for speaker ID)
-  transcriptionService = new TranscriptionService(securityService);
-  meetingCoachService = new MeetingCoachService(
-    transcriptionService, aiService, configService, securityService, ragService, screenCapture
-  );
-
-  // Dashboard — localhost server for full agent dashboard
-  const meetingConfig = meetingCoachService.getConfig();
-  dashboardServer = new DashboardServer(meetingCoachService, meetingConfig.dashboardPort, {
-    tools: toolsService,
-    cron: cronService,
-    rag: ragService,
-    workflow: workflowService,
-    systemMonitor: systemMonitorService,
-  });
-  // Start dashboard server in background (non-blocking)
-  dashboardServer.start().catch(err => {
-    log.error('Dashboard server failed to start:', err);
-  });
-
-  // Forward meeting events to dashboard WebSocket for live updates
-  const meetingDashEvents = [
-    'meeting:state', 'meeting:transcript', 'meeting:coaching',
-    'meeting:coaching-chunk', 'meeting:coaching-done',
-    'meeting:started', 'meeting:stopped',
-  ];
-  for (const event of meetingDashEvents) {
-    meetingCoachService.on(event, (data: any) => {
-      dashboardServer.pushEvent(event, data);
-    });
-  }
-
-  // Diagnostic service — self-test tool
-  diagnosticService = new DiagnosticService({
-    ai: aiService,
-    memory: memoryService,
-    config: configService,
-    cron: cronService,
-    workflow: workflowService,
-    tools: toolsService,
-    systemMonitor: systemMonitorService,
-    rag: ragService,
-    browser: browserService,
-    screenMonitor: screenMonitorService,
-    screenCapture: screenCapture,
-    tts: ttsService,
-  });
-
-  toolsService.register(
-    {
-      name: 'self_test',
-      description: 'Uruchamia pełną diagnostykę agenta — testuje wszystkie podsystemy (AI, pamięć, narzędzia, przeglądarkę, RAG, cron, TTS, screen monitor, zasoby systemowe). Użyj gdy użytkownik prosi o self-test lub "przetestuj się".',
-      category: 'system',
-      parameters: {},
-    },
-    async () => {
-      const report = await diagnosticService.runFullDiagnostic();
-      return {
-        success: report.summary.fail === 0,
-        data: DiagnosticService.formatReport(report),
-      };
-    }
-  );
-
-  // Start cron jobs
-  cronService.startAll();
+  await container.init();
 }
 
 app.whenReady().then(async () => {
@@ -460,34 +300,14 @@ app.whenReady().then(async () => {
   createTray();
 
   // Setup IPC handlers
-  setupIPC(mainWindow, {
-    configService,
-    securityService,
-    memoryService,
-    aiService,
-    screenCapture,
-    cronService,
-    toolsService,
-    workflowService,
-    agentLoop,
-    ragService,
-    automationService,
-    browserService,
-    pluginService,
-    securityGuardService,
-    systemMonitorService,
-    ttsService,
-    screenMonitorService,
-    meetingCoachService,
-    dashboardServer,
-  });
+  setupIPC(mainWindow, container.getIPCServices());
 
   // Auto-restore proactive mode (smart companion) if it was enabled before restart
-  const proactiveSaved = configService.get('proactiveMode');
+  const proactiveSaved = container.get('config').get('proactiveMode');
   if (proactiveSaved) {
     log.info('Proactive mode was enabled — auto-starting screen monitor...');
     startCompanionMonitor(mainWindow);
-    agentLoop.startHeartbeat(5 * 60 * 1000); // 5 min
+    container.get('agentLoop').startHeartbeat(5 * 60 * 1000); // 5 min
   }
 
   // Global shortcut to toggle window
@@ -511,30 +331,32 @@ app.whenReady().then(async () => {
       }
     };
 
+    const agentLoop = container.get('agentLoop');
+
     if (agentLoop.isTakeControlActive()) {
       // Stop take-control
       agentLoop.stopTakeControl();
-      safeSend('automation:status-update', '⛔ Sterowanie przerwane (Ctrl+Shift+K)');
-      safeSend('agent:control-state', { active: false });
+      safeSend(Ev.AUTOMATION_STATUS_UPDATE, '⛔ Sterowanie przerwane (Ctrl+Shift+K)');
+      safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
     } else {
       // Start take-control — ask AI what to do based on current screen
-      safeSend('agent:control-state', { active: true, pending: true });
-      safeSend('ai:stream', { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie (Ctrl+Shift+K)...\n' });
+      safeSend(Ev.AGENT_CONTROL_STATE, { active: true, pending: true });
+      safeSend(Ev.AI_STREAM, { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie (Ctrl+Shift+K)...\n' });
 
       try {
         const result = await agentLoop.startTakeControl(
           'Użytkownik nacisnął Ctrl+Shift+K — przejmujesz sterowanie. Obserwuj ekran i kontynuuj pracę użytkownika. Gdy skończysz lub nie masz co robić, odpowiedz TASK_COMPLETE.',
-          (status) => safeSend('automation:status-update', status),
-          (chunk) => safeSend('ai:stream', { chunk }),
+          (status) => safeSend(Ev.AUTOMATION_STATUS_UPDATE, status),
+          (chunk) => safeSend(Ev.AI_STREAM, { chunk }),
           true // confirmed via keyboard shortcut
         );
-        safeSend('ai:stream', { done: true });
-        safeSend('agent:control-state', { active: false });
+        safeSend(Ev.AI_STREAM, { done: true });
+        safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
       } catch (err: any) {
         log.error('Take-control shortcut error:', err);
-        safeSend('ai:stream', { chunk: `\n❌ Błąd: ${err.message}\n` });
-        safeSend('ai:stream', { done: true });
-        safeSend('agent:control-state', { active: false });
+        safeSend(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${err.message}\n` });
+        safeSend(Ev.AI_STREAM, { done: true });
+        safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
       }
     }
   });
@@ -550,8 +372,11 @@ app.whenReady().then(async () => {
       }
     };
 
+    const agentLoop = container.get('agentLoop');
+    const screenMonitorService = container.get('screenMonitor');
+
     // Show chat and open stream
-    safeSend('ai:stream', { takeControlStart: true, chunk: '👁️ Analizuję co widzę na ekranie...\n' });
+    safeSend(Ev.AI_STREAM, { takeControlStart: true, chunk: '👁️ Analizuję co widzę na ekranie...\n' });
 
     try {
       // Force an OCR check to get fresh screen context
@@ -571,17 +396,17 @@ Bądź pomocny, krótki i konkretny. Mów po polsku.`;
       await agentLoop.streamWithTools(
         prompt,
         undefined, // no extra context
-        (chunk: string) => safeSend('ai:stream', { chunk }),
+        (chunk: string) => safeSend(Ev.AI_STREAM, { chunk }),
         true // skip intent detection for this forced interaction
       );
-      safeSend('ai:stream', { done: true });
+      safeSend(Ev.AI_STREAM, { done: true });
       
       // Clear companion state
-      safeSend('agent:companion-state', { hasSuggestion: false, wantsToSpeak: false });
+      safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: false, wantsToSpeak: false });
     } catch (err: any) {
       log.error('Ctrl+Shift+P error:', err);
-      safeSend('ai:stream', { chunk: `\n❌ Błąd: ${err.message}\n` });
-      safeSend('ai:stream', { done: true });
+      safeSend(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${err.message}\n` });
+      safeSend(Ev.AI_STREAM, { done: true });
     }
   });
 });
@@ -605,62 +430,7 @@ app.on('will-quit', (event) => {
     const t0 = Date.now();
 
     globalShortcut.unregisterAll();
-
-    // ── Phase 1: Stop active processing (prevent new work) ──
-    try { agentLoop?.stopProcessing(); } catch (err) {
-      log.error('AgentLoop stop error:', err);
-    }
-    try { screenMonitorService?.stop(); } catch (err) {
-      log.error('ScreenMonitor stop error:', err);
-    }
-    try { cronService?.stopAll(); } catch (err) {
-      log.error('CronService stop error:', err);
-    }
-
-    // ── Phase 2: Close network connections ──
-    if (meetingCoachService) {
-      await meetingCoachService.stopMeeting().catch((err: any) =>
-        log.error('MeetingCoach stop error:', err)
-      );
-    }
-    if (transcriptionService) {
-      await transcriptionService.stopAll().catch((err: any) =>
-        log.error('Transcription stop error:', err)
-      );
-    }
-    if (browserService) {
-      await browserService.close().catch((err: any) =>
-        log.error('BrowserService close error:', err)
-      );
-    }
-    if (dashboardServer) {
-      await dashboardServer.stop().catch((err: any) =>
-        log.error('DashboardServer stop error:', err)
-      );
-    }
-
-    // ── Phase 3: Stop watchers and plugins ──
-    try { ragService?.destroy(); } catch (err) {
-      log.error('RAGService destroy error:', err);
-    }
-    try { pluginService?.destroy(); } catch (err) {
-      log.error('PluginService destroy error:', err);
-    }
-
-    // ── Phase 4: Cleanup temp resources ──
-    try { ttsService?.cleanup(); } catch (err) {
-      log.error('TTSService cleanup error:', err);
-    }
-
-    // ── Phase 5: Flush caches & persist data (last before DB close) ──
-    try { embeddingService?.flushCache(); } catch (err) {
-      log.error('EmbeddingService flush error:', err);
-    }
-
-    // ── Phase 6: Close database (must be last) ──
-    try { memoryService?.shutdown(); } catch (err) {
-      log.error('MemoryService shutdown error:', err);
-    }
+    await container.shutdown();
 
     log.info(`Graceful shutdown completed in ${Date.now() - t0}ms`);
   };
