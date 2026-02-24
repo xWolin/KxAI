@@ -597,34 +597,83 @@ app.on('will-quit', (event) => {
   event.preventDefault();
   isQuitting = true;
 
-  (async () => {
+  const SHUTDOWN_TIMEOUT_MS = 5_000;
+
+  const gracefulShutdown = async () => {
+    log.info('Graceful shutdown started');
+    const t0 = Date.now();
+
     globalShortcut.unregisterAll();
-    // Graceful shutdown of browser automation
+
+    // ── Phase 1: Stop active processing (prevent new work) ──
+    try { agentLoop?.stopProcessing(); } catch (err) {
+      log.error('AgentLoop stop error:', err);
+    }
+    try { screenMonitorService?.stop(); } catch (err) {
+      log.error('ScreenMonitor stop error:', err);
+    }
+    try { cronService?.stopAll(); } catch (err) {
+      log.error('CronService stop error:', err);
+    }
+
+    // ── Phase 2: Close network connections ──
+    if (meetingCoachService) {
+      await meetingCoachService.stopMeeting().catch((err: any) =>
+        log.error('MeetingCoach stop error:', err)
+      );
+    }
+    if (transcriptionService) {
+      await transcriptionService.stopAll().catch((err: any) =>
+        log.error('Transcription stop error:', err)
+      );
+    }
     if (browserService) {
       await browserService.close().catch((err: any) =>
-        log.error('Browser service shutdown error:', err)
+        log.error('BrowserService close error:', err)
       );
     }
-    // Graceful shutdown of dashboard server
     if (dashboardServer) {
       await dashboardServer.stop().catch((err: any) =>
-        log.error('Dashboard server shutdown error:', err)
+        log.error('DashboardServer stop error:', err)
       );
     }
-    // Flush embedding cache to disk
-    if (embeddingService) {
-      try { embeddingService.flushCache(); } catch (err) {
-        log.error('Embedding cache flush error:', err);
-      }
+
+    // ── Phase 3: Stop watchers and plugins ──
+    try { ragService?.destroy(); } catch (err) {
+      log.error('RAGService destroy error:', err);
     }
-    // Close SQLite database
-    if (memoryService) {
-      try { memoryService.shutdown(); } catch (err) {
-        log.error('Memory service shutdown error:', err);
-      }
+    try { pluginService?.destroy(); } catch (err) {
+      log.error('PluginService destroy error:', err);
     }
+
+    // ── Phase 4: Cleanup temp resources ──
+    try { ttsService?.cleanup(); } catch (err) {
+      log.error('TTSService cleanup error:', err);
+    }
+
+    // ── Phase 5: Flush caches & persist data (last before DB close) ──
+    try { embeddingService?.flushCache(); } catch (err) {
+      log.error('EmbeddingService flush error:', err);
+    }
+
+    // ── Phase 6: Close database (must be last) ──
+    try { memoryService?.shutdown(); } catch (err) {
+      log.error('MemoryService shutdown error:', err);
+    }
+
+    log.info(`Graceful shutdown completed in ${Date.now() - t0}ms`);
+  };
+
+  // Race: graceful shutdown vs timeout
+  Promise.race([
+    gracefulShutdown(),
+    new Promise<void>((resolve) => setTimeout(() => {
+      log.warn(`Shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms — forcing exit`);
+      resolve();
+    }, SHUTDOWN_TIMEOUT_MS)),
+  ]).finally(() => {
     app.exit();
-  })();
+  });
 });
 
 app.on('activate', () => {
