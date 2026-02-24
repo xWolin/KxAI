@@ -1,16 +1,53 @@
-name: Build & Release
+name: CI / Build & Release
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
+  # ── Quality gate ─────────────────────────────────────
+  quality:
+    name: TypeCheck & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: TypeCheck (main process)
+        run: npx tsc --noEmit -p tsconfig.main.json
+
+      - name: TypeCheck (renderer)
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npx vitest run --reporter=verbose
+
+      - name: Format check
+        run: npm run format:check
+        continue-on-error: true
+
+  # ── Build & package (only on tags or manual) ─────────
   build:
+    needs: quality
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'workflow_dispatch'
+
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +72,7 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: npm ci --legacy-peer-deps
 
       - name: Build app
         run: npm run build
