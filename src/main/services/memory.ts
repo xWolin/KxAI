@@ -2,18 +2,25 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { ConfigService } from './config';
+import { DatabaseService } from './database-service';
+import { createLogger } from './logger';
 
 // Re-export from shared types (canonical source)
 export type { ConversationMessage } from '../../shared/types/ai';
 import type { ConversationMessage } from '../../shared/types/ai';
 
+const log = createLogger('MemoryService');
+
 export class MemoryService {
   private workspacePath: string;
   private conversationHistory: ConversationMessage[] = [];
   private config: ConfigService;
+  private db: DatabaseService;
+  private useSQLite: boolean = true;
 
-  constructor(config: ConfigService) {
+  constructor(config: ConfigService, db?: DatabaseService) {
     this.config = config;
+    this.db = db ?? new DatabaseService();
     const userDataPath = app.getPath('userData');
     this.workspacePath = path.join(userDataPath, 'workspace');
   }
@@ -30,6 +37,22 @@ export class MemoryService {
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
+    }
+
+    // Initialize SQLite database
+    try {
+      this.db.initialize();
+      this.useSQLite = true;
+      log.info('SQLite database initialized');
+
+      // Migrate old JSON sessions if they exist
+      const imported = this.db.importJsonSessions(this.workspacePath);
+      if (imported > 0) {
+        log.info(`Migrated ${imported} JSON sessions to SQLite`);
+      }
+    } catch (err) {
+      log.error('Failed to initialize SQLite, falling back to JSON sessions:', err);
+      this.useSQLite = false;
     }
 
     // Create default files if they don't exist
@@ -115,9 +138,15 @@ export class MemoryService {
 
   addMessage(message: ConversationMessage): void {
     this.conversationHistory.push(message);
-    this.saveTodaySession();
 
-    // Keep history manageable (last 200 messages)
+    // Persist to SQLite (primary) or JSON (fallback)
+    if (this.useSQLite) {
+      this.db.saveMessage(message);
+    } else {
+      this.saveTodaySession();
+    }
+
+    // Keep in-memory history manageable (last 200 messages)
     if (this.conversationHistory.length > 200) {
       this.conversationHistory = this.conversationHistory.slice(-200);
     }
@@ -129,7 +158,12 @@ export class MemoryService {
 
   clearConversationHistory(): void {
     this.conversationHistory = [];
-    this.saveTodaySession();
+
+    if (this.useSQLite) {
+      this.db.clearSession();
+    } else {
+      this.saveTodaySession();
+    }
   }
 
   /**
@@ -146,7 +180,12 @@ export class MemoryService {
       type: 'analysis',
     };
     this.conversationHistory = [summaryMessage, ...recent];
-    this.saveTodaySession();
+
+    if (this.useSQLite) {
+      this.db.replaceSessionMessages(this.conversationHistory);
+    } else {
+      this.saveTodaySession();
+    }
   }
 
   getRecentContext(maxMessages: number = 20): ConversationMessage[] {
@@ -164,6 +203,18 @@ export class MemoryService {
   }
 
   private loadTodaySession(): void {
+    // Load from SQLite if available
+    if (this.useSQLite) {
+      try {
+        this.conversationHistory = this.db.getSessionMessages();
+        log.info(`Loaded ${this.conversationHistory.length} messages from SQLite for today`);
+        return;
+      } catch (err) {
+        log.error('Failed to load from SQLite, falling back to JSON:', err);
+      }
+    }
+
+    // Fallback: load from JSON file
     const sessionPath = path.join(
       this.workspacePath,
       'sessions',
@@ -194,7 +245,7 @@ export class MemoryService {
         'utf8'
       );
     } catch (error) {
-      console.error('Failed to save session:', error);
+      log.error('Failed to save session:', error);
     }
   }
 
@@ -276,6 +327,54 @@ export class MemoryService {
 
     await this.set(file, updated);
     return true;
+  }
+
+  // ─── SQLite-powered features ───
+
+  /**
+   * Full-text search across all conversation history.
+   */
+  searchConversations(query: string, limit: number = 20): import('./database-service').SearchResult[] {
+    if (!this.useSQLite) return [];
+    return this.db.searchMessages(query, limit);
+  }
+
+  /**
+   * Get list of all session dates.
+   */
+  getSessionDates(): string[] {
+    if (!this.useSQLite) return [];
+    return this.db.getSessionDates();
+  }
+
+  /**
+   * Get database statistics.
+   */
+  getDatabaseStats(): { totalMessages: number; totalSessions: number; dbSizeBytes: number } {
+    if (!this.useSQLite) return { totalMessages: 0, totalSessions: 0, dbSizeBytes: 0 };
+    return this.db.getStats();
+  }
+
+  /**
+   * Apply retention policy (archive old, delete very old).
+   */
+  applyRetentionPolicy(): { archived: number; deleted: number } {
+    if (!this.useSQLite) return { archived: 0, deleted: 0 };
+    return this.db.applyRetentionPolicy();
+  }
+
+  /**
+   * Get the underlying DatabaseService (for direct queries if needed).
+   */
+  getDatabase(): DatabaseService {
+    return this.db;
+  }
+
+  /**
+   * Close database connection (call on app shutdown).
+   */
+  shutdown(): void {
+    this.db.close();
   }
 
   // ─── Default Templates ───

@@ -617,6 +617,12 @@ app.on('will-quit', (event) => {
         log.error('Embedding cache flush error:', err);
       }
     }
+    // Close SQLite database
+    if (memoryService) {
+      try { memoryService.shutdown(); } catch (err) {
+        log.error('Memory service shutdown error:', err);
+      }
+    }
     app.exit();
   })();
 });

@@ -43,6 +43,7 @@ src/
 │       ├── cdp-client.ts        # Native CDP client (WebSocket) — replaces playwright-core (Faza 1.1 ✅)
 │       ├── browser-service.ts  # CDP browser automation — native CDP (Faza 1.2 ✅)
 │       ├── automation-service.ts # Desktop automation (mouse/keyboard via OS APIs)
+│       ├── database-service.ts # SQLite storage (better-sqlite3, WAL, FTS5) (Faza 2.3 ✅)
 │       ├── rag-service.ts      # RAG pipeline (chunking + embedding + search)
 │       ├── embedding-service.ts # OpenAI embeddings + TF-IDF fallback
 │       ├── context-manager.ts  # Inteligentne okno kontekstowe (token budget)
@@ -260,28 +261,14 @@ src/
   - Intent classification
 - [ ] Eliminuje potrzebę custom parsingu — AI MUSI zwrócić valid JSON
 
-### Krok 2.3 — Memory v2 — SQLite-backed
-> **Problem**: Flat files nie skalują się, brak search, brak retention.
+### Krok 2.3 — Memory v2 — SQLite-backed ✅
+> **Zaimplementowano**: `database-service.ts` (~430 LOC) z better-sqlite3. WAL mode, FTS5 full-text search, prepared statements, schema migrations. `memory.ts` zaktualizowany — SQLite jako primary storage z JSON fallback. Auto-migracja starych JSON sesji. Retention policy (archive 30d, delete 90d). Graceful shutdown z WAL checkpoint w `main.ts`.
 
-- [ ] Migruj conversation storage z JSON files do SQLite:
-  ```sql
-  CREATE TABLE messages (
-    id TEXT PRIMARY KEY,
-    role TEXT NOT NULL,
-    content TEXT NOT NULL,
-    timestamp INTEGER NOT NULL,
-    type TEXT DEFAULT 'chat',
-    session_date TEXT NOT NULL,
-    embedding BLOB,           -- optional embedding for semantic search
-    token_count INTEGER,
-    importance REAL DEFAULT 0.5
-  );
-  CREATE INDEX idx_messages_session ON messages(session_date);
-  CREATE INDEX idx_messages_timestamp ON messages(timestamp);
-  ```
-- [ ] Zachowaj markdown memory files (SOUL.md, USER.md, MEMORY.md) — to jest dobre
-- [ ] SQLite daje: transakcje, indexy, FTS5 full-text search, WAL mode
-- [ ] Retention policy: auto-archive sessions >30 dni, kompresuj stare do summaries
+- [x] Migruj conversation storage z JSON files do SQLite ✅ (database-service.ts)
+- [x] Zachowaj markdown memory files (SOUL.md, USER.md, MEMORY.md) ✅
+- [x] SQLite: transakcje, indexy, FTS5 full-text search, WAL mode ✅
+- [x] Retention policy: auto-archive sessions >30 dni, delete >90 dni ✅
+- [x] Auto-import starych JSON sessions do SQLite ✅
 
 ### Krok 2.4 — RAG v2 — SQLite vec + hybrid search
 > **Problem**: Obecny RAG trzyma embeddingi w pamięci (JSON cache) — nie skaluje.
@@ -626,7 +613,7 @@ src/
 | 1 | Native Function Calling | 2.1 | 🔴 Critical | M | P0 |
 | 2 | Browser CDP Bypass ✅ | 1.1-1.3 | 🔴 Critical | L | P0 ✅ |
 | 3 | Shared types + path aliases | 0.1 | 🟡 High | S | P0 |
-| 4 | SQLite memory + RAG | 2.3-2.4 | 🟡 High | L | P1 |
+| 4 | SQLite memory ✅ + RAG | 2.3-2.4 | 🟡 High | L | P1 (2.3 ✅) |
 | 5 | Agent Loop modularization | 2.6 | 🟡 High | L | P1 |
 | 6 | Unit tests (safety-critical) | 5.1 | 🟡 High | M | P1 |
 | 7 | Async file operations | 3.3 | 🟢 Medium | M | P2 |
