@@ -570,14 +570,17 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   // Proactive feedback (learning loop)
-  validatedHandle(Ch.PROACTIVE_FEEDBACK, async (_event, data: { ruleId: string; action: 'accepted' | 'dismissed' | 'replied' }) => {
-    services.proactiveEngine.recordFeedback({
-      ruleId: data.ruleId,
-      action: data.action,
-      timestamp: Date.now(),
-    });
-    return { success: true };
-  });
+  validatedHandle(
+    Ch.PROACTIVE_FEEDBACK,
+    async (_event, data: { ruleId: string; action: 'accepted' | 'dismissed' | 'replied' }) => {
+      services.proactiveEngine.recordFeedback({
+        ruleId: data.ruleId,
+        action: data.action,
+        timestamp: Date.now(),
+      });
+      return { success: true };
+    },
+  );
 
   ipcMain.handle(Ch.PROACTIVE_GET_STATS, async () => {
     return services.proactiveEngine.getStats();

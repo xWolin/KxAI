@@ -1448,7 +1448,9 @@ export class RAGService {
         // Rename legacy file to avoid re-checking
         try {
           fs.renameSync(this.legacyIndexPath, this.legacyIndexPath + '.migrated');
-        } catch {}
+        } catch {
+          /* rename non-critical */
+        }
         return;
       }
 
@@ -1471,7 +1473,9 @@ export class RAGService {
       // Rename legacy file
       try {
         fs.renameSync(this.legacyIndexPath, this.legacyIndexPath + '.migrated');
-      } catch {}
+      } catch {
+        /* rename non-critical */
+      }
       log.info('Legacy index migration complete');
     } catch (err) {
       log.warn('Legacy index migration failed (will rebuild on next reindex):', err);

@@ -98,13 +98,20 @@ export class KnowledgeGraphService {
       };
       const newConfidence = Math.min(1, Math.max(existing.confidence, opts.confidence ?? existing.confidence));
 
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE kg_entities
         SET properties = ?, confidence = ?, last_seen = datetime('now'), mention_count = mention_count + 1
         WHERE id = ?
-      `).run(JSON.stringify(mergedProps), newConfidence, existing.id);
+      `,
+      ).run(JSON.stringify(mergedProps), newConfidence, existing.id);
 
-      return this.rowToEntity({ ...existing, properties: JSON.stringify(mergedProps), confidence: newConfidence, mention_count: existing.mention_count + 1 });
+      return this.rowToEntity({
+        ...existing,
+        properties: JSON.stringify(mergedProps),
+        confidence: newConfidence,
+        mention_count: existing.mention_count + 1,
+      });
     }
 
     // Insert new
@@ -122,7 +129,10 @@ export class KnowledgeGraphService {
   /**
    * Update entity properties (partial merge).
    */
-  updateEntity(id: string, updates: { name?: string; properties?: Record<string, unknown>; confidence?: number; active?: boolean }): KGEntity | null {
+  updateEntity(
+    id: string,
+    updates: { name?: string; properties?: Record<string, unknown>; confidence?: number; active?: boolean },
+  ): KGEntity | null {
     const entity = this.getEntity(id);
     if (!entity) return null;
 
@@ -131,7 +141,7 @@ export class KnowledgeGraphService {
       : JSON.stringify(entity.properties);
     const name = updates.name ?? entity.name;
     const confidence = updates.confidence ?? entity.confidence;
-    const active = updates.active !== undefined ? (updates.active ? 1 : 0) : (entity.active ? 1 : 0);
+    const active = updates.active !== undefined ? (updates.active ? 1 : 0) : entity.active ? 1 : 0;
 
     this.stmtUpdateEntity.run(name, newProps, confidence, active, id);
     return this.getEntity(id);
@@ -184,9 +194,11 @@ export class KnowledgeGraphService {
         ...JSON.parse(existing.properties || '{}'),
         ...(opts.properties || {}),
       };
-      db.prepare(`
+      db.prepare(
+        `
         UPDATE kg_relations SET strength = ?, properties = ?, updated_at = datetime('now') WHERE id = ?
-      `).run(newStrength, JSON.stringify(mergedProps), existing.id);
+      `,
+      ).run(newStrength, JSON.stringify(mergedProps), existing.id);
 
       return this.rowToRelation({ ...existing, strength: newStrength, properties: JSON.stringify(mergedProps) });
     }
@@ -234,30 +246,32 @@ export class KnowledgeGraphService {
       const where = conditions.length > 0 ? `AND ${conditions.join(' AND ')}` : '';
 
       rows = db
-        .prepare(`
+        .prepare(
+          `
           SELECT e.*, rank
           FROM kg_entities_fts f
           JOIN kg_entities e ON e.rowid = f.rowid
           WHERE kg_entities_fts MATCH ? ${where}
           ORDER BY rank
           LIMIT ?
-        `)
+        `,
+        )
         .all(ftsQuery, ...params, limit);
     } else {
       const where = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
       rows = db
-        .prepare(`
+        .prepare(
+          `
           SELECT * FROM kg_entities ${where}
           ORDER BY mention_count DESC, last_seen DESC
           LIMIT ?
-        `)
+        `,
+        )
         .all(...params, limit);
     }
 
-    const totalCount = db
-      .prepare(`SELECT COUNT(*) as c FROM kg_entities WHERE active = 1`)
-      .get() as { c: number };
+    const totalCount = db.prepare(`SELECT COUNT(*) as c FROM kg_entities WHERE active = 1`).get() as { c: number };
 
     return {
       entities: rows.map((r: any) => this.rowToEntity(r)),
@@ -280,7 +294,9 @@ export class KnowledgeGraphService {
 
       const entityIds = new Set(entities.map((e: KGEntity) => e.id));
       const relations = db
-        .prepare('SELECT * FROM kg_relations WHERE source_id IN (SELECT id FROM kg_entities WHERE active = 1) ORDER BY strength DESC LIMIT 200')
+        .prepare(
+          'SELECT * FROM kg_relations WHERE source_id IN (SELECT id FROM kg_entities WHERE active = 1) ORDER BY strength DESC LIMIT 200',
+        )
         .all()
         .map((r: any) => this.rowToRelation(r))
         .filter((r: KGRelation) => entityIds.has(r.sourceId) && entityIds.has(r.targetId));
@@ -300,9 +316,7 @@ export class KnowledgeGraphService {
 
       if (level < depth) {
         // Find neighboring relations
-        const rels = db
-          .prepare('SELECT * FROM kg_relations WHERE source_id = ? OR target_id = ?')
-          .all(id, id) as any[];
+        const rels = db.prepare('SELECT * FROM kg_relations WHERE source_id = ? OR target_id = ?').all(id, id) as any[];
 
         for (const rel of rels) {
           allRelations.push(this.rowToRelation(rel));
@@ -315,9 +329,7 @@ export class KnowledgeGraphService {
     }
 
     // Fetch all visited entities
-    const entities = [...visited]
-      .map((id) => this.getEntity(id))
-      .filter((e): e is KGEntity => e !== null);
+    const entities = [...visited].map((id) => this.getEntity(id)).filter((e): e is KGEntity => e !== null);
 
     // Deduplicate relations
     const uniqueRelations = [...new Map(allRelations.map((r) => [r.id, r])).values()];
@@ -341,15 +353,18 @@ export class KnowledgeGraphService {
     const totalEntities = (db.prepare('SELECT COUNT(*) as c FROM kg_entities WHERE active = 1').get() as any).c;
     const totalRelations = (db.prepare('SELECT COUNT(*) as c FROM kg_relations').get() as any).c;
 
-    const typeRows = db
-      .prepare('SELECT type, COUNT(*) as c FROM kg_entities WHERE active = 1 GROUP BY type')
-      .all() as { type: string; c: number }[];
+    const typeRows = db.prepare('SELECT type, COUNT(*) as c FROM kg_entities WHERE active = 1 GROUP BY type').all() as {
+      type: string;
+      c: number;
+    }[];
 
     const entityTypes: Record<string, number> = {};
     for (const row of typeRows) entityTypes[row.type] = row.c;
 
     const topEntities = db
-      .prepare('SELECT name, type, mention_count FROM kg_entities WHERE active = 1 ORDER BY mention_count DESC LIMIT 10')
+      .prepare(
+        'SELECT name, type, mention_count FROM kg_entities WHERE active = 1 ORDER BY mention_count DESC LIMIT 10',
+      )
       .all() as { name: string; type: KGEntityType; mention_count: number }[];
 
     return {
@@ -367,13 +382,15 @@ export class KnowledgeGraphService {
     const db = this.getDb();
 
     const entities = db
-      .prepare(`
+      .prepare(
+        `
         SELECT name, type, properties, mention_count
         FROM kg_entities
         WHERE active = 1
         ORDER BY mention_count DESC, last_seen DESC
         LIMIT ?
-      `)
+      `,
+      )
       .all(maxEntities) as any[];
 
     if (entities.length === 0) return '';
@@ -390,7 +407,8 @@ export class KnowledgeGraphService {
 
     // Top relations
     const relations = db
-      .prepare(`
+      .prepare(
+        `
         SELECT r.relation, s.name as source_name, t.name as target_name
         FROM kg_relations r
         JOIN kg_entities s ON s.id = r.source_id
@@ -398,7 +416,8 @@ export class KnowledgeGraphService {
         WHERE s.active = 1 AND t.active = 1
         ORDER BY r.strength DESC
         LIMIT 10
-      `)
+      `,
+      )
       .all() as { relation: string; source_name: string; target_name: string }[];
 
     if (relations.length > 0) {
@@ -680,7 +699,7 @@ export class KnowledgeGraphService {
           }
           const lines = result.entities.map((e) => {
             const props = Object.entries(e.properties)
-              .filter(([, v]) => v != null && v !== '')
+              .filter(([, v]) => v !== null && v !== undefined && v !== '')
               .map(([k, v]) => `${k}=${v}`)
               .join(', ');
             return `• ${e.name} (${e.type}, id=${e.id}, wzmianki=${e.mentionCount})${props ? ` [${props}]` : ''}`;
@@ -699,11 +718,14 @@ export class KnowledgeGraphService {
     register(
       {
         name: 'kg_get_connections',
-        description:
-          'Pobiera graf połączeń wokół encji (BFS traversal). Zwraca encje i relacje do podanej głębokości.',
+        description: 'Pobiera graf połączeń wokół encji (BFS traversal). Zwraca encje i relacje do podanej głębokości.',
         category: 'knowledge',
         parameters: {
-          entity_id: { type: 'string', description: 'ID encji centralnej (opcjonalny — bez = cały graf)', required: false },
+          entity_id: {
+            type: 'string',
+            description: 'ID encji centralnej (opcjonalny — bez = cały graf)',
+            required: false,
+          },
           depth: { type: 'number', description: 'Głębokość przeszukiwania (domyślnie 1, max 3)', required: false },
         },
       },
@@ -716,16 +738,12 @@ export class KnowledgeGraphService {
             return { success: true, data: 'Graf wiedzy jest pusty.' };
           }
 
-          const entityLines = graph.entities.map(
-            (e) => `• ${e.name} (${e.type}, id=${e.id})`,
-          );
-          const relationLines = graph.relations.map(
-            (r) => {
-              const src = graph.entities.find((e) => e.id === r.sourceId);
-              const tgt = graph.entities.find((e) => e.id === r.targetId);
-              return `  ${src?.name ?? r.sourceId} —[${r.relation}]→ ${tgt?.name ?? r.targetId}`;
-            },
-          );
+          const entityLines = graph.entities.map((e) => `• ${e.name} (${e.type}, id=${e.id})`);
+          const relationLines = graph.relations.map((r) => {
+            const src = graph.entities.find((e) => e.id === r.sourceId);
+            const tgt = graph.entities.find((e) => e.id === r.targetId);
+            return `  ${src?.name ?? r.sourceId} —[${r.relation}]→ ${tgt?.name ?? r.targetId}`;
+          });
 
           return {
             success: true,

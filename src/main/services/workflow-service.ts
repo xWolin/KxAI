@@ -32,7 +32,9 @@ export class WorkflowService {
       if (fs.existsSync(this.patternsPath)) {
         this.patterns = JSON.parse(fs.readFileSync(this.patternsPath, 'utf8'));
       }
-    } catch { /* ignore corrupt data */ }
+    } catch {
+      /* ignore corrupt data */
+    }
   }
 
   private save(): void {
@@ -125,9 +127,8 @@ export class WorkflowService {
   buildTimeContext(): string {
     const now = new Date();
     const days = ['niedziela', 'poniedziałek', 'wtorek', 'środa', 'czwartek', 'piątek', 'sobota'];
-    const timeOfDay = now.getHours() < 6 ? 'noc' :
-      now.getHours() < 12 ? 'rano' :
-      now.getHours() < 18 ? 'po południu' : 'wieczorem';
+    const timeOfDay =
+      now.getHours() < 6 ? 'noc' : now.getHours() < 12 ? 'rano' : now.getHours() < 18 ? 'po południu' : 'wieczorem';
 
     let ctx = `## Czas\n`;
     ctx += `- Teraz: ${now.toLocaleDateString('pl-PL', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}, ${now.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })}\n`;

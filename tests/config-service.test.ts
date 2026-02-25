@@ -102,7 +102,7 @@ describe('ConfigService v2', () => {
       expect(svc.get('aiProvider')).toBe('openai');
       expect(svc.get('aiModel')).toBe('gpt-5');
       expect(svc.get('proactiveMode')).toBe(false);
-      expect(svc.get('proactiveIntervalMs')).toBe(30000);
+      expect(svc.get('proactiveIntervalMs')).toBe(60000);
       expect(svc.get('theme')).toBe('dark');
       expect(svc.get('onboarded')).toBe(false);
       expect(svc.get('agentName')).toBe('KxAI');

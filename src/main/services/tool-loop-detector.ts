@@ -46,7 +46,7 @@ interface ToolCallRecord {
 
 const DEFAULT_CONFIG: LoopDetectorConfig = {
   hashRepeatThreshold: 3,
-  pingPongThreshold: 3,  // 3 pełne cykle A→B→A→B→A→B
+  pingPongThreshold: 3, // 3 pełne cykle A→B→A→B→A→B
   warningIterations: 20,
   criticalIterations: 50,
   sameToolRepeatMax: 5,
@@ -160,7 +160,7 @@ export class ToolLoopDetector {
     if (this.history.length < this.config.hashRepeatThreshold) return null;
 
     const recent = this.history.slice(-this.config.hashRepeatThreshold);
-    const allSameOutput = recent.every(r => r.outputHash === recent[0].outputHash);
+    const allSameOutput = recent.every((r) => r.outputHash === recent[0].outputHash);
     if (allSameOutput) {
       return `Ten sam output ${this.config.hashRepeatThreshold}x z rzędu (tool: ${recent[0].tool})`;
     }
@@ -205,9 +205,7 @@ export class ToolLoopDetector {
     if (this.history.length < this.config.sameToolRepeatMax) return null;
 
     const recent = this.history.slice(-this.config.sameToolRepeatMax);
-    const allSame = recent.every(
-      r => r.tool === recent[0].tool && r.paramsHash === recent[0].paramsHash
-    );
+    const allSame = recent.every((r) => r.tool === recent[0].tool && r.paramsHash === recent[0].paramsHash);
 
     if (allSame) {
       return `${recent[0].tool} wywołane ${this.config.sameToolRepeatMax}x z identycznymi parametrami`;
@@ -220,7 +218,7 @@ export class ToolLoopDetector {
    * Get stats for debugging.
    */
   getStats(): { iteration: number; uniqueTools: number; history: ToolCallRecord[] } {
-    const uniqueTools = new Set(this.history.map(r => r.tool)).size;
+    const uniqueTools = new Set(this.history.map((r) => r.tool)).size;
     return { iteration: this.iteration, uniqueTools, history: [...this.history] };
   }
 

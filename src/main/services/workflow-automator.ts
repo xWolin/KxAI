@@ -71,7 +71,8 @@ export class WorkflowAutomator {
   private recordingStartedAt = 0;
 
   // Tool execution callback (for ToolsService hook)
-  private toolExecuteCallback: ((name: string, params: any, result: ToolResult, durationMs: number) => void) | null = null;
+  private toolExecuteCallback: ((name: string, params: any, result: ToolResult, durationMs: number) => void) | null =
+    null;
 
   // ToolsService reference for replay
   private toolsExecute?: (name: string, params: any) => Promise<ToolResult>;
@@ -323,7 +324,7 @@ export class WorkflowAutomator {
 
     log.info(
       `Macro "${macro.name}" replay ${overallSuccess ? 'completed' : 'failed'}: ` +
-      `${stepsExecuted}/${macro.steps.length} steps in ${totalDurationMs}ms`,
+        `${stepsExecuted}/${macro.steps.length} steps in ${totalDurationMs}ms`,
     );
 
     return {
@@ -400,12 +401,16 @@ export class WorkflowAutomator {
    * Register workflow automator tools with ToolsService.
    */
   registerTools(
-    register: (def: import('../../shared/types/tools').ToolDefinition, handler: (params: any) => Promise<ToolResult>) => void,
+    register: (
+      def: import('../../shared/types/tools').ToolDefinition,
+      handler: (params: any) => Promise<ToolResult>,
+    ) => void,
   ): void {
     register(
       {
         name: 'macro_start',
-        description: 'Rozpocznij nagrywanie makra. Wszystkie kolejne wywołania narzędzi zostaną nagrane jako kroki makra.',
+        description:
+          'Rozpocznij nagrywanie makra. Wszystkie kolejne wywołania narzędzi zostaną nagrane jako kroki makra.',
         category: 'workflow',
         parameters: {
           name: { type: 'string', description: 'Nazwa makra (np. "Generuj raport tygodniowy")', required: true },
@@ -437,9 +442,10 @@ export class WorkflowAutomator {
         if (result.success && result.macro) {
           const m = result.macro;
           const steps = m.steps.map((s) => `  ${s.index + 1}. ${s.toolName}${s.success ? ' ✅' : ' ❌'}`).join('\n');
-          const paramInfo = m.parameters && m.parameters.length > 0
-            ? `\n\nWykryte parametry do podmienienia:\n${m.parameters.map((p) => `  - ${p.name}: ${p.description}`).join('\n')}`
-            : '';
+          const paramInfo =
+            m.parameters && m.parameters.length > 0
+              ? `\n\nWykryte parametry do podmienienia:\n${m.parameters.map((p) => `  - ${p.name}: ${p.description}`).join('\n')}`
+              : '';
           return {
             success: true,
             data: `✅ Makro "${m.name}" zapisane (${m.steps.length} kroków):\n${steps}${paramInfo}\n\nID: ${m.id}`,
@@ -463,9 +469,10 @@ export class WorkflowAutomator {
         }
         const list = macros
           .map((m) => {
-            const params = m.parameters && m.parameters.length > 0
-              ? ` [parametry: ${m.parameters.map((p) => p.name).join(', ')}]`
-              : '';
+            const params =
+              m.parameters && m.parameters.length > 0
+                ? ` [parametry: ${m.parameters.map((p) => p.name).join(', ')}]`
+                : '';
             const lastRun = m.lastRunAt
               ? `, ostatnie uruchomienie: ${new Date(m.lastRunAt).toLocaleString('pl-PL')}`
               : '';
@@ -486,8 +493,7 @@ export class WorkflowAutomator {
           macro_id: { type: 'string', description: 'ID makra do odtworzenia', required: true },
           params: {
             type: 'string',
-            description:
-              'JSON z nadpisanymi parametrami (np. {"filename": "report_Q2.xlsx"}). Opcjonalne.',
+            description: 'JSON z nadpisanymi parametrami (np. {"filename": "report_Q2.xlsx"}). Opcjonalne.',
           },
           stop_on_error: {
             type: 'boolean',
@@ -505,14 +511,13 @@ export class WorkflowAutomator {
           }
         }
 
-        const result = await this.replay(
-          params.macro_id,
-          overrides,
-          params.stop_on_error !== false,
-        );
+        const result = await this.replay(params.macro_id, overrides, params.stop_on_error !== false);
 
         const stepResults = result.results
-          .map((r) => `  ${r.stepIndex + 1}. ${r.toolName}: ${r.success ? '✅' : `❌ ${r.error || ''}`} (${r.durationMs}ms)`)
+          .map(
+            (r) =>
+              `  ${r.stepIndex + 1}. ${r.toolName}: ${r.success ? '✅' : `❌ ${r.error || ''}`} (${r.durationMs}ms)`,
+          )
           .join('\n');
 
         const summary = result.success
@@ -629,8 +634,16 @@ export class WorkflowAutomator {
       for (const [key, value] of Object.entries(step.params)) {
         if (typeof value !== 'string') continue;
         // File paths
-        if ((value.includes('/') || value.includes('\\')) && value.length > 5 && !params.some((p) => p.defaultValue === value)) {
-          if (['path', 'file', 'filename', 'filepath', 'dir', 'directory', 'folder'].some((k) => key.toLowerCase().includes(k))) {
+        if (
+          (value.includes('/') || value.includes('\\')) &&
+          value.length > 5 &&
+          !params.some((p) => p.defaultValue === value)
+        ) {
+          if (
+            ['path', 'file', 'filename', 'filepath', 'dir', 'directory', 'folder'].some((k) =>
+              key.toLowerCase().includes(k),
+            )
+          ) {
             params.push({
               name: key,
               description: `Ścieżka pliku: "${value.slice(0, 80)}${value.length > 80 ? '...' : ''}"`,
@@ -640,7 +653,10 @@ export class WorkflowAutomator {
           }
         }
         // URLs
-        if ((value.startsWith('http://') || value.startsWith('https://')) && !params.some((p) => p.defaultValue === value)) {
+        if (
+          (value.startsWith('http://') || value.startsWith('https://')) &&
+          !params.some((p) => p.defaultValue === value)
+        ) {
           params.push({
             name: key,
             description: `URL: "${value.slice(0, 80)}${value.length > 80 ? '...' : ''}"`,
@@ -665,7 +681,9 @@ export class WorkflowAutomator {
     const sanitized: Record<string, any> = {};
     for (const [key, value] of Object.entries(params)) {
       // Skip sensitive-looking keys
-      if (['password', 'token', 'secret', 'api_key', 'apiKey', 'credential'].some((s) => key.toLowerCase().includes(s))) {
+      if (
+        ['password', 'token', 'secret', 'api_key', 'apiKey', 'credential'].some((s) => key.toLowerCase().includes(s))
+      ) {
         sanitized[key] = '***REDACTED***';
         continue;
       }

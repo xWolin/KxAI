@@ -52,7 +52,9 @@ export class CronService {
     try {
       const data = await fsp.readFile(this.historyPath, 'utf8');
       history = JSON.parse(data);
-    } catch { /* ignore — file may not exist yet */ }
+    } catch {
+      /* ignore — file may not exist yet */
+    }
     history.push(exec);
     // Keep last 500 executions
     if (history.length > 500) history = history.slice(-500);
@@ -109,7 +111,9 @@ export class CronService {
       const data = await fsp.readFile(this.historyPath, 'utf8');
       const history: CronExecution[] = JSON.parse(data);
       return jobId ? history.filter((h) => h.jobId === jobId) : history;
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     return [];
   }
 
@@ -229,9 +233,12 @@ export class CronService {
     if (durationMatch) {
       const val = parseInt(durationMatch[1]);
       switch (durationMatch[2].toLowerCase()) {
-        case 's': return val * 1000;
-        case 'm': return val * 60 * 1000;
-        case 'h': return val * 60 * 60 * 1000;
+        case 's':
+          return val * 1000;
+        case 'm':
+          return val * 60 * 1000;
+        case 'h':
+          return val * 60 * 60 * 1000;
       }
     }
 

@@ -259,7 +259,11 @@ export class DashboardServer {
     this.app.post('/api/meeting-prep/research-one', async (req: Request, res: Response) => {
       try {
         const { name, company, role, photoBase64, userContext } = req.body as {
-          name: string; company?: string; role?: string; photoBase64?: string; userContext?: string;
+          name: string;
+          company?: string;
+          role?: string;
+          photoBase64?: string;
+          userContext?: string;
         };
 
         if (!name || name.trim().length < 2) {
@@ -298,35 +302,56 @@ export class DashboardServer {
     });
 
     this.app.post('/api/mcp/connect', async (req: Request, res: Response) => {
-      if (!this.services.mcpClient) { res.status(503).json({ success: false, error: 'MCP not available' }); return; }
+      if (!this.services.mcpClient) {
+        res.status(503).json({ success: false, error: 'MCP not available' });
+        return;
+      }
       try {
         await this.services.mcpClient.connect(req.body.id);
         res.json({ success: true });
-      } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+      } catch (err: any) {
+        res.status(500).json({ success: false, error: err.message });
+      }
     });
 
     this.app.post('/api/mcp/disconnect', async (req: Request, res: Response) => {
-      if (!this.services.mcpClient) { res.status(503).json({ success: false, error: 'MCP not available' }); return; }
+      if (!this.services.mcpClient) {
+        res.status(503).json({ success: false, error: 'MCP not available' });
+        return;
+      }
       try {
         await this.services.mcpClient.disconnect(req.body.id);
         res.json({ success: true });
-      } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+      } catch (err: any) {
+        res.status(500).json({ success: false, error: err.message });
+      }
     });
 
     this.app.post('/api/mcp/remove', async (req: Request, res: Response) => {
-      if (!this.services.mcpClient) { res.status(503).json({ success: false, error: 'MCP not available' }); return; }
+      if (!this.services.mcpClient) {
+        res.status(503).json({ success: false, error: 'MCP not available' });
+        return;
+      }
       try {
         await this.services.mcpClient.removeServer(req.body.id);
         res.json({ success: true });
-      } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+      } catch (err: any) {
+        res.status(500).json({ success: false, error: err.message });
+      }
     });
 
     this.app.post('/api/mcp/add-from-registry', async (req: Request, res: Response) => {
-      if (!this.services.mcpClient) { res.status(503).json({ success: false, error: 'MCP not available' }); return; }
+      if (!this.services.mcpClient) {
+        res.status(503).json({ success: false, error: 'MCP not available' });
+        return;
+      }
       try {
         const registry = this.services.mcpClient.getRegistry();
-        const entry = registry.find(r => r.id === req.body.registryId);
-        if (!entry) { res.status(404).json({ success: false, error: 'Registry entry not found' }); return; }
+        const entry = registry.find((r) => r.id === req.body.registryId);
+        if (!entry) {
+          res.status(404).json({ success: false, error: 'Registry entry not found' });
+          return;
+        }
 
         const config = {
           name: entry.name,
@@ -348,7 +373,9 @@ export class DashboardServer {
         }
 
         res.json({ success: true, data: server });
-      } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+      } catch (err: any) {
+        res.status(500).json({ success: false, error: err.message });
+      }
     });
 
     // ─── Dashboard SPA ───

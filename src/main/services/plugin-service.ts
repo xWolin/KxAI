@@ -6,7 +6,7 @@ import { ToolDefinition, ToolResult } from './tools-service';
 
 /**
  * PluginService — dynamiczne ładowanie narzędzi z katalogu plugins/.
- * 
+ *
  * Format pluginu (CommonJS):
  * ```
  * module.exports = {
@@ -69,8 +69,7 @@ export class PluginService {
     this.loadedPlugins.clear();
 
     try {
-      const files = fs.readdirSync(this.pluginsDir)
-        .filter((f) => f.endsWith('.js') && !f.startsWith('_'));
+      const files = fs.readdirSync(this.pluginsDir).filter((f) => f.endsWith('.js') && !f.startsWith('_'));
 
       for (const file of files) {
         await this.loadPlugin(file);
@@ -136,7 +135,9 @@ export class PluginService {
       // 2) Check if plugin is approved (by hash)
       const approvedHash = this.approvedPluginHashes.get(fileName);
       if (approvedHash && approvedHash !== fileHash) {
-        console.warn(`PluginService: Plugin "${fileName}" was modified since approval — skipping. Re-approve via plugins panel.`);
+        console.warn(
+          `PluginService: Plugin "${fileName}" was modified since approval — skipping. Re-approve via plugins panel.`,
+        );
         return;
       }
 

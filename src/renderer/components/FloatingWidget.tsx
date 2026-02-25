@@ -13,7 +13,15 @@ interface FloatingWidgetProps {
   wantsToSpeak?: boolean;
 }
 
-export function FloatingWidget({ emoji, name, onClick, hasNotification, controlActive, hasSuggestion, wantsToSpeak }: FloatingWidgetProps) {
+export function FloatingWidget({
+  emoji,
+  name,
+  onClick,
+  hasNotification,
+  controlActive,
+  hasSuggestion,
+  wantsToSpeak,
+}: FloatingWidgetProps) {
   const { t } = useTranslation();
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
@@ -35,44 +43,47 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
     };
   }, []);
 
-  const handleMouseDown = useCallback(async (e: React.MouseEvent) => {
-    isDragging.current = false;
-    dragStart.current = { x: e.screenX, y: e.screenY };
+  const handleMouseDown = useCallback(
+    async (e: React.MouseEvent) => {
+      isDragging.current = false;
+      dragStart.current = { x: e.screenX, y: e.screenY };
 
-    // Get window position once at drag start
-    const pos = await window.kxai.getWindowPosition();
-    windowPosRef.current = pos;
+      // Get window position once at drag start
+      const pos = await window.kxai.getWindowPosition();
+      windowPosRef.current = pos;
 
-    const onMouseMove = (ev: MouseEvent) => {
-      const dx = ev.screenX - dragStart.current.x;
-      const dy = ev.screenY - dragStart.current.y;
-      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
-        isDragging.current = true;
-        const newX = windowPosRef.current[0] + dx;
-        const newY = windowPosRef.current[1] + dy;
-        window.kxai.setWindowPosition(newX, newY);
-        windowPosRef.current = [newX, newY];
-        dragStart.current = { x: ev.screenX, y: ev.screenY };
-      }
-    };
+      const onMouseMove = (ev: MouseEvent) => {
+        const dx = ev.screenX - dragStart.current.x;
+        const dy = ev.screenY - dragStart.current.y;
+        if (Math.abs(dx) > 3 || Math.abs(dy) > 3) {
+          isDragging.current = true;
+          const newX = windowPosRef.current[0] + dx;
+          const newY = windowPosRef.current[1] + dy;
+          window.kxai.setWindowPosition(newX, newY);
+          windowPosRef.current = [newX, newY];
+          dragStart.current = { x: ev.screenX, y: ev.screenY };
+        }
+      };
 
-    const onMouseUp = () => {
-      window.removeEventListener('mousemove', onMouseMove);
-      window.removeEventListener('mouseup', onMouseUp);
-      moveHandlerRef.current = null;
-      upHandlerRef.current = null;
-      if (!isDragging.current) {
-        onClick();
-      }
-    };
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+        moveHandlerRef.current = null;
+        upHandlerRef.current = null;
+        if (!isDragging.current) {
+          onClick();
+        }
+      };
 
-    // Store refs for cleanup on unmount
-    moveHandlerRef.current = onMouseMove;
-    upHandlerRef.current = onMouseUp;
+      // Store refs for cleanup on unmount
+      moveHandlerRef.current = onMouseMove;
+      upHandlerRef.current = onMouseUp;
 
-    window.addEventListener('mousemove', onMouseMove);
-    window.addEventListener('mouseup', onMouseUp);
-  }, [onClick]);
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    },
+    [onClick],
+  );
 
   // Priority: control > suggestion > speak > notify > normal
   const stateClass = controlActive
@@ -105,12 +116,15 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
     }
   }, []);
 
-  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault();
-      onClick();
-    }
-  }, [onClick]);
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onClick();
+      }
+    },
+    [onClick],
+  );
 
   return (
     <div
@@ -125,16 +139,12 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
       title={titleText}
     >
       <span className={s.emoji}>{emoji}</span>
-      
+
       {/* Notification badge */}
-      {(hasNotification || hasSuggestion || wantsToSpeak) && (
-        <div className={s.badge} aria-hidden="true" />
-      )}
+      {(hasNotification || hasSuggestion || wantsToSpeak) && <div className={s.badge} aria-hidden="true" />}
 
       {/* Control active indicator */}
-      {controlActive && (
-        <div className={s.controlRing} />
-      )}
+      {controlActive && <div className={s.controlRing} />}
     </div>
   );
 }

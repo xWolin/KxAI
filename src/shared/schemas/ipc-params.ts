@@ -141,11 +141,7 @@ const MacroDeleteParams = z.tuple([nonEmptyString]);
 const MacroRenameParams = z.tuple([nonEmptyString, nonEmptyString]);
 const MacroStartRecordingParams = z.tuple([nonEmptyString]);
 const MacroStopRecordingParams = z.tuple([optionalString]);
-const MacroReplayParams = z.tuple([
-  nonEmptyString,
-  optionalString,
-  z.boolean().optional(),
-]);
+const MacroReplayParams = z.tuple([nonEmptyString, optionalString, z.boolean().optional()]);
 
 // ─── RAG ───
 

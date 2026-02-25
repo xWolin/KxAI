@@ -118,10 +118,10 @@ export class DiagnosticService {
     const duration = Date.now() - startTime;
 
     const summary = {
-      pass: results.filter(r => r.status === 'pass').length,
-      fail: results.filter(r => r.status === 'fail').length,
-      warn: results.filter(r => r.status === 'warn').length,
-      skip: results.filter(r => r.status === 'skip').length,
+      pass: results.filter((r) => r.status === 'pass').length,
+      fail: results.filter((r) => r.status === 'fail').length,
+      warn: results.filter((r) => r.status === 'warn').length,
+      skip: results.filter((r) => r.status === 'skip').length,
     };
 
     const sysInfo = this.systemMonitor.getSystemInfo();
@@ -229,7 +229,7 @@ export class DiagnosticService {
     const t0 = Date.now();
     try {
       const jobs = this.cron.getJobs();
-      const activeJobs = jobs.filter(j => j.enabled).length;
+      const activeJobs = jobs.filter((j) => j.enabled).length;
       return {
         name: 'Cron Jobs',
         status: 'pass',
@@ -316,7 +316,13 @@ export class DiagnosticService {
         details: `Zindeksowany: ${stats.indexed ? 'tak' : 'nie'}, ${stats.totalChunks} chunków z ${stats.totalFiles} plików, Embedding: ${stats.embeddingType}, Test search: ${searchResult.length} wyników`,
       };
     } catch (err: any) {
-      return { name: 'RAG / Vector Search', status: 'fail', latencyMs: Date.now() - t0, details: '', error: err.message };
+      return {
+        name: 'RAG / Vector Search',
+        status: 'fail',
+        latencyMs: Date.now() - t0,
+        details: '',
+        error: err.message,
+      };
     }
   }
 
@@ -334,7 +340,13 @@ export class DiagnosticService {
         details: `Serwis dostępny, przeglądarka: ${running ? 'uruchomiona' : 'nie uruchomiona (gotowa do startu)'}`,
       };
     } catch (err: any) {
-      return { name: 'Przeglądarka (Browser)', status: 'fail', latencyMs: Date.now() - t0, details: '', error: err.message };
+      return {
+        name: 'Przeglądarka (Browser)',
+        status: 'fail',
+        latencyMs: Date.now() - t0,
+        details: '',
+        error: err.message,
+      };
     }
   }
 
@@ -353,7 +365,13 @@ export class DiagnosticService {
         details: `Enabled: ${config.enabled}, Provider: ${config.provider}, Voice: ${config.openaiVoice || 'default'}, Model: ${config.openaiModel}, Mówi teraz: ${speaking ? 'tak' : 'nie'}`,
       };
     } catch (err: any) {
-      return { name: 'TTS (Text-to-Speech)', status: 'fail', latencyMs: Date.now() - t0, details: '', error: err.message };
+      return {
+        name: 'TTS (Text-to-Speech)',
+        status: 'fail',
+        latencyMs: Date.now() - t0,
+        details: '',
+        error: err.message,
+      };
     }
   }
 
@@ -385,7 +403,7 @@ export class DiagnosticService {
       const response = await this.ai.sendMessage(
         'Odpowiedz jednym słowem: OK',
         undefined,
-        'Jesteś systemem diagnostycznym. Odpowiadaj jednym słowem.'
+        'Jesteś systemem diagnostycznym. Odpowiadaj jednym słowem.',
       );
       const latency = Date.now() - t0;
       const gotResponse = response && response.trim().length > 0;

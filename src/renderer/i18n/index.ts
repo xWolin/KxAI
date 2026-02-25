@@ -34,11 +34,7 @@ const dictionaries: Record<Locale, TranslationDict> = { pl, en };
  * Supports `{param}` interpolation.
  * Fallback: locale dict → PL dict → raw key.
  */
-export function translate(
-  key: string,
-  locale: Locale,
-  params?: Record<string, string | number>,
-): string {
+export function translate(key: string, locale: Locale, params?: Record<string, string | number>): string {
   const dict = dictionaries[locale] ?? dictionaries.pl;
   let text = dict[key] ?? dictionaries.pl[key] ?? key;
   if (params) {
@@ -62,8 +58,7 @@ export function translate(
 export function useTranslation() {
   const locale = (useConfigStore((s) => s.config?.userLanguage) ?? 'pl') as Locale;
   return {
-    t: (key: string, params?: Record<string, string | number>) =>
-      translate(key, locale, params),
+    t: (key: string, params?: Record<string, string | number>) => translate(key, locale, params),
     locale,
   };
 }

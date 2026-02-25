@@ -610,8 +610,8 @@ function createBuiltinRules(): ProactiveRule[] {
 
       generate(ctx: ProactiveContext): ProactiveNotification {
         const cpu = ctx.systemSnapshot!.cpu;
-        const topProcs = ctx.systemSnapshot!.topProcesses
-          .filter((p) => p.cpuPercent > 20)
+        const topProcs = ctx
+          .systemSnapshot!.topProcesses.filter((p) => p.cpuPercent > 20)
           .slice(0, 3)
           .map((p) => `${p.name} (${Math.round(p.cpuPercent)}%)`)
           .join(', ');
@@ -775,8 +775,8 @@ function createBuiltinRules(): ProactiveRule[] {
 
       generate(ctx: ProactiveContext): ProactiveNotification {
         const mem = ctx.systemSnapshot!.memory;
-        const topMemProcs = ctx.systemSnapshot!.topProcesses
-          .filter((p) => p.memoryMB > 500)
+        const topMemProcs = ctx
+          .systemSnapshot!.topProcesses.filter((p) => p.memoryMB > 500)
           .slice(0, 3)
           .map((p) => `${p.name} (${Math.round(p.memoryMB)} MB)`)
           .join(', ');
@@ -804,7 +804,8 @@ function createBuiltinRules(): ProactiveRule[] {
       generate(ctx: ProactiveContext): ProactiveNotification {
         return {
           type: 'proactive',
-          message: '🎮 Weekend wieczór, a Ty wciąż przy komputerze! Może czas na odpoczynek? Twoje zdrowie jest ważniejsze niż kolejny commit. 😉',
+          message:
+            '🎮 Weekend wieczór, a Ty wciąż przy komputerze! Może czas na odpoczynek? Twoje zdrowie jest ważniejsze niż kolejny commit. 😉',
           context: 'wellness:weekend',
         };
       },

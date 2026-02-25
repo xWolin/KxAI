@@ -26,11 +26,11 @@ interface ContextWindow {
 }
 
 interface ContextManagerConfig {
-  maxContextTokens: number;       // Max tokenów na kontekst (default: 80000 — ~60% okna 128k modelu)
-  reserveForResponse: number;     // Tokeny zarezerwowane na odpowiedź AI (default: 8192)
-  summaryThreshold: number;       // Powyżej ilu wiadomości summaryzować (default: 60)
-  importanceDecayRate: number;    // Jak szybko maleje ważność starych wiadomości (0-1)
-  minMessagesToKeep: number;      // Minimum wiadomości do zachowania (default: 10)
+  maxContextTokens: number; // Max tokenów na kontekst (default: 80000 — ~60% okna 128k modelu)
+  reserveForResponse: number; // Tokeny zarezerwowane na odpowiedź AI (default: 8192)
+  summaryThreshold: number; // Powyżej ilu wiadomości summaryzować (default: 60)
+  importanceDecayRate: number; // Jak szybko maleje ważność starych wiadomości (0-1)
+  minMessagesToKeep: number; // Minimum wiadomości do zachowania (default: 10)
 }
 
 // Keyword patterns that indicate high-importance messages
@@ -84,16 +84,13 @@ export class ContextManager {
    * Build an optimized context window from conversation history.
    * Returns the best set of messages that fits within the token budget.
    */
-  buildContextWindow(
-    history: ConversationMessage[],
-    systemPromptTokens: number = 0,
-  ): ContextWindow {
+  buildContextWindow(history: ConversationMessage[], systemPromptTokens: number = 0): ContextWindow {
     const rawAvailable = this.config.maxContextTokens - this.config.reserveForResponse - systemPromptTokens;
     const availableTokens = Math.max(0, rawAvailable);
 
     if (rawAvailable < 0) {
       console.warn(
-        `[ContextManager] availableTokens clamped to 0 (maxContext=${this.config.maxContextTokens}, reserve=${this.config.reserveForResponse}, systemPrompt=${systemPromptTokens}, deficit=${-rawAvailable})`
+        `[ContextManager] availableTokens clamped to 0 (maxContext=${this.config.maxContextTokens}, reserve=${this.config.reserveForResponse}, systemPrompt=${systemPromptTokens}, deficit=${-rawAvailable})`,
       );
     }
 
@@ -102,9 +99,7 @@ export class ContextManager {
     }
 
     // Score all messages
-    const scored = history.map((msg, idx) =>
-      this.scoreMessage(msg, idx, history.length)
-    );
+    const scored = history.map((msg, idx) => this.scoreMessage(msg, idx, history.length));
 
     // Always keep the last N messages regardless of score
     const guaranteedCount = Math.min(this.config.minMessagesToKeep, scored.length);
@@ -126,9 +121,7 @@ export class ContextManager {
     }
 
     // Re-sort selected candidates by timestamp (chronological order)
-    selectedCandidates.sort(
-      (a, b) => a.message.timestamp - b.message.timestamp
-    );
+    selectedCandidates.sort((a, b) => a.message.timestamp - b.message.timestamp);
 
     // Build summary from dropped messages if any were dropped
     const droppedCount = history.length - selectedCandidates.length - guaranteedCount;
@@ -136,17 +129,12 @@ export class ContextManager {
 
     if (droppedCount > 0 && history.length > this.config.summaryThreshold) {
       summary = this.buildInlineSummary(
-        candidates
-          .filter((c) => !selectedCandidates.includes(c))
-          .map((c) => c.message)
+        candidates.filter((c) => !selectedCandidates.includes(c)).map((c) => c.message),
       );
     }
 
     // Combine: summary context + selected older messages + guaranteed recent
-    const finalMessages = [
-      ...selectedCandidates.map((s) => s.message),
-      ...guaranteed.map((s) => s.message),
-    ];
+    const finalMessages = [...selectedCandidates.map((s) => s.message), ...guaranteed.map((s) => s.message)];
 
     return {
       messages: finalMessages,
@@ -159,11 +147,7 @@ export class ContextManager {
   /**
    * Score a message for importance.
    */
-  private scoreMessage(
-    msg: ConversationMessage,
-    index: number,
-    totalMessages: number,
-  ): ScoredMessage {
+  private scoreMessage(msg: ConversationMessage, index: number, totalMessages: number): ScoredMessage {
     const tokens = this.estimateTokens(msg.content);
     let importance = 0.5; // base
 
@@ -268,9 +252,7 @@ export class ContextManager {
         const match = msg.content.match(pattern);
         if (match) {
           // Get the sentence containing the match
-          const sentenceMatch = msg.content.match(
-            new RegExp(`[^.!?\\n]*${match[0]}[^.!?\\n]*[.!?]?`)
-          );
+          const sentenceMatch = msg.content.match(new RegExp(`[^.!?\\n]*${match[0]}[^.!?\\n]*[.!?]?`));
           if (sentenceMatch) {
             points.push(sentenceMatch[0].trim().slice(0, 150));
           }

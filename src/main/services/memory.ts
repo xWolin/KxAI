@@ -104,7 +104,9 @@ export class MemoryService {
     try {
       await fsp.access(bootstrapPath);
       await fsp.unlink(bootstrapPath);
-    } catch { /* file does not exist, nothing to do */ }
+    } catch {
+      /* file does not exist, nothing to do */
+    }
   }
 
   private async ensureFile(name: string, defaultContent: string): Promise<void> {
@@ -118,7 +120,7 @@ export class MemoryService {
 
   async get(key: string): Promise<string | null> {
     const filePath = path.join(this.workspacePath, key);
-    
+
     // Security: prevent path traversal
     const resolved = path.resolve(filePath);
     if (!resolved.startsWith(path.resolve(this.workspacePath))) {
@@ -134,7 +136,7 @@ export class MemoryService {
 
   async set(key: string, value: string): Promise<void> {
     const filePath = path.join(this.workspacePath, key);
-    
+
     // Security: prevent path traversal
     const resolved = path.resolve(filePath);
     if (!resolved.startsWith(path.resolve(this.workspacePath))) {
@@ -227,11 +229,7 @@ export class MemoryService {
     }
 
     // Fallback: load from JSON file
-    const sessionPath = path.join(
-      this.workspacePath,
-      'sessions',
-      this.getTodayFileName()
-    );
+    const sessionPath = path.join(this.workspacePath, 'sessions', this.getTodayFileName());
 
     if (fs.existsSync(sessionPath)) {
       try {
@@ -244,18 +242,10 @@ export class MemoryService {
   }
 
   private saveTodaySession(): void {
-    const sessionPath = path.join(
-      this.workspacePath,
-      'sessions',
-      this.getTodayFileName()
-    );
+    const sessionPath = path.join(this.workspacePath, 'sessions', this.getTodayFileName());
 
     // Fire-and-forget async write
-    fsp.writeFile(
-      sessionPath,
-      JSON.stringify(this.conversationHistory, null, 2),
-      'utf8'
-    ).catch((error) => {
+    fsp.writeFile(sessionPath, JSON.stringify(this.conversationHistory, null, 2), 'utf8').catch((error) => {
       log.error('Failed to save session:', error);
     });
   }
@@ -263,14 +253,14 @@ export class MemoryService {
   // ─── Build Context for AI ───
 
   async buildSystemContext(): Promise<string> {
-    const soul = await this.get('SOUL.md') || '';
-    const user = await this.get('USER.md') || '';
-    const memory = await this.get('MEMORY.md') || '';
+    const soul = (await this.get('SOUL.md')) || '';
+    const user = (await this.get('USER.md')) || '';
+    const memory = (await this.get('MEMORY.md')) || '';
 
     // Load today's daily memory
     const now = new Date();
     const todayKey = `memory/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.md`;
-    const dailyMemory = await this.get(todayKey) || '';
+    const dailyMemory = (await this.get(todayKey)) || '';
 
     return [
       '# KxAI System Context',
@@ -284,8 +274,10 @@ export class MemoryService {
       '## Long-Term Memory',
       memory,
       '',
-      dailyMemory ? `## Today\'s Notes\n${dailyMemory}` : '',
-    ].filter(Boolean).join('\n');
+      dailyMemory ? `## Today's Notes\n${dailyMemory}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   // ─── Update Memory from Conversation ───
@@ -293,11 +285,11 @@ export class MemoryService {
   async updateDailyMemory(note: string): Promise<void> {
     const now = new Date();
     const key = `memory/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.md`;
-    
-    const existing = await this.get(key) || `# Dziennik — ${now.toLocaleDateString('pl-PL')}\n\n`;
+
+    const existing = (await this.get(key)) || `# Dziennik — ${now.toLocaleDateString('pl-PL')}\n\n`;
     const timestamp = now.toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
     const updated = `${existing}\n- [${timestamp}] ${note}`;
-    
+
     await this.set(key, updated);
   }
 
@@ -306,7 +298,11 @@ export class MemoryService {
    * If the section exists, replaces its content. If not, appends it.
    * Used by agent-loop to let AI self-update its personality/knowledge.
    */
-  async updateMemorySection(file: 'SOUL.md' | 'USER.md' | 'MEMORY.md', section: string, content: string): Promise<boolean> {
+  async updateMemorySection(
+    file: 'SOUL.md' | 'USER.md' | 'MEMORY.md',
+    section: string,
+    content: string,
+  ): Promise<boolean> {
     const allowed = ['SOUL.md', 'USER.md', 'MEMORY.md'];
     if (!allowed.includes(file)) return false;
 

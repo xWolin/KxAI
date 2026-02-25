@@ -82,7 +82,9 @@ export class SubAgentManager {
    */
   async spawn(task: SubAgentTask): Promise<string> {
     if (this.agents.size >= MAX_CONCURRENT_AGENTS) {
-      throw new Error(`Limit sub-agentów (${MAX_CONCURRENT_AGENTS}) osiągnięty. Zakończ innego agenta przed stworzeniem nowego.`);
+      throw new Error(
+        `Limit sub-agentów (${MAX_CONCURRENT_AGENTS}) osiągnięty. Zakończ innego agenta przed stworzeniem nowego.`,
+      );
     }
 
     const id = `subagent-${uuidv4().slice(0, 8)}`;
@@ -106,7 +108,7 @@ export class SubAgentManager {
     this.agents.set(id, agent);
 
     // Run in background (non-blocking)
-    this.runAgent(agent).catch(err => {
+    this.runAgent(agent).catch((err) => {
       console.error(`[SubAgent ${id}] Uncaught error:`, err);
       agent.status = 'failed';
       agent.output = `Error: ${err.message}`;
@@ -165,8 +167,8 @@ export class SubAgentManager {
    */
   listActive(): SubAgentInfo[] {
     return [...this.agents.values()]
-      .filter(a => a.status === 'running' || a.status === 'pending')
-      .map(a => ({
+      .filter((a) => a.status === 'running' || a.status === 'pending')
+      .map((a) => ({
         id: a.id,
         task: a.task.task,
         status: a.status,
@@ -199,13 +201,15 @@ export class SubAgentManager {
     const active = this.listActive();
     if (active.length === 0) return '';
 
-    const lines = active.map(a => {
+    const lines = active.map((a) => {
       const elapsed = Math.round((Date.now() - a.startedAt) / 1000);
       return `- [${a.id}] "${a.task.slice(0, 80)}" — status: ${a.status}, iteracje: ${a.iterations}, czas: ${elapsed}s`;
     });
 
-    return `\n## 🤖 Sub-agenty (${active.length}/${MAX_CONCURRENT_AGENTS})\n${lines.join('\n')}\n` +
-      `Możesz sterować sub-agentami: spawn_subagent, kill_subagent, steer_subagent\n`;
+    return (
+      `\n## 🤖 Sub-agenty (${active.length}/${MAX_CONCURRENT_AGENTS})\n${lines.join('\n')}\n` +
+      `Możesz sterować sub-agentami: spawn_subagent, kill_subagent, steer_subagent\n`
+    );
   }
 
   // ─── Private ───
@@ -220,16 +224,13 @@ export class SubAgentManager {
 
     try {
       // Initial message
-      const initialResponse = await this.ai.sendMessage(
-        agent.task.task,
-        agent.task.systemContext,
-        systemPrompt,
-        { skipHistory: true }
-      );
+      const initialResponse = await this.ai.sendMessage(agent.task.task, agent.task.systemContext, systemPrompt, {
+        skipHistory: true,
+      });
 
       agent.conversationHistory.push(
         { role: 'user', content: agent.task.task },
-        { role: 'assistant', content: initialResponse }
+        { role: 'assistant', content: initialResponse },
       );
 
       let currentResponse = initialResponse;
@@ -243,13 +244,8 @@ export class SubAgentManager {
         if (agent.task.allowedTools && !agent.task.allowedTools.includes(toolCall.tool)) {
           const msg = `Narzędzie "${toolCall.tool}" nie jest dozwolone dla tego sub-agenta.`;
           agent.conversationHistory.push({ role: 'user', content: msg });
-          
-          currentResponse = await this.ai.sendMessage(
-            msg,
-            undefined,
-            systemPrompt,
-            { skipHistory: true }
-          );
+
+          currentResponse = await this.ai.sendMessage(msg, undefined, systemPrompt, { skipHistory: true });
           agent.conversationHistory.push({ role: 'assistant', content: currentResponse });
           continue;
         }
@@ -270,7 +266,7 @@ export class SubAgentManager {
         const loopCheck: LoopCheckResult = agent.detector.recordAndCheck(
           toolCall.tool,
           toolCall.params,
-          result.data || result.error
+          result.data || result.error,
         );
 
         let feedbackMsg = this.sanitizeToolOutput(toolCall.tool, result.data || result.error);
@@ -285,21 +281,17 @@ export class SubAgentManager {
 
         agent.conversationHistory.push({ role: 'user', content: feedbackMsg });
 
-        currentResponse = await this.ai.sendMessage(
-          feedbackMsg,
-          undefined,
-          systemPrompt,
-          { skipHistory: true }
-        );
+        currentResponse = await this.ai.sendMessage(feedbackMsg, undefined, systemPrompt, { skipHistory: true });
         agent.conversationHistory.push({ role: 'assistant', content: currentResponse });
 
         if (!loopCheck.shouldContinue) break;
       }
 
-      agent.output = agent.conversationHistory
-        .filter(m => m.role === 'assistant')
-        .map(m => m.content)
-        .pop() || '';
+      agent.output =
+        agent.conversationHistory
+          .filter((m) => m.role === 'assistant')
+          .map((m) => m.content)
+          .pop() || '';
 
       agent.status = agent.abortFlag ? 'killed' : 'completed';
     } catch (err: any) {
@@ -342,7 +334,9 @@ export class SubAgentManager {
       'Używaj narzędzi aby wykonać zadanie. Kiedy skończysz, napisz WYNIK i podsumowanie.',
       'Bądź zwięzły i efektywny.',
       agent.task.systemContext || '',
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   private parseToolCall(response: string): { tool: string; params: any } | null {
@@ -353,7 +347,9 @@ export class SubAgentManager {
       if (parsed.tool && typeof parsed.tool === 'string') {
         return { tool: parsed.tool, params: parsed.params || {} };
       }
-    } catch { /* invalid JSON */ }
+    } catch {
+      /* invalid JSON */
+    }
     return null;
   }
 

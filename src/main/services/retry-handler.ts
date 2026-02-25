@@ -11,14 +11,14 @@
  */
 
 interface RetryConfig {
-  maxRetries: number;           // Default: 3
-  baseDelayMs: number;          // Default: 1000
-  maxDelayMs: number;           // Default: 30000
-  backoffMultiplier: number;    // Default: 2
-  jitterFactor: number;         // Default: 0.25 (25% randomness)
-  retryableErrors: string[];    // Error messages/codes worth retrying
+  maxRetries: number; // Default: 3
+  baseDelayMs: number; // Default: 1000
+  maxDelayMs: number; // Default: 30000
+  backoffMultiplier: number; // Default: 2
+  jitterFactor: number; // Default: 0.25 (25% randomness)
+  retryableErrors: string[]; // Error messages/codes worth retrying
   circuitBreakerThreshold: number; // Default: 5 consecutive failures
-  circuitBreakerResetMs: number;   // Default: 60000 (1 min)
+  circuitBreakerResetMs: number; // Default: 60000 (1 min)
 }
 
 interface CircuitBreakerState {
@@ -46,11 +46,11 @@ const DEFAULT_RETRYABLE_PATTERNS = [
   'socket hang up',
   'network',
   // HTTP status codes
-  '429',        // Rate limited
-  '500',        // Internal server error
-  '502',        // Bad gateway
-  '503',        // Service unavailable
-  '504',        // Gateway timeout
+  '429', // Rate limited
+  '500', // Internal server error
+  '502', // Bad gateway
+  '503', // Service unavailable
+  '504', // Gateway timeout
   // OpenAI specific
   'Rate limit',
   'rate_limit_exceeded',
@@ -87,11 +87,7 @@ export class RetryHandler {
    * @param fn - The async function to execute
    * @param overrides - Optional per-call config overrides
    */
-  async execute<T>(
-    operationName: string,
-    fn: () => Promise<T>,
-    overrides?: Partial<RetryConfig>,
-  ): Promise<T> {
+  async execute<T>(operationName: string, fn: () => Promise<T>, overrides?: Partial<RetryConfig>): Promise<T> {
     const config = { ...this.config, ...overrides };
 
     // Check circuit breaker
@@ -100,7 +96,7 @@ export class RetryHandler {
       const elapsed = Date.now() - circuit.lastFailure;
       if (elapsed < config.circuitBreakerResetMs) {
         throw new Error(
-          `Circuit breaker otwarty dla "${operationName}" — zbyt wiele błędów. Spróbuj za ${Math.ceil((config.circuitBreakerResetMs - elapsed) / 1000)}s.`
+          `Circuit breaker otwarty dla "${operationName}" — zbyt wiele błędów. Spróbuj za ${Math.ceil((config.circuitBreakerResetMs - elapsed) / 1000)}s.`,
         );
       }
       // Try half-open
@@ -262,9 +258,7 @@ export class RetryHandler {
     stats.totalCalls++;
     stats.successCount++;
     // Running average
-    stats.avgDurationMs = stats.avgDurationMs === 0
-      ? durationMs
-      : stats.avgDurationMs * 0.8 + durationMs * 0.2;
+    stats.avgDurationMs = stats.avgDurationMs === 0 ? durationMs : stats.avgDurationMs * 0.8 + durationMs * 0.2;
   }
 
   private recordFailure(name: string, error: Error): void {

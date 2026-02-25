@@ -53,30 +53,18 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
       <div className={s.header}>
         <div className={s.headerLeft}>
           <span>💡</span>
-          <span className={s.label}>
-            {t('proactive.label')}
-          </span>
+          <span className={s.label}>{t('proactive.label')}</span>
         </div>
-        <button
-          onClick={handleDismiss}
-          className={s.close}
-          aria-label="Close"
-        >
+        <button onClick={handleDismiss} className={s.close} aria-label="Close">
           ✕
         </button>
       </div>
 
       {/* Content */}
-      <div className={s.content}>
-        {message.message}
-      </div>
+      <div className={s.content}>{message.message}</div>
 
       {/* Context */}
-      {message.context && (
-        <div className={s.context}>
-          📋 {message.context}
-        </div>
-      )}
+      {message.context && <div className={s.context}>📋 {message.context}</div>}
 
       {/* Actions */}
       <div className={s.actions}>
@@ -88,16 +76,10 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
         >
           {isSpeaking ? '⏹️' : '🔊'}
         </button>
-        <button
-          onClick={handleDismiss}
-          className={s.btnDismiss}
-        >
+        <button onClick={handleDismiss} className={s.btnDismiss}>
           {t('proactive.dismiss')}
         </button>
-        <button
-          onClick={handleReply}
-          className={s.btnReply}
-        >
+        <button onClick={handleReply} className={s.btnReply}>
           {t('proactive.reply')}
         </button>
       </div>

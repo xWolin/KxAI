@@ -1,12 +1,12 @@
 /**
  * PromptService — Markdown-based prompt management
- * 
+ *
  * Inspired by OpenClaw's pattern:
  * - Prompts live as .md files (bundled defaults + user-customizable overrides)
  * - Each section is a separate file, loaded on demand
  * - Variable substitution via {variableName} placeholders
  * - User can override any prompt by placing a file in workspace/prompts/
- * 
+ *
  * File resolution order:
  * 1. userData/workspace/prompts/<file>  (user override)
  * 2. src/main/prompts/<file>            (bundled default)
@@ -70,7 +70,7 @@ export class PromptService {
   /**
    * Load a prompt with variable substitution.
    * Variables use {name} syntax.
-   * 
+   *
    * Example: load('HEARTBEAT.md', { maxSteps: '20', task: 'check email' })
    */
   async render(filename: string, vars?: Record<string, string>): Promise<string> {
@@ -109,12 +109,16 @@ export class PromptService {
       for (const f of await fsp.readdir(this.bundledDir)) {
         if (f.endsWith('.md')) files.add(f);
       }
-    } catch { /* bundled dir may not exist in some setups */ }
+    } catch {
+      /* bundled dir may not exist in some setups */
+    }
     try {
       for (const f of await fsp.readdir(this.userDir)) {
         if (f.endsWith('.md')) files.add(f);
       }
-    } catch { /* user dir may be empty */ }
+    } catch {
+      /* user dir may be empty */
+    }
     return Array.from(files).sort();
   }
 
@@ -129,7 +133,9 @@ export class PromptService {
     try {
       await fsp.access(userPath);
       return userPath; // Already exists
-    } catch { /* does not exist, proceed to copy */ }
+    } catch {
+      /* does not exist, proceed to copy */
+    }
 
     try {
       const content = await fsp.readFile(bundledPath, 'utf-8');
