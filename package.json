@@ -34,6 +34,13 @@
     "test:e2e": "npm run build && npx playwright test --config=e2e/playwright.config.ts",
     "preflight": "npm run test:env && npm run typecheck && npm run format:check",
     "audit:prod": "npm audit --omit=dev",
+    "changelog": "node scripts/generate-changelog.js",
+    "changelog:latest": "node scripts/generate-changelog.js --latest",
+    "release": "npm run preflight && npm run changelog && git add CHANGELOG.md && npm version",
+    "release:patch": "npm run preflight && npm run changelog && git add CHANGELOG.md && npm version patch -m \"release: v%s\"",
+    "release:minor": "npm run preflight && npm run changelog && git add CHANGELOG.md && npm version minor -m \"release: v%s\"",
+    "release:major": "npm run preflight && npm run changelog && git add CHANGELOG.md && npm version major -m \"release: v%s\"",
+    "postversion": "git push && git push --tags",
     "start": "electron .",
     "prepare": "husky"
   },
@@ -114,7 +121,9 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "assets/icons/win/icon.ico"
+      "icon": "assets/icons/win/icon.ico",
+      "signingHashAlgorithms": ["sha256"],
+      "sign": null
     },
     "mac": {
       "target": [
@@ -122,8 +131,13 @@
         "zip"
       ],
       "icon": "assets/icons/mac/icon.icns",
-      "category": "public.app-category.productivity"
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist"
     },
+    "afterSign": "scripts/notarize.js",
     "linux": {
       "target": [
         "AppImage",
