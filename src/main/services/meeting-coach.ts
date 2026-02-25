@@ -81,9 +81,9 @@ export interface SpeakerInfo {
 
 export interface MeetingBriefingParticipant {
   name: string;
-  role?: string;        // e.g. "Tech Lead", "Product Owner"
+  role?: string; // e.g. "Tech Lead", "Product Owner"
   company?: string;
-  notes?: string;       // co o nim wiedzieć
+  notes?: string; // co o nim wiedzieć
   photoBase64?: string; // zdjęcie uczestnika (base64 jpg/png)
 }
 
@@ -91,8 +91,8 @@ export interface MeetingBriefing {
   topic: string;
   agenda?: string;
   participants: MeetingBriefingParticipant[];
-  notes: string;         // free-form notes / context
-  urls: string[];        // URLs to fetch content from
+  notes: string; // free-form notes / context
+  urls: string[]; // URLs to fetch content from
   projectPaths: string[]; // local/remote paths to RAG-index
   // Populated after processing
   urlContents?: Array<{ url: string; content: string; error?: string }>;
@@ -104,16 +104,16 @@ export interface ParticipantResearch {
   name: string;
   company?: string;
   role?: string;
-  summary: string;          // executive summary
-  experience: string[];     // career highlights
-  interests: string[];      // topics, projects, passions
+  summary: string; // executive summary
+  experience: string[]; // career highlights
+  interests: string[]; // topics, projects, passions
   socialMedia: Array<{ platform: string; url: string; snippet?: string }>;
-  commonGround: string[];   // shared interests with user
-  talkingPoints: string[];  // icebreakers, topics to discuss
-  cautions: string[];       // things to avoid
-  sources: string[];        // URLs used for research
+  commonGround: string[]; // shared interests with user
+  talkingPoints: string[]; // icebreakers, topics to discuss
+  cautions: string[]; // things to avoid
+  sources: string[]; // URLs used for research
   photoDescription?: string;
-  researchedAt: number;     // timestamp
+  researchedAt: number; // timestamp
 }
 
 export interface MeetingSummary {
@@ -239,8 +239,6 @@ export class MeetingCoachService extends EventEmitter {
   private readonly SCREEN_IDENTIFY_COOLDOWN = 8000; // Min 8s between screen captures for speaker ID
   private pendingScreenIdentify = false;
 
-
-
   constructor(
     transcriptionService: TranscriptionService,
     aiService: AIService,
@@ -340,13 +338,16 @@ export class MeetingCoachService extends EventEmitter {
     console.log(`[MeetingCoach] Stopping meeting ${meetingId}`);
     this.isStopping = true;
 
-    if (this.durationTimer) { clearInterval(this.durationTimer); this.durationTimer = null; }
+    if (this.durationTimer) {
+      clearInterval(this.durationTimer);
+      this.durationTimer = null;
+    }
 
     // Signal renderer to stop audio capture BEFORE closing transcription sessions
     this.emit('meeting:stop-capture');
 
     // Give renderer ~200ms to actually stop sending chunks
-    await new Promise(r => setTimeout(r, 200));
+    await new Promise((r) => setTimeout(r, 200));
 
     await this.transcriptionService.stopAll();
 
@@ -384,7 +385,9 @@ export class MeetingCoachService extends EventEmitter {
     const now = Date.now();
     if (now - this.lastAudioLog > 10000) {
       this.lastAudioLog = now;
-      console.log(`[MeetingCoach] Audio: ${this.audioChunkCount} chunks received (source=${source}, size=${chunk.length}bytes)`);
+      console.log(
+        `[MeetingCoach] Audio: ${this.audioChunkCount} chunks received (source=${source}, size=${chunk.length}bytes)`,
+      );
     }
 
     const sessionId = `${this.meetingId}-${source}`;
@@ -427,14 +430,14 @@ export class MeetingCoachService extends EventEmitter {
   async setBriefing(briefing: MeetingBriefing): Promise<void> {
     this.briefing = { ...briefing, urlContents: [], ragIndexed: false };
 
-    console.log(`[MeetingCoach] Briefing set: topic="${briefing.topic}", ${briefing.participants.length} participants, ${briefing.urls.length} URLs, ${briefing.projectPaths.length} project paths`);
+    console.log(
+      `[MeetingCoach] Briefing set: topic="${briefing.topic}", ${briefing.participants.length} participants, ${briefing.urls.length} URLs, ${briefing.projectPaths.length} project paths`,
+    );
 
     // Fetch URL contents in parallel
     if (briefing.urls.length > 0) {
       console.log(`[MeetingCoach] Fetching ${briefing.urls.length} URLs...`);
-      const urlResults = await Promise.allSettled(
-        briefing.urls.map(url => this.fetchUrlContent(url)),
-      );
+      const urlResults = await Promise.allSettled(briefing.urls.map((url) => this.fetchUrlContent(url)));
       this.briefing.urlContents = urlResults.map((result, i) => {
         if (result.status === 'fulfilled') {
           return { url: briefing.urls[i], content: result.value };
@@ -443,7 +446,9 @@ export class MeetingCoachService extends EventEmitter {
           return { url: briefing.urls[i], content: '', error: String(result.reason) };
         }
       });
-      console.log(`[MeetingCoach] Fetched ${this.briefing.urlContents.filter(u => !u.error).length}/${briefing.urls.length} URLs`);
+      console.log(
+        `[MeetingCoach] Fetched ${this.briefing.urlContents.filter((u) => !u.error).length}/${briefing.urls.length} URLs`,
+      );
     }
 
     // Index project paths via RAG
@@ -477,10 +482,7 @@ export class MeetingCoachService extends EventEmitter {
    * Only http/https schemes are allowed. Follows up to maxRedirects redirects
    * and enforces a cumulative deadline across all redirects.
    */
-  private async fetchUrlContent(
-    url: string,
-    options?: { maxRedirects?: number; deadline?: number },
-  ): Promise<string> {
+  private async fetchUrlContent(url: string, options?: { maxRedirects?: number; deadline?: number }): Promise<string> {
     const MAX_REDIRECTS = options?.maxRedirects ?? 5;
     const deadline = options?.deadline ?? Date.now() + 10000; // 10s total
 
@@ -498,10 +500,21 @@ export class MeetingCoachService extends EventEmitter {
     // SSRF protection: block private/internal addresses
     const hostname = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
     const blockedPatterns = [
-      /^localhost$/i, /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./,
-      /^192\.168\./, /^0\./, /^::1$/, /^::$/, /^0+:0+:0+:0+:0+:0+:0+:[01]$/,
-      /^f[cd][0-9a-f]{2}:/i, /^fe[89ab][0-9a-f]:/i,
-      /\.local$/i, /\.internal$/i, /\.localhost$/i, /^169\.254\./,
+      /^localhost$/i,
+      /^127\./,
+      /^10\./,
+      /^172\.(1[6-9]|2\d|3[01])\./,
+      /^192\.168\./,
+      /^0\./,
+      /^::1$/,
+      /^::$/,
+      /^0+:0+:0+:0+:0+:0+:0+:[01]$/,
+      /^f[cd][0-9a-f]{2}:/i,
+      /^fe[89ab][0-9a-f]:/i,
+      /\.local$/i,
+      /\.internal$/i,
+      /\.localhost$/i,
+      /^169\.254\./,
     ];
     for (const pattern of blockedPatterns) {
       if (pattern.test(hostname)) {
@@ -523,34 +536,45 @@ export class MeetingCoachService extends EventEmitter {
     const mod = parsed.protocol === 'https:' ? https : http;
 
     return new Promise((resolve, reject) => {
-      const req = mod.get(url, { timeout: Math.min(remaining, 10000), headers: { 'User-Agent': 'KxAI-MeetingCoach/1.0' } }, (res) => {
-        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          this.fetchUrlContent(res.headers.location, {
-            maxRedirects: MAX_REDIRECTS - 1,
-            deadline,
-          }).then(resolve).catch(reject);
-          return;
-        }
-        if (res.statusCode && res.statusCode >= 400) {
-          reject(new Error(`HTTP ${res.statusCode}`));
-          return;
-        }
-        let data = '';
-        res.on('data', (chunk: string) => { data += chunk; });
-        res.on('end', () => {
-          // Strip HTML tags for cleaner text
-          const text = data
-            .replace(/<script[\s\S]*?<\/script>/gi, '')
-            .replace(/<style[\s\S]*?<\/style>/gi, '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .substring(0, 5000); // Limit to 5000 chars per URL
-          resolve(text);
-        });
-      });
+      const req = mod.get(
+        url,
+        { timeout: Math.min(remaining, 10000), headers: { 'User-Agent': 'KxAI-MeetingCoach/1.0' } },
+        (res) => {
+          if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+            this.fetchUrlContent(res.headers.location, {
+              maxRedirects: MAX_REDIRECTS - 1,
+              deadline,
+            })
+              .then(resolve)
+              .catch(reject);
+            return;
+          }
+          if (res.statusCode && res.statusCode >= 400) {
+            reject(new Error(`HTTP ${res.statusCode}`));
+            return;
+          }
+          let data = '';
+          res.on('data', (chunk: string) => {
+            data += chunk;
+          });
+          res.on('end', () => {
+            // Strip HTML tags for cleaner text
+            const text = data
+              .replace(/<script[\s\S]*?<\/script>/gi, '')
+              .replace(/<style[\s\S]*?<\/style>/gi, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/\s+/g, ' ')
+              .trim()
+              .substring(0, 5000); // Limit to 5000 chars per URL
+            resolve(text);
+          });
+        },
+      );
       req.on('error', reject);
-      req.on('timeout', () => { req.destroy(); reject(new Error('fetchUrlContent: request timeout')); });
+      req.on('timeout', () => {
+        req.destroy();
+        reject(new Error('fetchUrlContent: request timeout'));
+      });
     });
   }
 
@@ -561,9 +585,7 @@ export class MeetingCoachService extends EventEmitter {
       startTime: this.meetingStartTime,
       duration: this.elapsedSeconds,
       transcriptLineCount: this.transcript.length,
-      lastCoachingTip: this.coachingTips.length > 0
-        ? this.coachingTips[this.coachingTips.length - 1].tip
-        : null,
+      lastCoachingTip: this.coachingTips.length > 0 ? this.coachingTips[this.coachingTips.length - 1].tip : null,
       detectedApp: this.detectedApp,
       speakers: Array.from(this.speakers.values()),
       isCoaching: this.isCoaching,
@@ -571,11 +593,13 @@ export class MeetingCoachService extends EventEmitter {
     };
   }
 
-  getConfig(): MeetingConfig { return { ...this.config }; }
+  getConfig(): MeetingConfig {
+    return { ...this.config };
+  }
 
   setConfig(updates: Partial<MeetingConfig>): void {
     this.config = { ...this.config, ...updates };
-    this.configService.set('meetingCoach', this.config);
+    this.configService.set('meetingCoach', this.config as unknown as Record<string, unknown>);
   }
 
   detectMeeting(windowTitle: string): { detected: boolean; app?: string } {
@@ -609,29 +633,55 @@ export class MeetingCoachService extends EventEmitter {
     }
   }
 
-  async getSummaries(): Promise<Array<{ id: string; title: string; startTime: number; duration: number; participants: string[] }>> {
+  async getSummaries(): Promise<
+    Array<{ id: string; title: string; startTime: number; duration: number; participants: string[] }>
+  > {
     try {
-      const files = fs.readdirSync(this.storagePath).filter(f => f.endsWith('.json')).sort().reverse();
-      const summaries: Array<{ id: string; title: string; startTime: number; duration: number; participants: string[] }> = [];
+      const files = fs
+        .readdirSync(this.storagePath)
+        .filter((f) => f.endsWith('.json'))
+        .sort()
+        .reverse();
+      const summaries: Array<{
+        id: string;
+        title: string;
+        startTime: number;
+        duration: number;
+        participants: string[];
+      }> = [];
       for (const file of files.slice(0, 50)) {
         try {
           const data = JSON.parse(fs.readFileSync(path.join(this.storagePath, file), 'utf8'));
-          summaries.push({ id: data.id, title: data.title, startTime: data.startTime, duration: data.duration, participants: data.participants || [] });
-        } catch { /* skip */ }
+          summaries.push({
+            id: data.id,
+            title: data.title,
+            startTime: data.startTime,
+            duration: data.duration,
+            participants: data.participants || [],
+          });
+        } catch {
+          /* skip */
+        }
       }
       return summaries;
-    } catch { return []; }
+    } catch {
+      return [];
+    }
   }
 
   async getSummary(meetingId: string): Promise<MeetingSummary | null> {
     try {
-      const files = fs.readdirSync(this.storagePath).filter(f => f.includes(meetingId));
+      const files = fs.readdirSync(this.storagePath).filter((f) => f.includes(meetingId));
       if (files.length === 0) return null;
       return JSON.parse(fs.readFileSync(path.join(this.storagePath, files[0]), 'utf8'));
-    } catch { return null; }
+    } catch {
+      return null;
+    }
   }
 
-  isMeetingActive(): boolean { return this.meetingId !== null; }
+  isMeetingActive(): boolean {
+    return this.meetingId !== null;
+  }
 
   getLiveTranscript(lastN: number = 10): TranscriptLine[] {
     return this.transcript.slice(-lastN);
@@ -647,7 +697,9 @@ export class MeetingCoachService extends EventEmitter {
     if (!this.meetingId) return;
 
     const source = event.label as 'mic' | 'system';
-    console.log(`[MeetingCoach] Transcript event: source=${source}, isFinal=${event.isFinal}, text="${event.text.substring(0, 80)}", speaker=${event.speaker || 'none'}`);
+    console.log(
+      `[MeetingCoach] Transcript event: source=${source}, isFinal=${event.isFinal}, text="${event.text.substring(0, 80)}", speaker=${event.speaker || 'none'}`,
+    );
 
     if (event.isFinal) {
       const speakerName = this.resolveSpeakerName(source, event.speaker);
@@ -681,7 +733,6 @@ export class MeetingCoachService extends EventEmitter {
       if (source === 'system' && this.config.coachingEnabled) {
         this.evaluateForCoaching(line);
       }
-
     } else {
       if (source === 'mic') this.partialMic = event.text;
       else this.partialSystem = event.text;
@@ -696,7 +747,7 @@ export class MeetingCoachService extends EventEmitter {
    */
   private async evaluateForCoaching(utterance: TranscriptLine): Promise<void> {
     const now = Date.now();
-    if (this.isCoaching || (now - this.lastCoachingTime) < this.COACHING_COOLDOWN) return;
+    if (this.isCoaching || now - this.lastCoachingTime < this.COACHING_COOLDOWN) return;
 
     const text = utterance.text.trim();
     if (text.length < 8) return; // Too short to be meaningful
@@ -741,18 +792,22 @@ export class MeetingCoachService extends EventEmitter {
    * Fast AI classification of utterance type.
    * Uses minimal prompt for speed (~200ms with GPT-4o-mini / Haiku).
    */
-  private async classifyWithAI(text: string, isDirected: boolean): Promise<'direct_question' | 'indirect_question' | 'request' | 'statement'> {
+  private async classifyWithAI(
+    text: string,
+    isDirected: boolean,
+  ): Promise<'direct_question' | 'indirect_question' | 'request' | 'statement'> {
     try {
       const prompt = `Classify this meeting utterance. Reply with ONLY one word: direct_question, indirect_question, request, or statement.
 
 "${text.substring(0, 200)}"`;
 
-      const response = await this.aiService.sendMessage(
-        prompt, undefined, undefined, { skipHistory: true }
-      );
+      const response = await this.aiService.sendMessage(prompt, undefined, undefined, { skipHistory: true });
       if (!response) return 'statement';
 
-      const lower = response.trim().toLowerCase().replace(/[^a-z_]/g, '');
+      const lower = response
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z_]/g, '');
       if (lower.includes('direct_question')) return 'direct_question';
       if (lower.includes('indirect_question')) return 'indirect_question';
       if (lower.includes('request')) return 'request';
@@ -787,12 +842,13 @@ export class MeetingCoachService extends EventEmitter {
   private isConversationContextFavorable(): boolean {
     if (this.recentMicUtterances.length === 0) return false;
     const lastMicTime = this.recentMicUtterances[this.recentMicUtterances.length - 1].timestamp;
-    const lastSystemTime = this.recentSystemUtterances.length > 1
-      ? this.recentSystemUtterances[this.recentSystemUtterances.length - 2]?.timestamp || 0
-      : 0;
+    const lastSystemTime =
+      this.recentSystemUtterances.length > 1
+        ? this.recentSystemUtterances[this.recentSystemUtterances.length - 2]?.timestamp || 0
+        : 0;
 
     // If user spoke recently (within last 30s) and was part of the conversation flow
-    return (lastMicTime > lastSystemTime - 5000) && (Date.now() - lastMicTime < 30000);
+    return lastMicTime > lastSystemTime - 5000 && Date.now() - lastMicTime < 30000;
   }
 
   /**
@@ -867,7 +923,6 @@ export class MeetingCoachService extends EventEmitter {
         category: tip.category,
         questionText,
       });
-
     } catch (err) {
       console.error('[MeetingCoach] Coaching generation error:', err);
       this.emit('meeting:coaching-done', {
@@ -891,12 +946,12 @@ export class MeetingCoachService extends EventEmitter {
   private buildRecentContext(): string {
     const last30 = this.transcript.slice(-30);
     if (last30.length === 0) return '(brak wcześniejszej transkrypcji)';
-    return last30.map(l => `[${l.speaker}]: ${l.text}`).join('\n');
+    return last30.map((l) => `[${l.speaker}]: ${l.text}`).join('\n');
   }
 
   private buildCoachingPrompt(questionText: string, recentContext: string, ragContext: string): string {
     const speakerList = Array.from(this.speakers.values())
-      .map(s => `- ${s.name} (${s.utteranceCount} wypowiedzi)`)
+      .map((s) => `- ${s.name} (${s.utteranceCount} wypowiedzi)`)
       .join('\n');
 
     let prompt = `PYTANIE ZADANE PODCZAS SPOTKANIA:
@@ -938,7 +993,7 @@ ${speakerList || '- Inni uczestnicy'}
       }
 
       if (this.briefing.urlContents && this.briefing.urlContents.length > 0) {
-        const validUrls = this.briefing.urlContents.filter(u => u.content && !u.error);
+        const validUrls = this.briefing.urlContents.filter((u) => u.content && !u.error);
         if (validUrls.length > 0) {
           prompt += `\nKONTEKST ZE STRON INTERNETOWYCH:\n`;
           for (const u of validUrls) {
@@ -1016,7 +1071,7 @@ Bądź rzeczowy i konkretny. Max 3-4 zdania.`;
 
     try {
       // Small delay to let the speaking indicator appear on screen
-      await new Promise(r => setTimeout(r, 500));
+      await new Promise((r) => setTimeout(r, 500));
 
       const screenshot = await this.screenCapture.captureFast();
       if (!screenshot) {
@@ -1029,7 +1084,7 @@ Bądź rzeczowy i konkretny. Max 3-4 zdania.`;
       // Build list of known participants from briefing
       let participantHint = '';
       if (this.briefing?.participants.length) {
-        participantHint = `\nOczekiwani uczestnicy spotkania: ${this.briefing.participants.map(p => p.name).join(', ')}`;
+        participantHint = `\nOczekiwani uczestnicy spotkania: ${this.briefing.participants.map((p) => p.name).join(', ')}`;
       }
 
       const prompt = `Przeanalizuj zrzut ekranu z aplikacji do spotkań wideo (Microsoft Teams, Google Meet, Zoom, Discord itp.).
@@ -1044,10 +1099,9 @@ Jeśli widzisz mówcę, zwróć: {"speaker": "Imię Nazwisko", "confidence": "hi
 
 Odpowiedz TYLKO JSON-em, bez markdown.`;
 
-      const response = await this.aiService.sendVisionMessage(
-        prompt,
-        [{ base64Data: base64Data, mediaType: 'image/png' }],
-      );
+      const response = await this.aiService.sendVisionMessage(prompt, [
+        { base64Data: base64Data, mediaType: 'image/png' },
+      ]);
 
       if (response) {
         try {
@@ -1055,7 +1109,9 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
           if (jsonMatch) {
             const result = JSON.parse(jsonMatch[0]);
             if (result.speaker && result.confidence !== 'low') {
-              console.log(`[MeetingCoach] 🎯 Screen identified speaker "${result.speaker}" (confidence: ${result.confidence}, app: ${result.app})`);
+              console.log(
+                `[MeetingCoach] 🎯 Screen identified speaker "${result.speaker}" (confidence: ${result.confidence}, app: ${result.app})`,
+              );
 
               // Map the speaker
               const speaker = this.speakers.get(speakerId);
@@ -1143,18 +1199,20 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
   private async generateSummary(meetingId: string): Promise<MeetingSummary> {
     const endTime = Date.now();
     const duration = Math.round(this.elapsedSeconds / 60);
-    const participants = [...new Set(this.transcript.map(l => l.speaker))];
+    const participants = [...new Set(this.transcript.map((l) => l.speaker))];
     const speakersArray = Array.from(this.speakers.values());
 
     const fullTranscript = this.transcript
-      .map(l => `[${new Date(l.timestamp).toLocaleTimeString('pl')}] ${l.speaker}: ${l.text}`)
+      .map((l) => `[${new Date(l.timestamp).toLocaleTimeString('pl')}] ${l.speaker}: ${l.text}`)
       .join('\n');
 
     // Truncate transcript to avoid exceeding token limits (~50k chars ≈ 12k tokens)
     const MAX_TRANSCRIPT_CHARS = 50000;
-    const truncatedTranscript = fullTranscript.length > MAX_TRANSCRIPT_CHARS
-      ? fullTranscript.slice(-MAX_TRANSCRIPT_CHARS) + '\n\n[...wcześniejsza część transkrypcji pominięta ze względu na długość]'
-      : fullTranscript;
+    const truncatedTranscript =
+      fullTranscript.length > MAX_TRANSCRIPT_CHARS
+        ? fullTranscript.slice(-MAX_TRANSCRIPT_CHARS) +
+          '\n\n[...wcześniejsza część transkrypcji pominięta ze względu na długość]'
+        : fullTranscript;
 
     let aiSummary = '';
     let keyPoints: string[] = [];
@@ -1162,9 +1220,7 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
 
     if (this.transcript.length >= 5) {
       try {
-        const speakerDesc = speakersArray
-          .map(s => `- ${s.name}: ${s.utteranceCount} wypowiedzi`)
-          .join('\n');
+        const speakerDesc = speakersArray.map((s) => `- ${s.name}: ${s.utteranceCount} wypowiedzi`).join('\n');
 
         let briefingContext = '';
         if (this.briefing) {
@@ -1172,7 +1228,7 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
           if (this.briefing.topic) briefingContext += `Temat: ${this.briefing.topic}\n`;
           if (this.briefing.agenda) briefingContext += `Agenda: ${this.briefing.agenda}\n`;
           if (this.briefing.participants.length > 0) {
-            briefingContext += `Uczestnicy: ${this.briefing.participants.map(p => `${p.name}${p.role ? ` (${p.role})` : ''}`).join(', ')}\n`;
+            briefingContext += `Uczestnicy: ${this.briefing.participants.map((p) => `${p.name}${p.role ? ` (${p.role})` : ''}`).join(', ')}\n`;
           }
           if (this.briefing.notes) briefingContext += `Notatki: ${this.briefing.notes}\n`;
         }
@@ -1203,7 +1259,9 @@ Odpowiedz TYLKO JSON-em bez markdown:
               keyPoints = parsed.keyPoints || [];
               actionItems = parsed.actionItems || [];
             }
-          } catch { aiSummary = response; }
+          } catch {
+            aiSummary = response;
+          }
         }
       } catch (err) {
         console.error('[MeetingCoach] Summary generation error:', err);
@@ -1230,7 +1288,7 @@ Odpowiedz TYLKO JSON-em bez markdown:
       speakers: speakersArray,
       detectedApp: this.detectedApp || undefined,
       briefing: this.briefing || undefined,
-      diarized: true,  // Deepgram Nova-3 provides real-time diarization
+      diarized: true, // Deepgram Nova-3 provides real-time diarization
     };
 
     await this.saveSummary(summary);
@@ -1278,7 +1336,7 @@ Odpowiedz TYLKO JSON-em bez markdown:
    * Research a meeting participant using web search + AI analysis.
    * Searches multiple sources (LinkedIn, Twitter, company sites, etc.)
    * and synthesizes findings into a structured profile.
-   * 
+   *
    * @param participant - Participant info (name, company, role, optional photo)
    * @param userContext - Optional context about the user for finding common ground
    * @param onProgress - Optional callback for progress updates
@@ -1317,16 +1375,22 @@ Odpowiedz TYLKO JSON-em bez markdown:
         const htmlData = await new Promise<string>((resolve, reject) => {
           const req = https.get(htmlUrl, { headers: { 'User-Agent': 'KxAI-MeetingCoach/1.0' } }, (res: any) => {
             let body = '';
-            res.on('data', (chunk: string) => body += chunk);
+            res.on('data', (chunk: string) => (body += chunk));
             res.on('end', () => resolve(body));
             res.on('error', reject);
           });
           req.on('error', reject);
-          req.setTimeout(10000, () => { req.destroy(); reject(new Error('Timeout')); });
+          req.setTimeout(10000, () => {
+            req.destroy();
+            reject(new Error('Timeout'));
+          });
         });
 
         // Parse HTML result blocks
-        const resultBlocks = htmlData.match(/<a[^>]+class="result__a"[^>]*>[\s\S]*?<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>[\s\S]*?<\/a>/g) || [];
+        const resultBlocks =
+          htmlData.match(
+            /<a[^>]+class="result__a"[^>]*>[\s\S]*?<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>[\s\S]*?<\/a>/g,
+          ) || [];
         for (const block of resultBlocks.slice(0, 5)) {
           const titleMatch = block.match(/<a[^>]+class="result__a"[^>]*>([\s\S]*?)<\/a>/);
           const snippetMatch = block.match(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
@@ -1334,7 +1398,9 @@ Odpowiedz TYLKO JSON-em bez markdown:
           if (titleMatch && snippetMatch) {
             const title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
             const text = snippetMatch[1].replace(/<[^>]+>/g, '').trim();
-            const resultUrl = urlMatch ? decodeURIComponent(urlMatch[1].replace(/^\/\/duckduckgo\.com\/l\/\?uddg=/, '').split('&')[0]) : '';
+            const resultUrl = urlMatch
+              ? decodeURIComponent(urlMatch[1].replace(/^\/\/duckduckgo\.com\/l\/\?uddg=/, '').split('&')[0])
+              : '';
             if (title && text) allSearchResults.push({ title: title.slice(0, 100), text, url: resultUrl });
           }
         }
@@ -1345,12 +1411,15 @@ Odpowiedz TYLKO JSON-em bez markdown:
           const iaData = await new Promise<string>((resolve, reject) => {
             const req = https.get(iaUrl, (res: any) => {
               let body = '';
-              res.on('data', (chunk: string) => body += chunk);
+              res.on('data', (chunk: string) => (body += chunk));
               res.on('end', () => resolve(body));
               res.on('error', reject);
             });
             req.on('error', reject);
-            req.setTimeout(10000, () => { req.destroy(); reject(new Error('Timeout')); });
+            req.setTimeout(10000, () => {
+              req.destroy();
+              reject(new Error('Timeout'));
+            });
           });
           const json = JSON.parse(iaData);
           if (json.AbstractText) {
@@ -1370,7 +1439,7 @@ Odpowiedz TYLKO JSON-em bez markdown:
     }
 
     // Step 3: Fetch content from the most promising URLs
-    const uniqueUrls = [...new Set(allSearchResults.filter(r => r.url).map(r => r.url))].slice(0, 6);
+    const uniqueUrls = [...new Set(allSearchResults.filter((r) => r.url).map((r) => r.url))].slice(0, 6);
     const fetchedContent: Array<{ url: string; content: string }> = [];
 
     for (const fetchUrl of uniqueUrls) {
@@ -1392,11 +1461,12 @@ Odpowiedz TYLKO JSON-em bez markdown:
         onProgress?.('Analizuję zdjęcie...');
         const photoPrompt = `Opisz tę osobę na zdjęciu krótko (wygląd, przybliżony wiek, styl). To ${name}${company ? ' z ' + company : ''}.`;
         const photoDataUrl = photoBase64.startsWith('data:') ? photoBase64 : `data:image/jpeg;base64,${photoBase64}`;
-        photoDescription = await this.aiService.sendMessageWithVision(
-          photoPrompt,
-          photoDataUrl,
-          'Jesteś asystentem opisującym osoby na zdjęciach. Bądź zwięzły i profesjonalny.',
-        ) || '';
+        photoDescription =
+          (await this.aiService.sendMessageWithVision(
+            photoPrompt,
+            photoDataUrl,
+            'Jesteś asystentem opisującym osoby na zdjęciach. Bądź zwięzły i profesjonalny.',
+          )) || '';
       } catch (err) {
         console.warn('[MeetingCoach] Photo analysis failed:', err);
       }
@@ -1405,8 +1475,8 @@ Odpowiedz TYLKO JSON-em bez markdown:
     // Step 5: AI synthesis — compile all data into structured profile
     onProgress?.('AI analizuje zebrane informacje...');
 
-    const searchContext = allSearchResults.map(r => `[${r.title}] ${r.text} (${r.url})`).join('\n\n');
-    const fetchedContext = fetchedContent.map(f => `=== ${f.url} ===\n${f.content}`).join('\n\n');
+    const searchContext = allSearchResults.map((r) => `[${r.title}] ${r.text} (${r.url})`).join('\n\n');
+    const fetchedContext = fetchedContent.map((f) => `=== ${f.url} ===\n${f.content}`).join('\n\n');
     const photoCtx = photoDescription ? `\nOpis ze zdjęcia: ${photoDescription}` : '';
 
     const synthesisPrompt = `Jesteś ekspertem od researchu osób. Na podstawie zebranych danych, stwórz szczegółowy profil osoby.

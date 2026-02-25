@@ -37,7 +37,8 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
   {
     id: 'caldav',
     name: 'CalDAV Calendar',
-    description: 'Kalendarz via CalDAV — Google Calendar, Apple iCloud, Nextcloud, ownCloud. CRUD eventów, recurrence, reminders.',
+    description:
+      'Kalendarz via CalDAV — Google Calendar, Apple iCloud, Nextcloud, ownCloud. CRUD eventów, recurrence, reminders.',
     command: 'npx',
     args: ['-y', 'caldav-mcp'],
     category: 'Komunikacja',
@@ -199,11 +200,7 @@ export class McpClientService {
   /**
    * Set dependencies after construction (DI wiring phase).
    */
-  setDependencies(opts: {
-    toolsService?: any;
-    configService?: any;
-    mainWindow?: Electron.BrowserWindow;
-  }): void {
+  setDependencies(opts: { toolsService?: any; configService?: any; mainWindow?: Electron.BrowserWindow }): void {
     if (opts.toolsService) this.toolsService = opts.toolsService;
     if (opts.configService) this.configService = opts.configService;
     if (opts.mainWindow) this.mainWindow = opts.mainWindow;
@@ -363,11 +360,7 @@ export class McpClientService {
   /**
    * Call a tool on a specific MCP server.
    */
-  async callTool(
-    serverId: string,
-    toolName: string,
-    args: Record<string, unknown>,
-  ): Promise<ToolResult> {
+  async callTool(serverId: string, toolName: string, args: Record<string, unknown>): Promise<ToolResult> {
     const conn = this.connections.get(serverId);
     if (!conn || conn.status !== 'connected') {
       return { success: false, error: `MCP server "${serverId}" is not connected` };
@@ -478,7 +471,8 @@ export class McpClientService {
         parameters: {
           category: {
             type: 'string',
-            description: 'Filtruj po kategorii (np. "Komunikacja", "Developer", "Produktywność", "Web", "Bazy danych", "System", "AI"). Puste = wszystkie.',
+            description:
+              'Filtruj po kategorii (np. "Komunikacja", "Developer", "Produktywność", "Web", "Bazy danych", "System", "AI"). Puste = wszystkie.',
             required: false,
           },
         },
@@ -527,7 +521,8 @@ export class McpClientService {
           },
           env_vars: {
             type: 'string',
-            description: 'Opcjonalne zmienne środowiskowe w formacie JSON: {"KEY": "value"}. Wymagane dla serwerów oznaczonych jako "wymaga konfiguracji".',
+            description:
+              'Opcjonalne zmienne środowiskowe w formacie JSON: {"KEY": "value"}. Wymagane dla serwerów oznaczonych jako "wymaga konfiguracji".',
             required: false,
           },
         },
@@ -598,15 +593,22 @@ export class McpClientService {
 
           return {
             success: true,
-            data: `✅ Serwer "${entry.name}" dodany i podłączony!\n` +
+            data:
+              `✅ Serwer "${entry.name}" dodany i podłączony!\n` +
               `Odkryto ${toolNames.length} narzędzi: ${toolNames.join(', ')}\n` +
-              `Narzędzia są teraz dostępne z prefiksem mcp_${entry.name.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '')}_`,
+              `Narzędzia są teraz dostępne z prefiksem mcp_${entry.name
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '_')
+                .replace(/^_|_$/g, '')}_`,
           };
         } catch (err: any) {
           return {
             success: false,
-            error: `Błąd dodawania serwera "${entry.name}": ${err.message}. ` +
-              (entry.requiresSetup ? 'Ten serwer wymaga konfiguracji — upewnij się że podałeś env_vars z wymaganymi kluczami API.' : ''),
+            error:
+              `Błąd dodawania serwera "${entry.name}": ${err.message}. ` +
+              (entry.requiresSetup
+                ? 'Ten serwer wymaga konfiguracji — upewnij się że podałeś env_vars z wymaganymi kluczami API.'
+                : ''),
           };
         }
       },
@@ -642,7 +644,10 @@ export class McpClientService {
         const list = status.servers
           .map((s) => {
             const state = statusLabels[s.status] || s.status;
-            const tools = s.tools.length > 0 ? `(${s.tools.length} tools: ${s.tools.map((t) => t.name).join(', ')})` : '(brak narzędzi)';
+            const tools =
+              s.tools.length > 0
+                ? `(${s.tools.length} tools: ${s.tools.map((t) => t.name).join(', ')})`
+                : '(brak narzędzi)';
             const error = s.error ? ` — ${s.error}` : '';
             return `• ${s.icon || '🔌'} ${s.name}: ${state} ${tools}${error}`;
           })
@@ -670,9 +675,7 @@ export class McpClientService {
         },
       },
       async (params: { server_name: string }): Promise<ToolResult> => {
-        const server = this.configs.find(
-          (c) => c.name.toLowerCase().includes(params.server_name.toLowerCase()),
-        );
+        const server = this.configs.find((c) => c.name.toLowerCase().includes(params.server_name.toLowerCase()));
         if (!server) {
           return { success: false, error: `Nie znaleziono serwera "${params.server_name}"` };
         }
@@ -689,9 +692,7 @@ export class McpClientService {
   /**
    * Create MCP client + transport based on config.
    */
-  private async createConnection(
-    config: McpServerConfig,
-  ): Promise<{ client: Client; transport: Transport }> {
+  private async createConnection(config: McpServerConfig): Promise<{ client: Client; transport: Transport }> {
     const timeout = config.timeout ?? 30_000;
 
     if (config.transport === 'stdio') {
@@ -772,9 +773,7 @@ export class McpClientService {
       conn.registeredToolNames.push(toolName);
     }
 
-    log.info(
-      `Registered ${conn.registeredToolNames.length} MCP tools from "${conn.config.name}"`,
-    );
+    log.info(`Registered ${conn.registeredToolNames.length} MCP tools from "${conn.config.name}"`);
   }
 
   /**
@@ -787,9 +786,7 @@ export class McpClientService {
       this.toolsService.unregister(toolName);
     }
 
-    log.info(
-      `Unregistered ${conn.registeredToolNames.length} MCP tools from "${conn.config.name}"`,
-    );
+    log.info(`Unregistered ${conn.registeredToolNames.length} MCP tools from "${conn.config.name}"`);
     conn.registeredToolNames = [];
   }
 
@@ -834,8 +831,8 @@ export class McpClientService {
   private async loadConfigs(): Promise<void> {
     try {
       if (this.configService) {
-        const config = await this.configService.get();
-        this.configs = config.mcpServers ?? [];
+        const mcpServers = this.configService.get('mcpServers');
+        this.configs = mcpServers ?? [];
         log.info(`Loaded ${this.configs.length} MCP server configs`);
       }
     } catch (err: any) {
@@ -850,9 +847,7 @@ export class McpClientService {
   private async saveConfigs(): Promise<void> {
     try {
       if (this.configService) {
-        const config = await this.configService.get();
-        config.mcpServers = this.configs;
-        await this.configService.save(config);
+        this.configService.set('mcpServers', this.configs);
       }
     } catch (err: any) {
       log.warn(`Failed to save MCP configs: ${err.message}`);

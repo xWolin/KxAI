@@ -288,7 +288,12 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   validatedHandle(Ch.CONFIG_SET, async (_event, key: string, value: any) => {
-    configService.set(key, value);
+    configService.set(key as keyof import('../shared/types/config').KxAIConfig, value);
+    return { success: true };
+  });
+
+  validatedHandle(Ch.CONFIG_SET_BATCH, async (_event, updates: Record<string, any>) => {
+    configService.setBatch(updates);
     return { success: true };
   });
 

@@ -5,9 +5,9 @@ export interface KxAIBridge {
   sendMessage: (message: string, context?: string) => Promise<{ success: boolean; data?: string; error?: string }>;
   streamMessage: (message: string, context?: string) => Promise<{ success: boolean; error?: string }>;
   streamWithScreen: (message: string) => Promise<{ success: boolean; error?: string }>;
-  onAIResponse: (callback: (data: any) => void) => (() => void);
-  onAIStream: (callback: (data: { chunk?: string; done?: boolean; takeControlStart?: boolean }) => void) => (() => void);
-  onProactiveMessage: (callback: (data: ProactiveMessage) => void) => (() => void);
+  onAIResponse: (callback: (data: any) => void) => () => void;
+  onAIStream: (callback: (data: { chunk?: string; done?: boolean; takeControlStart?: boolean }) => void) => () => void;
+  onProactiveMessage: (callback: (data: ProactiveMessage) => void) => () => void;
 
   // Screen capture
   captureScreen: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
@@ -24,8 +24,10 @@ export interface KxAIBridge {
   // Config
   getConfig: () => Promise<KxAIConfig>;
   setConfig: (key: string, value: any) => Promise<{ success: boolean }>;
+  setConfigBatch: (updates: Partial<KxAIConfig>) => Promise<{ success: boolean }>;
   isOnboarded: () => Promise<boolean>;
   completeOnboarding: (data: OnboardingData) => Promise<{ success: boolean }>;
+  onConfigChanged: (callback: (changes: Partial<KxAIConfig>) => void) => () => void;
 
   // Security
   setApiKey: (provider: string, key: string) => Promise<{ success: boolean }>;
@@ -44,7 +46,7 @@ export interface KxAIBridge {
   transcribeAudio: (audioBase64: string) => Promise<{ success: boolean; text?: string; error?: string }>;
 
   // Navigation
-  onNavigate: (callback: (view: string) => void) => (() => void);
+  onNavigate: (callback: (view: string) => void) => () => void;
 
   // File operations
   organizeFiles: (directory: string, rules?: any) => Promise<{ success: boolean; data?: any }>;
@@ -56,8 +58,13 @@ export interface KxAIBridge {
 
   // Cron jobs
   getCronJobs: () => Promise<CronJob[]>;
-  addCronJob: (job: Omit<CronJob, 'id' | 'createdAt' | 'runCount'>) => Promise<{ success: boolean; data?: CronJob; error?: string }>;
-  updateCronJob: (id: string, updates: Partial<CronJob>) => Promise<{ success: boolean; data?: CronJob; error?: string }>;
+  addCronJob: (
+    job: Omit<CronJob, 'id' | 'createdAt' | 'runCount'>,
+  ) => Promise<{ success: boolean; data?: CronJob; error?: string }>;
+  updateCronJob: (
+    id: string,
+    updates: Partial<CronJob>,
+  ) => Promise<{ success: boolean; data?: CronJob; error?: string }>;
   removeCronJob: (id: string) => Promise<{ success: boolean }>;
   getCronHistory: (jobId?: string) => Promise<CronExecution[]>;
 
@@ -87,11 +94,11 @@ export interface KxAIBridge {
   automationStatus: () => Promise<AutomationStatus>;
   automationTakeControl: (task: string) => Promise<{ success: boolean; data?: string; error?: string }>;
   automationStopControl: () => Promise<{ success: boolean }>;
-  onAutomationStatus: (callback: (data: AutomationStatus) => void) => (() => void);
-  onControlState: (callback: (data: { active: boolean; pending?: boolean }) => void) => (() => void);
+  onAutomationStatus: (callback: (data: AutomationStatus) => void) => () => void;
+  onControlState: (callback: (data: { active: boolean; pending?: boolean }) => void) => () => void;
 
   // Companion (smart monitor) states
-  onCompanionState: (callback: (data: { hasSuggestion?: boolean; wantsToSpeak?: boolean }) => void) => (() => void);
+  onCompanionState: (callback: (data: { hasSuggestion?: boolean; wantsToSpeak?: boolean }) => void) => () => void;
 
   // Browser
   browserStatus: () => Promise<{ running: boolean }>;
@@ -139,23 +146,28 @@ export interface KxAIBridge {
   meetingSetBriefing: (briefing: MeetingBriefingInfo) => Promise<{ success: boolean; error?: string }>;
   meetingGetBriefing: () => Promise<MeetingBriefingInfo | null>;
   meetingClearBriefing: () => Promise<{ success: boolean }>;
-  onMeetingState: (callback: (state: MeetingStateInfo) => void) => (() => void);
-  onMeetingTranscript: (callback: (data: any) => void) => (() => void);
-  onMeetingCoaching: (callback: (tip: MeetingCoachingTip) => void) => (() => void);
-  onMeetingCoachingChunk: (callback: (data: { id: string; chunk: string; fullText: string }) => void) => (() => void);
-  onMeetingCoachingDone: (callback: (data: { id: string; tip: string; category: string; questionText?: string }) => void) => (() => void);
-  onMeetingError: (callback: (data: { error: string }) => void) => (() => void);
-  onMeetingStopCapture: (callback: () => void) => (() => void);
-  onMeetingDetected: (callback: (data: { app: string; title: string }) => void) => (() => void);
-  onMeetingBriefingUpdated: (callback: (briefing: MeetingBriefingInfo | null) => void) => (() => void);
+  onMeetingState: (callback: (state: MeetingStateInfo) => void) => () => void;
+  onMeetingTranscript: (callback: (data: any) => void) => () => void;
+  onMeetingCoaching: (callback: (tip: MeetingCoachingTip) => void) => () => void;
+  onMeetingCoachingChunk: (callback: (data: { id: string; chunk: string; fullText: string }) => void) => () => void;
+  onMeetingCoachingDone: (
+    callback: (data: { id: string; tip: string; category: string; questionText?: string }) => void,
+  ) => () => void;
+  onMeetingError: (callback: (data: { error: string }) => void) => () => void;
+  onMeetingStopCapture: (callback: () => void) => () => void;
+  onMeetingDetected: (callback: (data: { app: string; title: string }) => void) => () => void;
+  onMeetingBriefingUpdated: (callback: (briefing: MeetingBriefingInfo | null) => void) => () => void;
 
   // Sub-agents
-  subagentSpawn: (task: string, allowedTools?: string[]) => Promise<{ success: boolean; data?: { id: string }; error?: string }>;
+  subagentSpawn: (
+    task: string,
+    allowedTools?: string[],
+  ) => Promise<{ success: boolean; data?: { id: string }; error?: string }>;
   subagentKill: (agentId: string) => Promise<{ success: boolean }>;
   subagentSteer: (agentId: string, instruction: string) => Promise<{ success: boolean }>;
   subagentList: () => Promise<SubAgentInfo[]>;
   subagentResults: () => Promise<SubAgentResult[]>;
-  onSubagentProgress: (callback: (data: { msg: string }) => void) => (() => void);
+  onSubagentProgress: (callback: (data: { msg: string }) => void) => () => void;
 
   // Background exec
   backgroundExec: (task: string) => Promise<{ success: boolean; data?: { id: string }; error?: string }>;
@@ -165,13 +177,13 @@ export interface KxAIBridge {
   setActiveHours: (start: number | null, end: number | null) => Promise<{ success: boolean }>;
 
   // Agent status updates
-  onAgentStatus: (callback: (data: AgentStatus) => void) => (() => void);
+  onAgentStatus: (callback: (data: AgentStatus) => void) => () => void;
 
   // Stop agent processing
   agentStop: () => Promise<{ success: boolean }>;
 
   // RAG indexing progress
-  onRagProgress: (callback: (data: IndexProgress) => void) => (() => void);
+  onRagProgress: (callback: (data: IndexProgress) => void) => () => void;
 
   // Dashboard
   getDashboardUrl: () => Promise<string>;
@@ -181,11 +193,13 @@ export interface KxAIBridge {
   updateDownload: () => Promise<{ success: boolean }>;
   updateInstall: () => Promise<{ success: boolean }>;
   updateGetState: () => Promise<UpdateState>;
-  onUpdateState: (callback: (state: UpdateState) => void) => (() => void);
+  onUpdateState: (callback: (state: UpdateState) => void) => () => void;
 
   // MCP Hub
   mcpListServers: () => Promise<import('@shared/types').McpServerConfig[]>;
-  mcpAddServer: (config: Omit<import('@shared/types').McpServerConfig, 'id'>) => Promise<import('@shared/types').McpServerConfig>;
+  mcpAddServer: (
+    config: Omit<import('@shared/types').McpServerConfig, 'id'>,
+  ) => Promise<import('@shared/types').McpServerConfig>;
   mcpRemoveServer: (id: string) => Promise<{ success: boolean }>;
   mcpConnect: (id: string) => Promise<{ success: boolean }>;
   mcpDisconnect: (id: string) => Promise<{ success: boolean }>;
@@ -193,7 +207,7 @@ export interface KxAIBridge {
   mcpGetStatus: () => Promise<import('@shared/types').McpHubStatus>;
   mcpGetRegistry: () => Promise<import('@shared/types').McpRegistryEntry[]>;
   mcpCallTool: (serverId: string, toolName: string, args: any) => Promise<import('@shared/types').ToolResult>;
-  onMcpStatus: (callback: (status: import('@shared/types').McpHubStatus) => void) => (() => void);
+  onMcpStatus: (callback: (status: import('@shared/types').McpHubStatus) => void) => () => void;
 }
 
 // ──────────────── Updates ────────────────
@@ -401,7 +415,15 @@ export interface SystemSnapshot {
   disk: { mount: string; totalGB: number; usedGB: number; freeGB: number; usagePercent: number }[];
   battery: { percent: number; charging: boolean; timeRemaining: string } | null;
   network: { connected: boolean; interfaces: { name: string; ip: string; mac: string }[] };
-  system: { hostname: string; platform: string; arch: string; osVersion: string; uptimeHours: number; nodeVersion: string; electronVersion: string };
+  system: {
+    hostname: string;
+    platform: string;
+    arch: string;
+    osVersion: string;
+    uptimeHours: number;
+    nodeVersion: string;
+    electronVersion: string;
+  };
   topProcesses: { name: string; pid: number; cpuPercent: number; memoryMB: number }[];
 }
 

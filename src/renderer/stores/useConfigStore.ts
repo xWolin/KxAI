@@ -12,6 +12,9 @@ interface ConfigState {
 
   setConfig: (config: KxAIConfig) => void;
   updateConfig: (key: string, value: unknown) => Promise<void>;
+  updateConfigBatch: (updates: Partial<KxAIConfig>) => Promise<void>;
+  /** Apply partial changes pushed from main process (no IPC round-trip) */
+  applyConfigChanges: (changes: Partial<KxAIConfig>) => void;
   reloadConfig: () => Promise<void>;
 
   addProactiveMessage: (msg: ProactiveMessage) => void;
@@ -33,8 +36,19 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
 
   updateConfig: async (key, value) => {
     await window.kxai.setConfig(key, value);
-    const config = await window.kxai.getConfig();
-    set({ config });
+    // No need to re-fetch — CONFIG_CHANGED event will push the update
+  },
+
+  updateConfigBatch: async (updates) => {
+    await window.kxai.setConfigBatch(updates);
+    // No need to re-fetch — CONFIG_CHANGED event will push the update
+  },
+
+  applyConfigChanges: (changes) => {
+    const current = get().config;
+    if (current) {
+      set({ config: { ...current, ...changes } });
+    }
   },
 
   reloadConfig: async () => {

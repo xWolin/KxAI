@@ -1,51 +1,17 @@
 /**
  * Shared configuration types — used by both main process and renderer.
+ *
+ * KxAIConfig is derived from the Zod schema in `shared/schemas/config-schema.ts`.
+ * That schema is the single source of truth for shape, defaults, and validation.
  */
 
-export interface KxAIConfig {
-  // User profile
-  userName?: string;
-  userRole?: string;
-  userDescription?: string;
-  userLanguage?: string;
+export type { KxAIConfigParsed as KxAIConfig, KxAIConfigInput } from '../schemas/config-schema';
 
-  // AI settings
-  aiProvider?: 'openai' | 'anthropic';
-  aiModel?: string;
-  embeddingModel?: string;
+/** Key of the config object — used for typed get/set */
+export type { KxAIConfigParsed } from '../schemas/config-schema';
 
-  // Proactive mode
-  proactiveMode?: boolean;
-  proactiveIntervalMs?: number;
-
-  // UI
-  widgetPosition?: { x: number; y: number };
-  theme?: 'dark' | 'light';
-
-  // Onboarding
-  onboarded?: boolean;
-
-  // Agent persona
-  agentName?: string;
-  agentEmoji?: string;
-
-  // Screen watching
-  screenWatchEnabled?: boolean;
-  monitorIndexes?: number[];
-
-  // Knowledge indexing
-  indexedFolders?: string[];
-  indexedExtensions?: string[];
-
-  // Feature flags
-  /** Use native function calling (OpenAI tools API / Anthropic tool_use) instead of ```tool blocks. Default: true */
-  useNativeFunctionCalling?: boolean;
-
-  /** MCP server configurations */
-  mcpServers?: import('./mcp').McpServerConfig[];
-
-  [key: string]: any;
-}
+/** Config key literal union */
+export type ConfigKey = keyof import('../schemas/config-schema').KxAIConfigParsed;
 
 export interface OnboardingData {
   userName: string;

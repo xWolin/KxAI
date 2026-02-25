@@ -4,121 +4,115 @@ import { Ch, ChSend, Ev } from '../shared/ipc-schema';
 // Expose protected APIs to the renderer process
 contextBridge.exposeInMainWorld('kxai', {
   // Chat & AI
-  sendMessage: (message: string, context?: string) =>
-    ipcRenderer.invoke(Ch.AI_SEND_MESSAGE, message, context),
-  streamMessage: (message: string, context?: string) =>
-    ipcRenderer.invoke(Ch.AI_STREAM_MESSAGE, message, context),
-  streamWithScreen: (message: string) =>
-    ipcRenderer.invoke(Ch.AI_STREAM_WITH_SCREEN, message),
+  sendMessage: (message: string, context?: string) => ipcRenderer.invoke(Ch.AI_SEND_MESSAGE, message, context),
+  streamMessage: (message: string, context?: string) => ipcRenderer.invoke(Ch.AI_STREAM_MESSAGE, message, context),
+  streamWithScreen: (message: string) => ipcRenderer.invoke(Ch.AI_STREAM_WITH_SCREEN, message),
   onAIResponse: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.AI_RESPONSE, handler);
-    return () => { ipcRenderer.removeListener(Ev.AI_RESPONSE, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.AI_RESPONSE, handler);
+    };
   },
   onAIStream: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.AI_STREAM, handler);
-    return () => { ipcRenderer.removeListener(Ev.AI_STREAM, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.AI_STREAM, handler);
+    };
   },
   onProactiveMessage: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.AI_PROACTIVE, handler);
-    return () => { ipcRenderer.removeListener(Ev.AI_PROACTIVE, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.AI_PROACTIVE, handler);
+    };
   },
 
   // Screen capture
   captureScreen: () => ipcRenderer.invoke(Ch.SCREEN_CAPTURE),
   getDesktopSources: () => ipcRenderer.invoke(Ch.SCREEN_GET_DESKTOP_SOURCES),
-  startScreenWatch: (intervalMs: number) =>
-    ipcRenderer.invoke(Ch.SCREEN_START_WATCH, intervalMs),
+  startScreenWatch: (intervalMs: number) => ipcRenderer.invoke(Ch.SCREEN_START_WATCH, intervalMs),
   stopScreenWatch: () => ipcRenderer.invoke(Ch.SCREEN_STOP_WATCH),
 
   // Memory
   getMemory: (key: string) => ipcRenderer.invoke(Ch.MEMORY_GET, key),
-  setMemory: (key: string, value: string) =>
-    ipcRenderer.invoke(Ch.MEMORY_SET, key, value),
+  setMemory: (key: string, value: string) => ipcRenderer.invoke(Ch.MEMORY_SET, key, value),
   getConversationHistory: () => ipcRenderer.invoke(Ch.MEMORY_GET_HISTORY),
   clearConversationHistory: () => ipcRenderer.invoke(Ch.MEMORY_CLEAR_HISTORY),
 
   // Config
   getConfig: () => ipcRenderer.invoke(Ch.CONFIG_GET),
-  setConfig: (key: string, value: any) =>
-    ipcRenderer.invoke(Ch.CONFIG_SET, key, value),
+  setConfig: (key: string, value: any) => ipcRenderer.invoke(Ch.CONFIG_SET, key, value),
+  setConfigBatch: (updates: Record<string, any>) => ipcRenderer.invoke(Ch.CONFIG_SET_BATCH, updates),
   isOnboarded: () => ipcRenderer.invoke(Ch.CONFIG_IS_ONBOARDED),
-  completeOnboarding: (data: any) =>
-    ipcRenderer.invoke(Ch.CONFIG_COMPLETE_ONBOARDING, data),
+  completeOnboarding: (data: any) => ipcRenderer.invoke(Ch.CONFIG_COMPLETE_ONBOARDING, data),
+
+  // Config change events (push from main process)
+  onConfigChanged: (callback: (changes: Record<string, any>) => void) => {
+    const handler = (_event: any, changes: any) => callback(changes);
+    ipcRenderer.on(Ev.CONFIG_CHANGED, handler);
+    return () => {
+      ipcRenderer.removeListener(Ev.CONFIG_CHANGED, handler);
+    };
+  },
 
   // Security
-  setApiKey: (provider: string, key: string) =>
-    ipcRenderer.invoke(Ch.SECURITY_SET_API_KEY, provider, key),
-  hasApiKey: (provider: string) =>
-    ipcRenderer.invoke(Ch.SECURITY_HAS_API_KEY, provider),
-  deleteApiKey: (provider: string) =>
-    ipcRenderer.invoke(Ch.SECURITY_DELETE_API_KEY, provider),
+  setApiKey: (provider: string, key: string) => ipcRenderer.invoke(Ch.SECURITY_SET_API_KEY, provider, key),
+  hasApiKey: (provider: string) => ipcRenderer.invoke(Ch.SECURITY_HAS_API_KEY, provider),
+  deleteApiKey: (provider: string) => ipcRenderer.invoke(Ch.SECURITY_DELETE_API_KEY, provider),
 
   // Window control
   hideWindow: () => ipcRenderer.invoke(Ch.WINDOW_HIDE),
   minimizeWindow: () => ipcRenderer.invoke(Ch.WINDOW_MINIMIZE),
-  setWindowPosition: (x: number, y: number) =>
-    ipcRenderer.invoke(Ch.WINDOW_SET_POSITION, x, y),
+  setWindowPosition: (x: number, y: number) => ipcRenderer.invoke(Ch.WINDOW_SET_POSITION, x, y),
   getWindowPosition: () => ipcRenderer.invoke(Ch.WINDOW_GET_POSITION),
-  setWindowSize: (width: number, height: number) =>
-    ipcRenderer.invoke(Ch.WINDOW_SET_SIZE, width, height),
-  setClickThrough: (enabled: boolean) =>
-    ipcRenderer.invoke(Ch.WINDOW_SET_CLICKTHROUGH, enabled),
+  setWindowSize: (width: number, height: number) => ipcRenderer.invoke(Ch.WINDOW_SET_SIZE, width, height),
+  setClickThrough: (enabled: boolean) => ipcRenderer.invoke(Ch.WINDOW_SET_CLICKTHROUGH, enabled),
 
   // Voice transcription (Whisper)
-  transcribeAudio: (audioBase64: string) =>
-    ipcRenderer.invoke(Ch.VOICE_TRANSCRIBE, audioBase64),
+  transcribeAudio: (audioBase64: string) => ipcRenderer.invoke(Ch.VOICE_TRANSCRIBE, audioBase64),
 
   // Navigation events
   onNavigate: (callback: (view: string) => void) => {
     const handler = (_event: any, view: string) => callback(view);
     ipcRenderer.on(Ev.NAVIGATE, handler);
-    return () => { ipcRenderer.removeListener(Ev.NAVIGATE, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.NAVIGATE, handler);
+    };
   },
 
   // File operations
-  organizeFiles: (directory: string, rules?: any) =>
-    ipcRenderer.invoke(Ch.FILES_ORGANIZE, directory, rules),
-  listFiles: (directory: string) =>
-    ipcRenderer.invoke(Ch.FILES_LIST, directory),
+  organizeFiles: (directory: string, rules?: any) => ipcRenderer.invoke(Ch.FILES_ORGANIZE, directory, rules),
+  listFiles: (directory: string) => ipcRenderer.invoke(Ch.FILES_LIST, directory),
 
   // Proactive engine
-  setProactiveMode: (enabled: boolean) =>
-    ipcRenderer.invoke(Ch.PROACTIVE_SET_MODE, enabled),
+  setProactiveMode: (enabled: boolean) => ipcRenderer.invoke(Ch.PROACTIVE_SET_MODE, enabled),
   getProactiveMode: () => ipcRenderer.invoke(Ch.PROACTIVE_GET_MODE),
 
   // Cron jobs
   getCronJobs: () => ipcRenderer.invoke(Ch.CRON_GET_JOBS),
   addCronJob: (job: any) => ipcRenderer.invoke(Ch.CRON_ADD_JOB, job),
-  updateCronJob: (id: string, updates: any) =>
-    ipcRenderer.invoke(Ch.CRON_UPDATE_JOB, id, updates),
+  updateCronJob: (id: string, updates: any) => ipcRenderer.invoke(Ch.CRON_UPDATE_JOB, id, updates),
   removeCronJob: (id: string) => ipcRenderer.invoke(Ch.CRON_REMOVE_JOB, id),
-  getCronHistory: (jobId?: string) =>
-    ipcRenderer.invoke(Ch.CRON_GET_HISTORY, jobId),
+  getCronHistory: (jobId?: string) => ipcRenderer.invoke(Ch.CRON_GET_HISTORY, jobId),
 
   // Tools
   getTools: () => ipcRenderer.invoke(Ch.TOOLS_LIST),
-  executeTool: (name: string, params: any) =>
-    ipcRenderer.invoke(Ch.TOOLS_EXECUTE, name, params),
+  executeTool: (name: string, params: any) => ipcRenderer.invoke(Ch.TOOLS_EXECUTE, name, params),
 
   // Workflow
-  getWorkflowActivity: (limit?: number) =>
-    ipcRenderer.invoke(Ch.WORKFLOW_GET_ACTIVITY, limit),
+  getWorkflowActivity: (limit?: number) => ipcRenderer.invoke(Ch.WORKFLOW_GET_ACTIVITY, limit),
   getWorkflowPatterns: () => ipcRenderer.invoke(Ch.WORKFLOW_GET_PATTERNS),
   getTimeContext: () => ipcRenderer.invoke(Ch.WORKFLOW_GET_TIME_CONTEXT),
 
   // RAG / Semantic Search
-  ragSearch: (query: string, topK?: number) =>
-    ipcRenderer.invoke(Ch.RAG_SEARCH, query, topK),
+  ragSearch: (query: string, topK?: number) => ipcRenderer.invoke(Ch.RAG_SEARCH, query, topK),
   ragReindex: () => ipcRenderer.invoke(Ch.RAG_REINDEX),
   ragStats: () => ipcRenderer.invoke(Ch.RAG_STATS),
-  ragAddFolder: (folderPath: string) =>
-    ipcRenderer.invoke(Ch.RAG_ADD_FOLDER, folderPath),
+  ragAddFolder: (folderPath: string) => ipcRenderer.invoke(Ch.RAG_ADD_FOLDER, folderPath),
   ragPickFolder: () => ipcRenderer.invoke(Ch.RAG_PICK_FOLDER),
-  ragRemoveFolder: (folderPath: string) =>
-    ipcRenderer.invoke(Ch.RAG_REMOVE_FOLDER, folderPath),
+  ragRemoveFolder: (folderPath: string) => ipcRenderer.invoke(Ch.RAG_REMOVE_FOLDER, folderPath),
   ragGetFolders: () => ipcRenderer.invoke(Ch.RAG_GET_FOLDERS),
   ragFolderStats: () => ipcRenderer.invoke(Ch.RAG_FOLDER_STATS),
 
@@ -127,23 +121,28 @@ contextBridge.exposeInMainWorld('kxai', {
   automationDisable: () => ipcRenderer.invoke(Ch.AUTOMATION_DISABLE),
   automationUnlockSafety: () => ipcRenderer.invoke(Ch.AUTOMATION_UNLOCK_SAFETY),
   automationStatus: () => ipcRenderer.invoke(Ch.AUTOMATION_STATUS),
-  automationTakeControl: (task: string) =>
-    ipcRenderer.invoke(Ch.AUTOMATION_TAKE_CONTROL, task),
+  automationTakeControl: (task: string) => ipcRenderer.invoke(Ch.AUTOMATION_TAKE_CONTROL, task),
   automationStopControl: () => ipcRenderer.invoke(Ch.AUTOMATION_STOP_CONTROL),
   onAutomationStatus: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.AUTOMATION_STATUS_UPDATE, handler);
-    return () => { ipcRenderer.removeListener(Ev.AUTOMATION_STATUS_UPDATE, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.AUTOMATION_STATUS_UPDATE, handler);
+    };
   },
   onControlState: (callback: (data: { active: boolean; pending?: boolean }) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.AGENT_CONTROL_STATE, handler);
-    return () => { ipcRenderer.removeListener(Ev.AGENT_CONTROL_STATE, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.AGENT_CONTROL_STATE, handler);
+    };
   },
   onCompanionState: (callback: (data: { hasSuggestion?: boolean; wantsToSpeak?: boolean }) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.AGENT_COMPANION_STATE, handler);
-    return () => { ipcRenderer.removeListener(Ev.AGENT_COMPANION_STATE, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.AGENT_COMPANION_STATE, handler);
+    };
   },
 
   // Browser
@@ -200,71 +199,84 @@ contextBridge.exposeInMainWorld('kxai', {
   onMeetingState: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.MEETING_STATE, handler);
-    return () => { ipcRenderer.removeListener(Ev.MEETING_STATE, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.MEETING_STATE, handler);
+    };
   },
   onMeetingTranscript: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.MEETING_TRANSCRIPT, handler);
-    return () => { ipcRenderer.removeListener(Ev.MEETING_TRANSCRIPT, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.MEETING_TRANSCRIPT, handler);
+    };
   },
   onMeetingCoaching: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.MEETING_COACHING, handler);
-    return () => { ipcRenderer.removeListener(Ev.MEETING_COACHING, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.MEETING_COACHING, handler);
+    };
   },
   onMeetingCoachingChunk: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.MEETING_COACHING_CHUNK, handler);
-    return () => { ipcRenderer.removeListener(Ev.MEETING_COACHING_CHUNK, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.MEETING_COACHING_CHUNK, handler);
+    };
   },
   onMeetingCoachingDone: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.MEETING_COACHING_DONE, handler);
-    return () => { ipcRenderer.removeListener(Ev.MEETING_COACHING_DONE, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.MEETING_COACHING_DONE, handler);
+    };
   },
   onMeetingError: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.MEETING_ERROR, handler);
-    return () => { ipcRenderer.removeListener(Ev.MEETING_ERROR, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.MEETING_ERROR, handler);
+    };
   },
   onMeetingStopCapture: (callback: () => void) => {
     const handler = () => callback();
     ipcRenderer.on(Ev.MEETING_STOP_CAPTURE, handler);
-    return () => { ipcRenderer.removeListener(Ev.MEETING_STOP_CAPTURE, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.MEETING_STOP_CAPTURE, handler);
+    };
   },
   onMeetingDetected: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.MEETING_DETECTED, handler);
-    return () => { ipcRenderer.removeListener(Ev.MEETING_DETECTED, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.MEETING_DETECTED, handler);
+    };
   },
   onMeetingBriefingUpdated: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.MEETING_BRIEFING_UPDATED, handler);
-    return () => { ipcRenderer.removeListener(Ev.MEETING_BRIEFING_UPDATED, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.MEETING_BRIEFING_UPDATED, handler);
+    };
   },
 
   // Sub-agents
-  subagentSpawn: (task: string, allowedTools?: string[]) =>
-    ipcRenderer.invoke(Ch.SUBAGENT_SPAWN, task, allowedTools),
-  subagentKill: (agentId: string) =>
-    ipcRenderer.invoke(Ch.SUBAGENT_KILL, agentId),
-  subagentSteer: (agentId: string, instruction: string) =>
-    ipcRenderer.invoke(Ch.SUBAGENT_STEER, agentId, instruction),
-  subagentList: () =>
-    ipcRenderer.invoke(Ch.SUBAGENT_LIST),
-  subagentResults: () =>
-    ipcRenderer.invoke(Ch.SUBAGENT_RESULTS),
+  subagentSpawn: (task: string, allowedTools?: string[]) => ipcRenderer.invoke(Ch.SUBAGENT_SPAWN, task, allowedTools),
+  subagentKill: (agentId: string) => ipcRenderer.invoke(Ch.SUBAGENT_KILL, agentId),
+  subagentSteer: (agentId: string, instruction: string) => ipcRenderer.invoke(Ch.SUBAGENT_STEER, agentId, instruction),
+  subagentList: () => ipcRenderer.invoke(Ch.SUBAGENT_LIST),
+  subagentResults: () => ipcRenderer.invoke(Ch.SUBAGENT_RESULTS),
   onSubagentProgress: (callback: (data: { msg: string }) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.SUBAGENT_PROGRESS, handler);
-    return () => { ipcRenderer.removeListener(Ev.SUBAGENT_PROGRESS, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.SUBAGENT_PROGRESS, handler);
+    };
   },
 
   // Background exec
-  backgroundExec: (task: string) =>
-    ipcRenderer.invoke(Ch.BACKGROUND_EXEC, task),
-  backgroundList: () =>
-    ipcRenderer.invoke(Ch.BACKGROUND_LIST),
+  backgroundExec: (task: string) => ipcRenderer.invoke(Ch.BACKGROUND_EXEC, task),
+  backgroundList: () => ipcRenderer.invoke(Ch.BACKGROUND_LIST),
 
   // Active hours
   setActiveHours: (start: number | null, end: number | null) =>
@@ -274,7 +286,9 @@ contextBridge.exposeInMainWorld('kxai', {
   onAgentStatus: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.AGENT_STATUS, handler);
-    return () => { ipcRenderer.removeListener(Ev.AGENT_STATUS, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.AGENT_STATUS, handler);
+    };
   },
 
   // Stop agent processing
@@ -284,7 +298,9 @@ contextBridge.exposeInMainWorld('kxai', {
   onRagProgress: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.RAG_INDEXING_PROGRESS, handler);
-    return () => { ipcRenderer.removeListener(Ev.RAG_INDEXING_PROGRESS, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.RAG_INDEXING_PROGRESS, handler);
+    };
   },
 
   // Dashboard URL
@@ -298,7 +314,9 @@ contextBridge.exposeInMainWorld('kxai', {
   onUpdateState: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.UPDATE_STATE, handler);
-    return () => { ipcRenderer.removeListener(Ev.UPDATE_STATE, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.UPDATE_STATE, handler);
+    };
   },
 
   // MCP Hub
@@ -310,10 +328,13 @@ contextBridge.exposeInMainWorld('kxai', {
   mcpReconnect: (id: string) => ipcRenderer.invoke(Ch.MCP_RECONNECT, id),
   mcpGetStatus: () => ipcRenderer.invoke(Ch.MCP_GET_STATUS),
   mcpGetRegistry: () => ipcRenderer.invoke(Ch.MCP_GET_REGISTRY),
-  mcpCallTool: (serverId: string, toolName: string, args: any) => ipcRenderer.invoke(Ch.MCP_CALL_TOOL, serverId, toolName, args),
+  mcpCallTool: (serverId: string, toolName: string, args: any) =>
+    ipcRenderer.invoke(Ch.MCP_CALL_TOOL, serverId, toolName, args),
   onMcpStatus: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.MCP_STATUS, handler);
-    return () => { ipcRenderer.removeListener(Ev.MCP_STATUS, handler); };
+    return () => {
+      ipcRenderer.removeListener(Ev.MCP_STATUS, handler);
+    };
   },
 });

@@ -31,6 +31,7 @@ src/
 │   └── ipc-schema.ts        # IPC channel/event constants (Ch, Ev, ChSend) (Faza 3.1 ✅)
 │   └── schemas/
 │       ├── ai-responses.ts  # Zod schemas: ScreenAnalysis, CronSuggestion, MemoryUpdate, TakeControl (Faza 2.2 ✅)
+│       ├── config-schema.ts  # Zod schema for KxAIConfig — single source of truth (Faza 3.6 ✅)
 │       └── ipc-params.ts    # Zod schemas for 47 IPC channel params + validatedHandle (Faza 3.1 ✅)
 ├── main/                   # Electron main process
 │   ├── main.ts             # Entry point, okno, tray, ServiceContainer init (Faza 3.2 ✅)
@@ -78,7 +79,7 @@ src/
 │       ├── diagnostic-service.ts # System diagnostics
 │       ├── updater-service.ts  # Auto-updater via electron-updater + GitHub Releases (Faza 7.1 ✅)
 │       ├── mcp-client-service.ts # MCP Client — connects to external MCP servers (Faza 8.1 ✅)
-│       └── config.ts          # Configuration persistence (async save — Faza 3.3 ✅)
+│       └── config.ts          # Configuration v2: Zod-validated, typed, reactive, debounced (Faza 3.6 ✅)
 ├── renderer/               # React frontend
 │   ├── App.tsx             # Routing z zustand stores (Faza 4.3 ✅)
 │   ├── types.ts            # KxAIBridge interface + renderer-only types
@@ -124,7 +125,7 @@ src/
 - **Tool calling**: Native function calling (OpenAI tools API / Anthropic tool_use) domyślnie włączone (`config.useNativeFunctionCalling`). Fallback na ```tool bloki gdy wyłączone.
 - **Cron suggestions**: AI outputuje ```cron\n{JSON}\n``` bloki, agent-loop parsuje i proponuje użytkownikowi
 - **Logging**: Używaj `createLogger('Tag')` z `src/main/services/logger.ts` zamiast `console.log/warn/error`
-- **Testing**: Vitest z mockami electron/fs. Testy w `tests/`. Konwencja: `tests/<service-name>.test.ts`
+- **Testing**: Vitest z mockami electron/fs. Testy w `tests/`. Konwencja: `tests/<service-name>.test.ts`. Testy środowiskowe w `tests/environment/`. 473 testów w 12 plikach. Coverage thresholds (30/25/20% lines/functions/branches). Nowe testy uruchamiaj `npm run test:env` do preflight
 - **Persistence**: SQLite (better-sqlite3, WAL) jako primary storage (sesje, RAG chunks, embeddings, cache). Markdown files dla pamięci agenta (SOUL.md, USER.md, MEMORY.md). Dane w `app.getPath('userData')/workspace/` (memory/, cron/, workflow/)
 
 ## Komendy
@@ -136,16 +137,25 @@ npm run dist         # Zbuduj + spakuj (electron-builder)
 npm run typecheck    # Sprawdź TypeScript (oba tsconfigi)
 npm run test         # Uruchom testy (Vitest)
 npm run test:watch   # Testy w watch mode
-npm run test:coverage # Testy z coverage report
+npm run test:coverage # Testy z coverage report (lcov + text)
+npm run test:env     # Testy środowiskowe (environment preflight)
+npm run test:security # Testy security audit
+npm run preflight    # Pełny preflight: env tests + typecheck + format
+npm run audit:prod   # npm audit tylko production deps
 npm run format       # Formatuj kod (Prettier)
 npm run format:check # Sprawdź formatowanie
-npx tsc --noEmit     # Sprawdź renderer TypeScript
-npx tsc --noEmit -p tsconfig.main.json  # Sprawdź main process TypeScript
+npm run lint         # ESLint
+npm run lint:fix     # ESLint z auto-fix
+node scripts/preflight.js  # Cross-platform preflight check (standalone)
 ```
 
 ## CI/CD
 
-GitHub Actions workflow (`.github/workflows/build.yml`) buduje na 3 platformach: Windows (NSIS), macOS (dmg+zip), Linux (AppImage+deb).
+GitHub Actions workflow (`.github/workflows/build.yml`) z 2 jobami:
+- **quality** (każdy push/PR): env preflight → lint → typecheck (main+renderer) → testy z coverage → format check → npm audit (prod)
+- **build** (tagi/manual): matrix build Windows (NSIS), macOS (dmg+zip), Linux (AppImage+deb) → GitHub Release
+
+Coverage thresholds: lines 30%, functions 25%, branches 20%, statements 30%. Reporter: text + lcov.
 
 ---
 
@@ -185,9 +195,9 @@ GitHub Actions workflow (`.github/workflows/build.yml`) buduje na 3 platformach:
 - **Problem**: Brak walidacji parametrów IPC, brak typesafe bridge
 - **Rozwiązanie**: Faza 3.1 ✅ — `ipc-schema.ts` z 95 stałymi kanałów (Ch, Ev, ChSend). Zero string literals w ipc.ts/preload.ts/main.ts. Faza 3.2 ✅ — ServiceContainer eliminuje manual wiring.
 
-### P4: Brak testów ✅ CZĘŚCIOWO ROZWIĄZANO
+### P4: Brak testów ✅ W DUŻEJ MIERZE ROZWIĄZANO
 - **Problem**: Zero testów — unit, integration, e2e
-- **Rozwiązanie**: Faza 5.1 ✅ — Vitest setup, 172 testy unit (IntentDetector, SecurityGuard, ContextManager, PromptService). Integration/E2E do zrobienia.
+- **Rozwiązanie**: Vitest setup, 473 testów w 12 plikach: unit (IntentDetector, SecurityGuard, ContextManager, PromptService, ToolLoopDetector, ConfigService), integration (45 testów — ToolExecutor, ResponseProcessor, ContextBuilder), environment preflight (112 testów — Node.js, deps, toolchain, security audit). CI z coverage thresholds + lcov.
 
 ### P5: Frontend — jeden plik CSS (global.css), brak component library ✅ CZĘŚCIOWO ROZWIĄZANO
 - **Problem**: Skalowanie UI jest trudne, brak design system
@@ -234,7 +244,7 @@ src/
   - `@typescript-eslint/recommended`
   - React hooks + react-refresh
 - [x] Dodaj Prettier z konfiguracją ✅ (`.prettierrc` + `.prettierignore`)
-- [ ] Dodaj `lint-staged` + `husky` pre-commit hooks
+- [x] Dodaj `lint-staged` + `husky` pre-commit hooks ✅ (Husky v9 + lint-staged prettier)
 - [x] Dodaj `npm run typecheck` jako alias ✅
 
 ### Krok 0.3 — Dependency audit + cleanup
@@ -389,16 +399,18 @@ src/
 - [x] Structured error types (`KxAIError`, `ErrorCode`, `ErrorSeverity`) ✅
 - [ ] Optional: Sentry/crash reporting (opt-in w settings)
 
-### Krok 3.6 — Configuration v2
-- [ ] Migruj z JSON file do `electron-store` z schema validation (zod)
-- [ ] Reactive config — serwisy subskrybują zmiany:
-  ```typescript
-  config.onChange('aiProvider', (newVal, oldVal) => {
-    aiService.reinitialize();
-  });
-  ```
-- [ ] Config migrations (version tracking, auto-upgrade stary format)
-- [ ] Secrets NIGDY w config — zawsze w `safeStorage` (jest w security.ts, dobrze)
+### Krok 3.6 — Configuration v2 ✅
+> **Zaimplementowano**: `config-schema.ts` — Zod schema jako single source of truth (shape, defaults, validation). `config.ts` przepisany na typed `get<K>/set<K>` z TS inference, `setBatch()` dla atomic multi-key updates, `onChange<K>()` reactive subscriptions, debounced save (200ms coalescing), atomic write (temp+rename), config version tracking + ordered migrations, EventEmitter for IPC push. `KxAIConfig` type derived z `z.infer<>`, usunięty `[key: string]: any` index signature. SettingsPanel: 6 sequential `setConfig` → 1 `setConfigBatch`. MCP client fix. 38 unit testów.
+
+- [x] Zod schema validation z defaults (`config-schema.ts`) ✅
+- [x] Typed `get<K>/set<K>` z full TypeScript inference ✅
+- [x] `setBatch()` — atomic multi-key update (SettingsPanel: 6 IPC→1) ✅
+- [x] Reactive `onChange<K>()` + `onAnyChange()` subscriptions ✅
+- [x] Debounced save (200ms) — multiple set() → single write ✅
+- [x] Atomic write (temp file + rename) ✅
+- [x] Config version tracking + ordered migrations ✅
+- [x] `Ev.CONFIG_CHANGED` — push config changes to renderer (no re-fetch) ✅
+- [x] Secrets NIGDY w config — zawsze w `safeStorage` (jest w security.ts, dobrze) ✅
 
 ---
 
@@ -449,20 +461,24 @@ src/
 ## Faza 5: Testing & Quality (Tydzień 9-10)
 
 ### Krok 5.1 — Unit tests ✅
-> **Zaimplementowano**: Vitest setup (`vitest.config.ts`), 4 pliki testowe (172 testy). Pokryte: `IntentDetector` (25 wzorców PL/EN, confidence, context, capture groups, shouldAuto* metody, detectAll), `SecurityGuard` (16 niebezpiecznych + 9 bezpiecznych komend, SSRF, path validation, rate limiting, shell sanitization, audit), `ContextManager` (estimateTokens, getModelContextLimit, configureForModel, buildContextWindow, pin/unpin, scoring, summary generation), `PromptService` (load priority, render, exists, list, copyToUser, cache).
+> **Zaimplementowano**: Vitest setup (`vitest.config.ts`), 8 plików testowych unit (318 testów). Pokryte: `IntentDetector` (67), `SecurityGuard` (58), `ContextManager` (28), `PromptService` (19), `ToolLoopDetector` (43), `IPC Validation` (63), `ConfigService` (38). Coverage thresholds (30/25/20%).
 
 - [x] Setup: Vitest (szybkie, ESM-native, Vite-compatible) ✅
 - [x] Priorytet testowania:
-  1. ~~`ToolLoopDetector` — critical safety mechanism~~ (do zrobienia w przyszłej iteracji)
-  2. `SecurityGuard` — command injection, SSRF, path traversal ✅
-  3. `ContextManager` — token budgeting, importance scoring ✅
-  4. `IntentDetector` — intent recognition accuracy ✅
-  5. `PromptService` — template rendering, variable substitution ✅
-  6. Tool parameter validation (po dodaniu zod schemas)
+  1. `ToolLoopDetector` — hash, ping-pong, spiraling detection ✅ (43 testy)
+  2. `SecurityGuard` — command injection, SSRF, path traversal ✅ (58)
+  3. `ContextManager` — token budgeting, importance scoring ✅ (28)
+  4. `IntentDetector` — intent recognition accuracy ✅ (67)
+  5. `PromptService` — template rendering, variable substitution ✅ (19)
+  6. `IPC Validation` — zod schema validation for 47 channels ✅ (63)
+  7. `ConfigService` — Zod schema, typed API, reactive, debounce, migrations ✅ (38)
 
-### Krok 5.2 — Integration tests
-- [ ] IPC round-trip tests (main ↔ renderer)
-- [ ] AI service mock — test tool calling flow bez API calls
+### Krok 5.2 — Integration tests ✅
+> **Zaimplementowano**: 45 testów integracyjnych w `tests/integration.test.ts`. ToolExecutor (parsowanie tool calls, parallel execution, loop detection, cancellation, legacy+native flow), ResponseProcessor (cron suggestions, memory updates, take_control, screen analysis), ContextBuilder (system prompt assembly z promptami i kontekstem).
+
+- [x] ToolExecutor — legacy + native tool loop flow ✅
+- [x] ResponseProcessor — cron/memory/take_control/screen parsing ✅
+- [x] ContextBuilder — system prompt z tools, history, context ✅
 - [ ] RAG pipeline test — index → search → result quality
 - [ ] Cron scheduling accuracy
 
@@ -471,10 +487,15 @@ src/
 - [ ] Scenariusze: onboarding → chat → tool use → settings
 - [ ] Screenshot regression testing
 
-### Krok 5.4 — CI pipeline update
-- [ ] Dodaj test step do GitHub Actions workflow
-- [ ] Type checking + linting jako gate
-- [ ] Coverage report (minimum: 60% na critical paths)
+### Krok 5.4 — CI pipeline update ✅
+> **Zaimplementowano**: Quality gate z 7 krokami: env preflight → lint → typecheck (main+renderer) → testy z coverage → format check → npm audit (prod). Coverage thresholds w vitest.config.ts (30/25/20%). lcov reporter. Husky v9 + lint-staged (prettier pre-commit).
+
+- [x] Dodaj test step do GitHub Actions workflow ✅
+- [x] Type checking + linting jako gate ✅
+- [x] Coverage report (thresholds: 30% lines, 25% functions, 20% branches) ✅
+- [x] lint-staged + husky pre-commit hooks ✅
+- [x] npm audit (production deps) w CI ✅
+- [x] Environment preflight tests w CI ✅
 - [ ] Auto-release z semantic versioning
 
 ---
@@ -659,14 +680,14 @@ src/
 | 18 | CI quality gate | 5.4 | 🟢 Medium | 1 sesja | P2 | ✅ Done (partial) |
 | — | — **REMAINING** — | — | — | — | — | — |
 | 19 | Multi-provider AI abstraction | 2.5 | 🟡 High | 1-2 sesje | P2 | ✅ Done |
-| 20 | Configuration v2 (electron-store + reactive) | 3.6 | 🟡 High | 1 sesja | P2 | ⬜ |
+| 20 | Configuration v2 (Zod + reactive + typed) | 3.6 | 🟡 High | 1 sesja | P2 | ✅ Done |
 | 21 | AbortController cancellation | 2.6 | 🟢 Medium | 1 sesja | P2 | ⬜ |
 | 22 | IPC runtime validation (zod) | 3.1 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
-| 23 | ToolLoopDetector tests | 5.1 | 🟡 High | 1 sesja | P2 | ⬜ |
+| 23 | ToolLoopDetector tests | 5.1 | 🟡 High | 1 sesja | P2 | ✅ Done (43) |
 | 24 | Integration tests | 5.2 | 🟡 High | 2 sesje | P3 | ✅ Done (45) |
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 | ⬜ |
-| 26 | CI coverage gate + semantic release | 5.4 | 🟢 Medium | 1 sesja | P3 | ⬜ |
-| 27 | lint-staged + husky | 0.2 | 🟢 Medium | 1 sesja | P3 | ⬜ |
+| 26 | CI coverage gate + env tests | 5.4+5.5 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
+| 27 | lint-staged + husky | 0.2 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
 | 28 | Component library (ui/) | 4.2 | 🟡 High | 2 sesje | P3 | ✅ Done |
 | 29 | State management (zustand) | 4.3 | 🟡 High | 1 sesja | P3 | ✅ Done |
 | 30 | Dashboard SPA refactor | 4.4 | 🟢 Medium | 1-2 sesje | P4 | ⬜ |

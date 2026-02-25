@@ -1,4 +1,15 @@
-import { app, BrowserWindow, Tray, Menu, screen, nativeImage, globalShortcut, shell, session, desktopCapturer } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  Tray,
+  Menu,
+  screen,
+  nativeImage,
+  globalShortcut,
+  shell,
+  session,
+  desktopCapturer,
+} from 'electron';
 import * as path from 'path';
 import { Ev } from '../shared/ipc-schema';
 import { ServiceContainer } from './services/service-container';
@@ -70,7 +81,7 @@ function startCompanionMonitor(win: BrowserWindow): void {
     async (ctx, screenshots) => {
       try {
         log.info('T2 callback triggered — starting AI analysis...');
-        const screenshotData = screenshots.map(s => ({
+        const screenshotData = screenshots.map((s) => ({
           base64: s.base64.startsWith('data:') ? s.base64 : `data:image/png;base64,${s.base64}`,
           width: 1024,
           height: 768,
@@ -113,7 +124,7 @@ function startCompanionMonitor(win: BrowserWindow): void {
       log.info('User is back from AFK');
       agentLoop.setAfkState(false);
       safeSend(Ev.AGENT_COMPANION_STATE, { isAfk: false });
-    }
+    },
   );
 
   // Set heartbeat callback to deliver results to UI
@@ -192,19 +203,22 @@ function createMainWindow(): BrowserWindow {
   // When renderer calls getDisplayMedia(), this handler auto-selects the primary screen
   // and enables system audio capture without showing a picker dialog
   session.defaultSession.setDisplayMediaRequestHandler((_request, callback) => {
-    desktopCapturer.getSources({ types: ['screen'] }).then((sources) => {
-      if (sources.length > 0) {
-        callback({ video: sources[0], audio: 'loopback' });
-      } else {
-        log.warn('No display sources found for getDisplayMedia');
+    desktopCapturer
+      .getSources({ types: ['screen'] })
+      .then((sources) => {
+        if (sources.length > 0) {
+          callback({ video: sources[0], audio: 'loopback' });
+        } else {
+          log.warn('No display sources found for getDisplayMedia');
+          // @ts-expect-error — Electron types don't reflect null but it correctly rejects the request
+          callback(null);
+        }
+      })
+      .catch((err) => {
+        log.error('desktopCapturer.getSources failed:', err);
         // @ts-expect-error — Electron types don't reflect null but it correctly rejects the request
         callback(null);
-      }
-    }).catch((err) => {
-      log.error('desktopCapturer.getSources failed:', err);
-      // @ts-expect-error — Electron types don't reflect null but it correctly rejects the request
-      callback(null);
-    });
+      });
   });
 
   // ─── Renderer crash recovery ───
@@ -248,7 +262,7 @@ function createMainWindow(): BrowserWindow {
 function createTray(): void {
   // Create a simple tray icon
   const icon = nativeImage.createFromDataURL(
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAKDSURBVFhH7ZZLaxRBEMf/PbO7WXeNiYlRE0VFEBQPHrx48eRn8OBX8KJ+BI8e/AIe1IMgCIIgnhQSMRqNMZvsy+7OdJf/6p2ZnZ2dTbIQBAv+dFdXV1dVd08PZ8z/HFxelv6S4K8kIJIkd44cHrtzaGp61LI5g0o1rG3bWd8oFBff38xk6N6gXIKQAIuEaS2qnQZ/wBYXQukxHlvRn59+PTpOeWxQ5MTh7gG6mHIA3YRV4JqcIFq4bnR0dG+YqkUlKt+vtHKXGiGvSoSOqc4YUGYrVT8wJNvXS9qe2k9n/8SinD+uB6hd3AAOB8e3WlOhPojyJwBfGBcQCG3LAsm+O+RzPZjH/x6NEXr1++xMrKKh3zQ0oIciCAAmGiS1xD7BBSSmGzPnx/R/I0xOTMITx78RL9/AY4eOgjLFi6FQD3L16ohCsoCLLjQDPHBBCCxI5fEGlhYWIIrL7D05AmcvXgB27duiTXyI6ym8h2hEDHxNc6dEcDSVWQrFfWFl+98NDoywqGpKarOIZfzSCsFpFMmn79cwR6O5g+W7qs8PnQHgd3ELq7ukhrcE2q4wkNBgD0wO2Nxfv5DYj+hIr7rAXSVmTHMy29ceBFXACVw4nw+0xMH9GvM6z/QhZD0B5IxqbhkWjwJagGH9S7VUzfRLlYhGU6uGdXH9Mj6c6UqlsMqtLgJ9IpqUAIAX2a0fYz6LB2jlAH49p0H8g0O5wFq0JHq+K9WS0kpgZWU1cjUc4EcAJFJLawTQw+UY3NKQCdSqC6JUQp5qlRd0W/6KcLuEYM7VV5T3tgS+3/7E/xwCdrbcP+r/LcJGHPxBGT//gOQhKTPBx/+qQAAAABJRU5ErkJggg=='
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAYAAABzenr0AAAAAXNSR0IArs4c6QAAAARnQU1BAACxjwv8YQUAAAAJcEhZcwAADsMAAA7DAcdvqGQAAAKDSURBVFhH7ZZLaxRBEMf/PbO7WXeNiYlRE0VFEBQPHrx48eRn8OBX8KJ+BI8e/AIe1IMgCIIgnhQSMRqNMZvsy+7OdJf/6p2ZnZ2dTbIQBAv+dFdXV1dVd08PZ8z/HFxelv6S4K8kIJIkd44cHrtzaGp61LI5g0o1rG3bWd8oFBff38xk6N6gXIKQAIuEaS2qnQZ/wBYXQukxHlvRn59+PTpOeWxQ5MTh7gG6mHIA3YRV4JqcIFq4bnR0dG+YqkUlKt+vtHKXGiGvSoSOqc4YUGYrVT8wJNvXS9qe2k9n/8SinD+uB6hd3AAOB8e3WlOhPojyJwBfGBcQCG3LAsm+O+RzPZjH/x6NEXr1++xMrKKh3zQ0oIciCAAmGiS1xD7BBSSmGzPnx/R/I0xOTMITx78RL9/AY4eOgjLFi6FQD3L16ohCsoCLLjQDPHBBCCxI5fEGlhYWIIrL7D05AmcvXgB27duiTXyI6ym8h2hEDHxNc6dEcDSVWQrFfWFl+98NDoywqGpKarOIZfzSCsFpFMmn79cwR6O5g+W7qs8PnQHgd3ELq7ukhrcE2q4wkNBgD0wO2Nxfv5DYj+hIr7rAXSVmTHMy29ceBFXACVw4nw+0xMH9GvM6z/QhZD0B5IxqbhkWjwJagGH9S7VUzfRLlYhGU6uGdXH9Mj6c6UqlsMqtLgJ9IpqUAIAX2a0fYz6LB2jlAH49p0H8g0O5wFq0JHq+K9WS0kpgZWU1cjUc4EcAJFJLawTQw+UY3NKQCdSqC6JUQp5qlRd0W/6KcLuEYM7VV5T3tgS+3/7E/xwCdrbcP+r/LcJGHPxBGT//gOQhKTPBx/+qQAAAABJRU5ErkJggg==',
   );
 
   tray = new Tray(icon);
@@ -302,6 +316,14 @@ app.whenReady().then(async () => {
   // Setup IPC handlers
   setupIPC(mainWindow, container.getIPCServices());
 
+  // Wire config change events → push to renderer
+  const configService = container.get('config');
+  configService.on('change', (changes: Record<string, unknown>) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send(Ev.CONFIG_CHANGED, changes);
+    }
+  });
+
   // Initialize auto-updater (needs BrowserWindow for push events)
   container.get('updater').initialize(mainWindow);
 
@@ -351,7 +373,7 @@ app.whenReady().then(async () => {
           'Użytkownik nacisnął Ctrl+Shift+K — przejmujesz sterowanie. Obserwuj ekran i kontynuuj pracę użytkownika. Gdy skończysz lub nie masz co robić, odpowiedz TASK_COMPLETE.',
           (status) => safeSend(Ev.AUTOMATION_STATUS_UPDATE, status),
           (chunk) => safeSend(Ev.AI_STREAM, { chunk }),
-          true // confirmed via keyboard shortcut
+          true, // confirmed via keyboard shortcut
         );
         safeSend(Ev.AI_STREAM, { done: true });
         safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
@@ -400,10 +422,10 @@ Bądź pomocny, krótki i konkretny. Mów po polsku.`;
         prompt,
         undefined, // no extra context
         (chunk: string) => safeSend(Ev.AI_STREAM, { chunk }),
-        true // skip intent detection for this forced interaction
+        true, // skip intent detection for this forced interaction
       );
       safeSend(Ev.AI_STREAM, { done: true });
-      
+
       // Clear companion state
       safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: false, wantsToSpeak: false });
     } catch (err: any) {
@@ -441,10 +463,12 @@ app.on('will-quit', (event) => {
   // Race: graceful shutdown vs timeout
   Promise.race([
     gracefulShutdown(),
-    new Promise<void>((resolve) => setTimeout(() => {
-      log.warn(`Shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms — forcing exit`);
-      resolve();
-    }, SHUTDOWN_TIMEOUT_MS)),
+    new Promise<void>((resolve) =>
+      setTimeout(() => {
+        log.warn(`Shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms — forcing exit`);
+        resolve();
+      }, SHUTDOWN_TIMEOUT_MS),
+    ),
   ]).finally(() => {
     app.exit();
   });

@@ -224,9 +224,7 @@ export class ServiceContainer {
     agentLoop.setScreenMonitorService(screenMonitor);
 
     // Meeting Coach
-    const meetingCoach = new MeetingCoachService(
-      transcription, ai, config, security, rag, screenCapture,
-    );
+    const meetingCoach = new MeetingCoachService(transcription, ai, config, security, rag, screenCapture);
     this.set('meetingCoach', meetingCoach);
 
     // Dashboard server
@@ -248,9 +246,13 @@ export class ServiceContainer {
 
     // Forward meeting events to dashboard WebSocket
     const meetingDashEvents = [
-      'meeting:state', 'meeting:transcript', 'meeting:coaching',
-      'meeting:coaching-chunk', 'meeting:coaching-done',
-      'meeting:started', 'meeting:stopped',
+      'meeting:state',
+      'meeting:transcript',
+      'meeting:coaching',
+      'meeting:coaching-chunk',
+      'meeting:coaching-done',
+      'meeting:started',
+      'meeting:stopped',
     ];
     for (const event of meetingDashEvents) {
       meetingCoach.on(event, (data: any) => {
@@ -260,8 +262,18 @@ export class ServiceContainer {
 
     // Diagnostic service — self-test
     const diagnostic = new DiagnosticService({
-      ai, memory, config, cron, workflow, tools, systemMonitor,
-      rag, browser, screenMonitor, screenCapture, tts,
+      ai,
+      memory,
+      config,
+      cron,
+      workflow,
+      tools,
+      systemMonitor,
+      rag,
+      browser,
+      screenMonitor,
+      screenCapture,
+      tts,
     });
     this.set('diagnostic', diagnostic);
 
@@ -269,7 +281,8 @@ export class ServiceContainer {
     tools.register(
       {
         name: 'self_test',
-        description: 'Uruchamia pełną diagnostykę agenta — testuje wszystkie podsystemy (AI, pamięć, narzędzia, przeglądarkę, RAG, cron, TTS, screen monitor, zasoby systemowe). Użyj gdy użytkownik prosi o self-test lub "przetestuj się".',
+        description:
+          'Uruchamia pełną diagnostykę agenta — testuje wszystkie podsystemy (AI, pamięć, narzędzia, przeglądarkę, RAG, cron, TTS, screen monitor, zasoby systemowe). Użyj gdy użytkownik prosi o self-test lub "przetestuj się".',
         category: 'system',
         parameters: {},
       },
@@ -324,6 +337,7 @@ export class ServiceContainer {
 
     // ── Phase 5: Flush caches & persist data ──
     this.trySync('embedding', (s) => s.flushCache());
+    await this.tryAsync('config', (s) => s.shutdown());
 
     // ── Phase 6: Close database (must be last) ──
     this.trySync('memory', (s) => s.shutdown());
@@ -369,10 +383,7 @@ export class ServiceContainer {
   }
 
   /** Safely call a sync method on a service, logging errors. */
-  private trySync<K extends ServiceKey>(
-    key: K,
-    fn: (service: ServiceMap[K]) => void,
-  ): void {
+  private trySync<K extends ServiceKey>(key: K, fn: (service: ServiceMap[K]) => void): void {
     if (!this.has(key)) return;
     try {
       fn(this.get(key));
@@ -382,10 +393,7 @@ export class ServiceContainer {
   }
 
   /** Safely call an async method on a service, logging errors. */
-  private async tryAsync<K extends ServiceKey>(
-    key: K,
-    fn: (service: ServiceMap[K]) => Promise<any>,
-  ): Promise<void> {
+  private async tryAsync<K extends ServiceKey>(key: K, fn: (service: ServiceMap[K]) => Promise<any>): Promise<void> {
     if (!this.has(key)) return;
     try {
       await fn(this.get(key));

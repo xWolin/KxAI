@@ -38,6 +38,7 @@ export const Ch = {
   // Config
   CONFIG_GET: 'config:get',
   CONFIG_SET: 'config:set',
+  CONFIG_SET_BATCH: 'config:set-batch',
   CONFIG_IS_ONBOARDED: 'config:is-onboarded',
   CONFIG_COMPLETE_ONBOARDING: 'config:complete-onboarding',
 
@@ -204,16 +205,17 @@ export const Ev = {
   SUBAGENT_PROGRESS: 'subagent:progress',
   UPDATE_STATE: 'update:state',
   MCP_STATUS: 'mcp:status',
+  CONFIG_CHANGED: 'config:changed',
   NAVIGATE: 'navigate',
 } as const;
 
 // ─── Type helpers ───
 
 /** All handle channel names */
-export type HandleChannel = typeof Ch[keyof typeof Ch];
+export type HandleChannel = (typeof Ch)[keyof typeof Ch];
 /** All send channel names */
-export type SendChannel = typeof ChSend[keyof typeof ChSend];
+export type SendChannel = (typeof ChSend)[keyof typeof ChSend];
 /** All event channel names */
-export type EventChannel = typeof Ev[keyof typeof Ev];
+export type EventChannel = (typeof Ev)[keyof typeof Ev];
 /** All channel names */
 export type AnyChannel = HandleChannel | SendChannel | EventChannel;

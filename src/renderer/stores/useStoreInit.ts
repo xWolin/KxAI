@@ -17,6 +17,7 @@ export function useStoreInit(): void {
   const bumpChatRefresh = useNavigationStore((s) => s.bumpChatRefresh);
 
   const setConfig = useConfigStore((s) => s.setConfig);
+  const applyConfigChanges = useConfigStore((s) => s.applyConfigChanges);
   const addProactiveMessage = useConfigStore((s) => s.addProactiveMessage);
 
   const setAgentStatus = useAgentStore((s) => s.setAgentStatus);
@@ -97,6 +98,10 @@ export function useStoreInit(): void {
       }
     });
 
+    const cleanupConfigChanged = window.kxai.onConfigChanged((changes) => {
+      applyConfigChanges(changes);
+    });
+
     return () => {
       cleanupProactive();
       cleanupNavigate();
@@ -105,6 +110,7 @@ export function useStoreInit(): void {
       cleanupCompanion();
       cleanupAgentStatus();
       cleanupRagProgress();
+      cleanupConfigChanged();
     };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 }

@@ -51,6 +51,8 @@ const MemorySetParams = z.tuple([nonEmptyString, z.string()]);
 
 const ConfigSetParams = z.tuple([nonEmptyString, z.any()]);
 
+const ConfigSetBatchParams = z.tuple([z.record(z.string(), z.any())]);
+
 const ConfigCompleteOnboardingParams = z.tuple([
   z.object({
     userName: z.string().min(1).max(100),
@@ -237,6 +239,7 @@ export const IpcParamSchemas: Partial<Record<string, z.ZodType>> = {
 
   // Config
   [Ch.CONFIG_SET]: ConfigSetParams,
+  [Ch.CONFIG_SET_BATCH]: ConfigSetBatchParams,
   [Ch.CONFIG_COMPLETE_ONBOARDING]: ConfigCompleteOnboardingParams,
 
   // Security

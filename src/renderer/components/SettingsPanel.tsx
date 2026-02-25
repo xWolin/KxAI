@@ -46,9 +46,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [embeddingKey, setEmbeddingKey] = useState('');
   const [hasEmbeddingKey, setHasEmbeddingKey] = useState(false);
   const [embeddingModel, setEmbeddingModel] = useState(config.embeddingModel || 'text-embedding-3-small');
-  const [proactiveInterval, setProactiveInterval] = useState(
-    (config.proactiveIntervalMs || 30000) / 1000
-  );
+  const [proactiveInterval, setProactiveInterval] = useState((config.proactiveIntervalMs || 30000) / 1000);
   const [agentName, setAgentName] = useState(config.agentName || 'KxAI');
   const [agentEmoji, setAgentEmoji] = useState(config.agentEmoji || '🤖');
   const [saving, setSaving] = useState(false);
@@ -57,7 +55,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [activeTab, setActiveTab] = useState<'general' | 'persona' | 'memory' | 'knowledge' | 'mcp'>('general');
   const [indexedFolders, setIndexedFolders] = useState<string[]>([]);
   const [folderStats, setFolderStats] = useState<RAGFolderInfo[]>([]);
-  const [ragStats, setRagStats] = useState<{ totalChunks: number; totalFiles: number; embeddingType: string } | null>(null);
+  const [ragStats, setRagStats] = useState<{ totalChunks: number; totalFiles: number; embeddingType: string } | null>(
+    null,
+  );
   const [reindexing, setReindexing] = useState(false);
 
   // MCP state
@@ -103,13 +103,15 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   async function saveSettings() {
     setSaving(true);
     try {
-      // Save provider and model
-      await window.kxai.setConfig('aiProvider', provider);
-      await window.kxai.setConfig('aiModel', model);
-      await window.kxai.setConfig('agentName', agentName);
-      await window.kxai.setConfig('agentEmoji', agentEmoji);
-      await window.kxai.setConfig('proactiveIntervalMs', proactiveInterval * 1000);
-      await window.kxai.setConfig('embeddingModel', embeddingModel);
+      // Save all config changes in a single batch (1 IPC call + 1 write)
+      await window.kxai.setConfigBatch({
+        aiProvider: provider,
+        aiModel: model,
+        agentName,
+        agentEmoji,
+        proactiveIntervalMs: proactiveInterval * 1000,
+        embeddingModel,
+      });
 
       // Save API key if provided
       if (apiKey.trim()) {
@@ -197,10 +199,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const loadMcpData = useCallback(async () => {
     try {
       setMcpLoading(true);
-      const [status, registry] = await Promise.all([
-        window.kxai.mcpGetStatus(),
-        window.kxai.mcpGetRegistry(),
-      ]);
+      const [status, registry] = await Promise.all([window.kxai.mcpGetStatus(), window.kxai.mcpGetRegistry()]);
       setMcpStatus(status);
       setMcpRegistry(registry);
     } catch (err) {
@@ -293,9 +292,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         transport: mcpNewServer.transport,
         url: mcpNewServer.transport !== 'stdio' ? mcpNewServer.url : undefined,
         command: mcpNewServer.transport === 'stdio' ? mcpNewServer.command : undefined,
-        args: mcpNewServer.transport === 'stdio' && mcpNewServer.args
-          ? mcpNewServer.args.split(' ')
-          : undefined,
+        args: mcpNewServer.transport === 'stdio' && mcpNewServer.args ? mcpNewServer.args.split(' ') : undefined,
         env: Object.keys(envObj).length > 0 ? envObj : undefined,
         autoConnect: mcpNewServer.autoConnect,
         enabled: true,
@@ -322,7 +319,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
       }
       // Remove and re-add with updated env
       const servers = await window.kxai.mcpListServers();
-      const server = servers.find(s => s.id === serverId);
+      const server = servers.find((s) => s.id === serverId);
       if (!server) return;
       await window.kxai.mcpRemoveServer(serverId);
       await window.kxai.mcpAddServer({
@@ -339,11 +336,16 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
   function getMcpStatusBadge(status: string) {
     switch (status) {
-      case 'connected': return { text: 'Połączony', cls: s.mcpBadgeConnected };
-      case 'connecting': return { text: 'Łączenie...', cls: s.mcpBadgeConnecting };
-      case 'reconnecting': return { text: 'Reconnect...', cls: s.mcpBadgeConnecting };
-      case 'error': return { text: 'Błąd', cls: s.mcpBadgeError };
-      default: return { text: 'Rozłączony', cls: s.mcpBadgeDisconnected };
+      case 'connected':
+        return { text: 'Połączony', cls: s.mcpBadgeConnected };
+      case 'connecting':
+        return { text: 'Łączenie...', cls: s.mcpBadgeConnecting };
+      case 'reconnecting':
+        return { text: 'Reconnect...', cls: s.mcpBadgeConnecting };
+      case 'error':
+        return { text: 'Błąd', cls: s.mcpBadgeError };
+      default:
+        return { text: 'Rozłączony', cls: s.mcpBadgeDisconnected };
     }
   }
 
@@ -426,20 +428,15 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               </select>
 
               <label className={s.label}>Model</label>
-              <select
-                className={s.select}
-                value={model}
-                title="Model AI"
-                onChange={(e) => setModel(e.target.value)}
-              >
+              <select className={s.select} value={model} title="Model AI" onChange={(e) => setModel(e.target.value)}>
                 {MODELS[provider].map((m) => (
-                  <option key={m.value} value={m.value}>{m.label}</option>
+                  <option key={m.value} value={m.value}>
+                    {m.label}
+                  </option>
                 ))}
               </select>
 
-              <label className={s.label}>
-                Klucz API {hasKey ? '✅' : '❌'}
-              </label>
+              <label className={s.label}>Klucz API {hasKey ? '✅' : '❌'}</label>
               <input
                 type="password"
                 className={s.input}
@@ -472,9 +469,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             <div className={s.section}>
               <h3 className={s.sectionTitle}>🎙️ Meeting Coach (Deepgram)</h3>
 
-              <label className={s.label}>
-                Klucz API Deepgram {hasDeepgramKey ? '✅' : '❌'}
-              </label>
+              <label className={s.label}>Klucz API Deepgram {hasDeepgramKey ? '✅' : '❌'}</label>
               <input
                 type="password"
                 className={s.input}
@@ -492,14 +487,17 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               <h3 className={s.sectionTitle}>🧬 Embeddingi (RAG)</h3>
 
               <label className={s.label}>
-                Klucz API OpenAI (embeddingi) {hasEmbeddingKey ? '✅' : hasKey && provider === 'openai' ? '🔗 (główny)' : '❌'}
+                Klucz API OpenAI (embeddingi){' '}
+                {hasEmbeddingKey ? '✅' : hasKey && provider === 'openai' ? '🔗 (główny)' : '❌'}
               </label>
               <input
                 type="password"
                 className={s.input}
                 value={embeddingKey}
                 onChange={(e) => setEmbeddingKey(e.target.value)}
-                placeholder={hasEmbeddingKey ? '••••••••••• (zmień)' : 'Osobny klucz OpenAI do embeddingów (opcjonalnie)'}
+                placeholder={
+                  hasEmbeddingKey ? '••••••••••• (zmień)' : 'Osobny klucz OpenAI do embeddingów (opcjonalnie)'
+                }
               />
               <p className={s.hint}>
                 Osobny klucz OpenAI do generowania embeddingów. Jeśli nie podany, używany jest główny klucz OpenAI.
@@ -521,20 +519,14 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
             {/* Danger zone */}
             <div>
-              <h3 className={s.sectionTitleDanger}>
-                Strefa niebezpieczna
-              </h3>
+              <h3 className={s.sectionTitleDanger}>Strefa niebezpieczna</h3>
               <button onClick={clearHistory} className={s.btnDanger}>
                 🗑️ Wyczyść historię konwersacji
               </button>
             </div>
 
             <div className={s.saveWrapper}>
-              <button
-                onClick={saveSettings}
-                disabled={saving}
-                className={saving ? s.btnSaveSaving : s.btnSave}
-              >
+              <button onClick={saveSettings} disabled={saving} className={saving ? s.btnSaveSaving : s.btnSave}>
                 {saving ? 'Zapisywanie...' : 'Zapisz ustawienia'}
               </button>
             </div>
@@ -544,8 +536,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         {activeTab === 'persona' && (
           <div className="fade-in">
             <p className={s.desc}>
-              SOUL.md definiuje osobowość, ton i granice Twojego agenta.
-              Edytuj poniżej aby dostosować zachowanie.
+              SOUL.md definiuje osobowość, ton i granice Twojego agenta. Edytuj poniżej aby dostosować zachowanie.
             </p>
             <textarea
               className={s.textarea}
@@ -562,8 +553,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         {activeTab === 'memory' && (
           <div className="fade-in">
             <p className={s.desc}>
-              MEMORY.md to pamięć długoterminowa Twojego agenta.
-              Agent sam ją uzupełnia, ale możesz ją też edytować ręcznie.
+              MEMORY.md to pamięć długoterminowa Twojego agenta. Agent sam ją uzupełnia, ale możesz ją też edytować
+              ręcznie.
             </p>
             <textarea
               className={s.textarea}
@@ -580,7 +571,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         {activeTab === 'knowledge' && (
           <div className="fade-in">
             <p className={s.desc}>
-              Zarządzaj folderami, które agent indeksuje. Dodaj foldery z kodem, dokumentami lub notatkami — agent będzie je przeszukiwał semantycznie.
+              Zarządzaj folderami, które agent indeksuje. Dodaj foldery z kodem, dokumentami lub notatkami — agent
+              będzie je przeszukiwał semantycznie.
             </p>
 
             {/* Stats */}
@@ -607,7 +599,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             {/* Indexed folders */}
             <div className={s.section}>
               <h3 className={s.sectionTitle}>Zaindeksowane foldery</h3>
-              
+
               {folderStats.map((folder, idx) => (
                 <div key={idx} className={s.folderItem}>
                   <div className={s.folderItemInfo}>
@@ -616,9 +608,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     </div>
                     <div className={s.folderItemStats}>
                       {folder.fileCount} plików · {folder.chunkCount} chunków
-                      {folder.lastIndexed > 0 && (
-                        <> · {new Date(folder.lastIndexed).toLocaleString('pl-PL')}</>
-                      )}
+                      {folder.lastIndexed > 0 && <> · {new Date(folder.lastIndexed).toLocaleString('pl-PL')}</>}
                     </div>
                   </div>
                   {idx > 0 && (
@@ -633,23 +623,14 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 </div>
               ))}
 
-              <button
-                className={s.btnSave}
-                onClick={handleAddFolder}
-                style={{ marginTop: '8px' }}
-              >
+              <button className={s.btnSave} onClick={handleAddFolder} style={{ marginTop: '8px' }}>
                 ➕ Dodaj folder
               </button>
             </div>
 
             {/* Reindex */}
             <div className={s.section}>
-              <button
-                className={s.btnSave}
-                onClick={handleReindex}
-                disabled={reindexing}
-                style={{ width: '100%' }}
-              >
+              <button className={s.btnSave} onClick={handleReindex} disabled={reindexing} style={{ width: '100%' }}>
                 {reindexing ? '⏳ Reindeksowanie...' : '🔄 Przeindeksuj wszystko'}
               </button>
             </div>
@@ -659,7 +640,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         {activeTab === 'mcp' && (
           <div className="fade-in">
             <p className={s.desc}>
-              Zarządzaj serwerami MCP (Model Context Protocol). Agent może łączyć się z zewnętrznymi usługami — kalendarzem, Slackiem, GitHubem i wieloma innymi.
+              Zarządzaj serwerami MCP (Model Context Protocol). Agent może łączyć się z zewnętrznymi usługami —
+              kalendarzem, Slackiem, GitHubem i wieloma innymi.
             </p>
 
             {/* Hub Stats */}
@@ -686,7 +668,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             {/* Connected Servers */}
             <div className={s.section}>
               <h3 className={s.sectionTitle}>Skonfigurowane serwery</h3>
-              
+
               {mcpStatus && mcpStatus.servers.length === 0 && (
                 <p className={s.hint}>Brak skonfigurowanych serwerów. Dodaj z rejestru poniżej lub ręcznie.</p>
               )}
@@ -723,10 +705,12 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                           className={s.mcpBtnSmall}
                           onClick={() => {
                             // Find server config to prefill env
-                            window.kxai.mcpListServers().then(servers => {
-                              const srv = servers.find(ss => ss.id === server.id);
+                            window.kxai.mcpListServers().then((servers) => {
+                              const srv = servers.find((ss) => ss.id === server.id);
                               const envStr = srv?.env
-                                ? Object.entries(srv.env).map(([k, v]) => `${k}=${v}`).join('\n')
+                                ? Object.entries(srv.env)
+                                    .map(([k, v]) => `${k}=${v}`)
+                                    .join('\n')
                                 : '';
                               setMcpEnvEditing(server.id);
                               setMcpEnvInput(envStr);
@@ -757,9 +741,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       </div>
                     )}
 
-                    {server.error && (
-                      <div className={s.mcpServerError}>{server.error}</div>
-                    )}
+                    {server.error && <div className={s.mcpServerError}>{server.error}</div>}
 
                     {/* Env editor */}
                     {mcpEnvEditing === server.id && (
@@ -803,7 +785,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   <input
                     className={s.input}
                     value={mcpNewServer.name}
-                    onChange={(e) => setMcpNewServer(prev => ({ ...prev, name: e.target.value }))}
+                    onChange={(e) => setMcpNewServer((prev) => ({ ...prev, name: e.target.value }))}
                     placeholder="np. moj-serwer"
                   />
 
@@ -811,10 +793,12 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   <select
                     className={s.select}
                     value={mcpNewServer.transport}
-                    onChange={(e) => setMcpNewServer(prev => ({
-                      ...prev,
-                      transport: e.target.value as 'streamable-http' | 'sse' | 'stdio',
-                    }))}
+                    onChange={(e) =>
+                      setMcpNewServer((prev) => ({
+                        ...prev,
+                        transport: e.target.value as 'streamable-http' | 'sse' | 'stdio',
+                      }))
+                    }
                   >
                     <option value="stdio">stdio (lokalny proces)</option>
                     <option value="streamable-http">Streamable HTTP</option>
@@ -827,14 +811,14 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       <input
                         className={s.input}
                         value={mcpNewServer.command}
-                        onChange={(e) => setMcpNewServer(prev => ({ ...prev, command: e.target.value }))}
+                        onChange={(e) => setMcpNewServer((prev) => ({ ...prev, command: e.target.value }))}
                         placeholder="npx, node, python..."
                       />
                       <label className={s.label}>Argumenty (spacja)</label>
                       <input
                         className={s.input}
                         value={mcpNewServer.args}
-                        onChange={(e) => setMcpNewServer(prev => ({ ...prev, args: e.target.value }))}
+                        onChange={(e) => setMcpNewServer((prev) => ({ ...prev, args: e.target.value }))}
                         placeholder="-y @modelcontextprotocol/server-github"
                       />
                     </>
@@ -844,7 +828,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       <input
                         className={s.input}
                         value={mcpNewServer.url}
-                        onChange={(e) => setMcpNewServer(prev => ({ ...prev, url: e.target.value }))}
+                        onChange={(e) => setMcpNewServer((prev) => ({ ...prev, url: e.target.value }))}
                         placeholder="http://localhost:3000/mcp"
                       />
                     </>
@@ -854,16 +838,25 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   <textarea
                     className={s.mcpEnvTextarea}
                     value={mcpNewServer.env}
-                    onChange={(e) => setMcpNewServer(prev => ({ ...prev, env: e.target.value }))}
+                    onChange={(e) => setMcpNewServer((prev) => ({ ...prev, env: e.target.value }))}
                     placeholder="API_KEY=xxx&#10;TOKEN=yyy"
                     rows={3}
                   />
 
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  <label
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      marginTop: '8px',
+                      fontSize: '12px',
+                      color: 'var(--text-secondary)',
+                    }}
+                  >
                     <input
                       type="checkbox"
                       checked={mcpNewServer.autoConnect}
-                      onChange={(e) => setMcpNewServer(prev => ({ ...prev, autoConnect: e.target.checked }))}
+                      onChange={(e) => setMcpNewServer((prev) => ({ ...prev, autoConnect: e.target.checked }))}
                     />
                     Auto-connect przy starcie
                   </label>
@@ -888,9 +881,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               </p>
 
               {mcpRegistry.map((entry) => {
-                const alreadyAdded = mcpStatus?.servers.some(
-                  s => s.name.toLowerCase() === entry.name.toLowerCase()
-                );
+                const alreadyAdded = mcpStatus?.servers.some((s) => s.name.toLowerCase() === entry.name.toLowerCase());
                 return (
                   <div key={entry.id} className={s.mcpRegistryItem}>
                     <div className={s.mcpRegistryInfo}>
@@ -898,9 +889,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       <div>
                         <div className={s.mcpRegistryName}>{entry.name}</div>
                         <div className={s.mcpRegistryDesc}>{entry.description}</div>
-                        {entry.requiresSetup && (
-                          <span className={s.mcpRequiresSetup}>⚙ Wymaga konfiguracji</span>
-                        )}
+                        {entry.requiresSetup && <span className={s.mcpRequiresSetup}>⚙ Wymaga konfiguracji</span>}
                       </div>
                     </div>
                     <button
