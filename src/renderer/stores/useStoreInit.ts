@@ -90,7 +90,11 @@ export function useStoreInit(): void {
     });
 
     const cleanupRagProgress = window.kxai.onRagProgress((progress) => {
-      setRagProgress(progress);
+      if (progress.phase === 'done' || progress.phase === 'error') {
+        setRagProgress(null);
+      } else {
+        setRagProgress(progress);
+      }
     });
 
     return () => {

@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import type { ConversationMessage, KxAIConfig, AgentStatus, IndexProgress } from '../types';
+import type { ConversationMessage, KxAIConfig } from '../types';
+import { useAgentStore } from '../stores';
 import s from './ChatPanel.module.css';
 import { cn } from '../utils/cn';
 
 // Configure marked for chat messages
 marked.setOptions({
-  breaks: true,    // GFM line breaks
+  breaks: true, // GFM line breaks
   gfm: true,
 });
 
@@ -62,17 +63,10 @@ function MessageContent({ content }: { content: string }) {
   if (!html) return null;
   return (
     <div className={s.bubbleWrapper}>
-      <button
-        className={copied ? s.copyBtnCopied : s.copyBtn}
-        onClick={handleCopy}
-        title="Kopiuj wiadomość"
-      >
+      <button className={copied ? s.copyBtnCopied : s.copyBtn} onClick={handleCopy} title="Kopiuj wiadomość">
         {copied ? '✓' : '📋'}
       </button>
-      <div
-        className={s.markdown}
-        dangerouslySetInnerHTML={{ __html: html }}
-      />
+      <div className={s.markdown} dangerouslySetInnerHTML={{ __html: html }} />
     </div>
   );
 }
@@ -86,15 +80,25 @@ interface ChatPanelProps {
   refreshTrigger?: number;
 }
 
-export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenMeeting, refreshTrigger }: ChatPanelProps) {
+export function ChatPanel({
+  config,
+  onClose,
+  onOpenSettings,
+  onOpenCron,
+  onOpenMeeting,
+  refreshTrigger,
+}: ChatPanelProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [streamingContent, setStreamingContent] = useState('');
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
-  const [agentStatus, setAgentStatus] = useState<AgentStatus>({ state: 'idle' });
-  const [ragProgress, setRagProgress] = useState<IndexProgress | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+
+  // Agent status & RAG progress from global store (subscribed in useStoreInit)
+  const agentStatus = useAgentStore((s) => s.agentStatus);
+  const ragProgress = useAgentStore((s) => s.ragProgress);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -147,24 +151,8 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
       }
     });
 
-    // Listen for agent status updates
-    const cleanupStatus = window.kxai.onAgentStatus?.((status) => {
-      setAgentStatus(status);
-    });
-
-    // Listen for RAG indexing progress
-    const cleanupRag = window.kxai.onRagProgress?.((progress) => {
-      if (progress.phase === 'done' || progress.phase === 'error') {
-        setRagProgress(null);
-      } else {
-        setRagProgress(progress);
-      }
-    });
-
     return () => {
       cleanup();
-      cleanupStatus?.();
-      cleanupRag?.();
     };
   }, []);
 
@@ -264,7 +252,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
 
     try {
       const result = await window.kxai.streamWithScreen(
-        'Przeanalizuj mój obecny ekran. Co widzisz? Jakie masz obserwacje, porady, uwagi?'
+        'Przeanalizuj mój obecny ekran. Co widzisz? Jakie masz obserwacje, porady, uwagi?',
       );
       // Safety: always reset streaming state after IPC completes
       setIsStreaming(false);
@@ -318,9 +306,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-          ? 'audio/webm;codecs=opus'
-          : 'audio/webm',
+        mimeType: MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ? 'audio/webm;codecs=opus' : 'audio/webm',
       });
 
       const chunks: Blob[] = [];
@@ -330,11 +316,11 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
 
       mediaRecorder.onstop = async () => {
         // Stop all tracks to release mic
-        stream.getTracks().forEach(t => t.stop());
+        stream.getTracks().forEach((t) => t.stop());
 
         if (chunks.length === 0) return;
 
-        setInput(prev => prev || '⏳ Transkrybuję...');
+        setInput((prev) => prev || '⏳ Transkrybuję...');
 
         try {
           const blob = new Blob(chunks, { type: 'audio/webm' });
@@ -350,26 +336,24 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
 
           const result = await window.kxai.transcribeAudio(base64);
           if (result.success && result.text) {
-            setInput(prev => {
+            setInput((prev) => {
               const clean = prev === '⏳ Transkrybuję...' ? '' : prev;
               return (clean ? clean + ' ' : '') + result.text;
             });
             inputRef.current?.focus();
           } else {
-            setInput(prev => prev === '⏳ Transkrybuję...'
-              ? `⚠️ ${result.error || 'Transkrypcja nie powiodła się'}`
-              : prev);
+            setInput((prev) =>
+              prev === '⏳ Transkrybuję...' ? `⚠️ ${result.error || 'Transkrypcja nie powiodła się'}` : prev,
+            );
           }
         } catch (err: any) {
           console.error('[ChatPanel] Whisper transcription error:', err);
-          setInput(prev => prev === '⏳ Transkrybuję...'
-            ? '⚠️ Błąd transkrypcji'
-            : prev);
+          setInput((prev) => (prev === '⏳ Transkrybuję...' ? '⚠️ Błąd transkrypcji' : prev));
         }
       };
 
       mediaRecorder.onerror = () => {
-        stream.getTracks().forEach(t => t.stop());
+        stream.getTracks().forEach((t) => t.stop());
         setIsRecording(false);
         recognitionRef.current = null;
       };
@@ -379,7 +363,7 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
       setIsRecording(true);
     } catch (err: any) {
       console.error('[ChatPanel] Mic access failed:', err);
-      setInput(prev => prev || '⚠️ Brak uprawnień do mikrofonu');
+      setInput((prev) => prev || '⚠️ Brak uprawnień do mikrofonu');
     }
   }
 
@@ -419,26 +403,42 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
               {config.agentName || 'KxAI'}
               {agentStatus.state !== 'idle' && (
                 <span className={s.statusBadge} title={agentStatus.detail || agentStatus.state}>
-                  {agentStatus.state === 'thinking' ? '🧠' :
-                   agentStatus.state === 'tool-calling' ? '⚙️' :
-                   agentStatus.state === 'streaming' ? '📡' :
-                   agentStatus.state === 'heartbeat' ? '💓' :
-                   agentStatus.state === 'take-control' ? '🎮' :
-                   agentStatus.state === 'sub-agent' ? '🤖' : ''}
+                  {agentStatus.state === 'thinking'
+                    ? '🧠'
+                    : agentStatus.state === 'tool-calling'
+                      ? '⚙️'
+                      : agentStatus.state === 'streaming'
+                        ? '📡'
+                        : agentStatus.state === 'heartbeat'
+                          ? '💓'
+                          : agentStatus.state === 'take-control'
+                            ? '🎮'
+                            : agentStatus.state === 'sub-agent'
+                              ? '🤖'
+                              : ''}
                 </span>
               )}
             </div>
             <div className={s.headerModel}>
               {config.aiProvider === 'anthropic' ? 'Anthropic' : 'OpenAI'} · {config.aiModel}
               {agentStatus.state !== 'idle' && (
-                <span className={s.statusText}> · {
-                  agentStatus.state === 'thinking' ? 'myślę...' :
-                  agentStatus.state === 'tool-calling' ? agentStatus.toolName || 'narzędzie...' :
-                  agentStatus.state === 'streaming' ? 'odpowiadam...' :
-                  agentStatus.state === 'heartbeat' ? 'heartbeat' :
-                  agentStatus.state === 'take-control' ? 'sterowanie' :
-                  agentStatus.state === 'sub-agent' ? 'sub-agent' : ''
-                }</span>
+                <span className={s.statusText}>
+                  {' '}
+                  ·{' '}
+                  {agentStatus.state === 'thinking'
+                    ? 'myślę...'
+                    : agentStatus.state === 'tool-calling'
+                      ? agentStatus.toolName || 'narzędzie...'
+                      : agentStatus.state === 'streaming'
+                        ? 'odpowiadam...'
+                        : agentStatus.state === 'heartbeat'
+                          ? 'heartbeat'
+                          : agentStatus.state === 'take-control'
+                            ? 'sterowanie'
+                            : agentStatus.state === 'sub-agent'
+                              ? 'sub-agent'
+                              : ''}
+                </span>
               )}
             </div>
           </div>
@@ -455,56 +455,32 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
           </button>
 
           {/* Screenshot */}
-          <button
-            onClick={captureAndAnalyze}
-            title="Zrób screenshot i analizuj"
-            className={s.btn}
-          >
+          <button onClick={captureAndAnalyze} title="Zrób screenshot i analizuj" className={s.btn}>
             📸
           </button>
 
           {/* Cron Jobs */}
-          <button
-            onClick={onOpenCron}
-            title="Cron Jobs"
-            className={s.btn}
-          >
+          <button onClick={onOpenCron} title="Cron Jobs" className={s.btn}>
             ⏰
           </button>
 
           {/* Dashboard */}
-          <button
-            onClick={openDashboard}
-            title="Otwórz Dashboard"
-            className={s.btn}
-          >
+          <button onClick={openDashboard} title="Otwórz Dashboard" className={s.btn}>
             📊
           </button>
 
           {/* Meeting Coach */}
-          <button
-            onClick={onOpenMeeting}
-            title="Meeting Coach"
-            className={s.btn}
-          >
+          <button onClick={onOpenMeeting} title="Meeting Coach" className={s.btn}>
             🎙️
           </button>
 
           {/* Settings */}
-          <button
-            onClick={onOpenSettings}
-            title="Ustawienia"
-            className={s.btn}
-          >
+          <button onClick={onOpenSettings} title="Ustawienia" className={s.btn}>
             ⚙️
           </button>
 
           {/* Close */}
-          <button
-            onClick={onClose}
-            title="Zwiń"
-            className={s.btn}
-          >
+          <button onClick={onClose} title="Zwiń" className={s.btn}>
             ✕
           </button>
         </div>
@@ -515,18 +491,21 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
         <div className={s.ragProgress}>
           <div className={s.ragInfo}>
             <span className={s.ragLabel}>
-              📚 Indeksowanie: {ragProgress.phase === 'scanning' ? 'Skanowanie plików' :
-                ragProgress.phase === 'chunking' ? 'Dzielenie na fragmenty' :
-                ragProgress.phase === 'embedding' ? 'Generowanie embeddingów' :
-                ragProgress.phase === 'saving' ? 'Zapisywanie indeksu' : ragProgress.phase}
+              📚 Indeksowanie:{' '}
+              {ragProgress.phase === 'scanning'
+                ? 'Skanowanie plików'
+                : ragProgress.phase === 'chunking'
+                  ? 'Dzielenie na fragmenty'
+                  : ragProgress.phase === 'embedding'
+                    ? 'Generowanie embeddingów'
+                    : ragProgress.phase === 'saving'
+                      ? 'Zapisywanie indeksu'
+                      : ragProgress.phase}
             </span>
             <span className={s.ragPercent}>{Math.round(ragProgress.overallPercent)}%</span>
           </div>
           <div className={s.ragBar}>
-            <div
-              className={s.ragFill}
-              style={{ width: `${ragProgress.overallPercent}%` }}
-            />
+            <div className={s.ragFill} style={{ width: `${ragProgress.overallPercent}%` }} />
           </div>
           <div className={s.ragDetail}>
             {ragProgress.filesProcessed}/{ragProgress.filesTotal} plików · {ragProgress.chunksCreated} fragmentów
@@ -542,30 +521,17 @@ export function ChatPanel({ config, onClose, onOpenSettings, onOpenCron, onOpenM
         {messages.length === 0 && !isStreaming && (
           <div className={s.empty}>
             <div className={s.emptyEmoji}>{config.agentEmoji || '🤖'}</div>
-            <div className={s.emptyTitle}>
-              Cześć! Jestem {config.agentName || 'KxAI'}
-            </div>
-            <div className={s.emptySubtitle}>
-              Napisz coś lub kliknij 📸 żeby przeanalizować ekran
-            </div>
+            <div className={s.emptyTitle}>Cześć! Jestem {config.agentName || 'KxAI'}</div>
+            <div className={s.emptySubtitle}>Napisz coś lub kliknij 📸 żeby przeanalizować ekran</div>
           </div>
         )}
 
         {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={cn('fade-in', msg.role === 'user' ? s.msgUser : s.msgAssistant)}
-          >
+          <div key={msg.id} className={cn('fade-in', msg.role === 'user' ? s.msgUser : s.msgAssistant)}>
             <div className={msg.role === 'user' ? s.bubbleUser : s.bubbleAssistant}>
-              {msg.role === 'assistant' ? (
-                <MessageContent content={msg.content} />
-              ) : (
-                msg.content
-              )}
+              {msg.role === 'assistant' ? <MessageContent content={msg.content} /> : msg.content}
             </div>
-            <div className={s.msgTime}>
-              {formatTime(msg.timestamp)}
-            </div>
+            <div className={s.msgTime}>{formatTime(msg.timestamp)}</div>
           </div>
         ))}
 
