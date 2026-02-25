@@ -1550,6 +1550,62 @@ export class BrowserService {
   }
 
   // ════════════════════════════════════════════════════
+  //  Page Monitoring (Faza 1.5)
+  // ════════════════════════════════════════════════════
+
+  /**
+   * Start real-time monitoring on the active page.
+   * Captures: navigation, load, console, network, DOM mutation, dialog events.
+   * Events are buffered internally — retrieve with getConsoleLogs / getNetworkLogs.
+   */
+  async startMonitoring(): Promise<BrowserResult> {
+    const page = this.getActivePage();
+    if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
+
+    try {
+      await page.enableMonitoring((event) => {
+        log.debug(`[Monitor] ${event.type}: ${JSON.stringify(event.data).slice(0, 200)}`);
+      });
+      return { success: true, data: 'Monitoring strony włączony — zbieranie logów konsoli, sieci i nawigacji.' };
+    } catch (err: any) {
+      return { success: false, error: `Monitor: ${err.message}` };
+    }
+  }
+
+  /** Stop monitoring and clear buffered logs */
+  async stopMonitoring(): Promise<BrowserResult> {
+    const page = this.getActivePage();
+    if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
+
+    page.disableMonitoring();
+    return { success: true, data: 'Monitoring strony wyłączony.' };
+  }
+
+  /** Get buffered console log entries (max 500) */
+  getConsoleLogs(limit = 50): BrowserResult {
+    const page = this.getActivePage();
+    if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
+
+    const logs = page.getConsoleLog().slice(-limit);
+    return { success: true, data: logs };
+  }
+
+  /** Get buffered network log entries (max 500) */
+  getNetworkLogs(limit = 50): BrowserResult {
+    const page = this.getActivePage();
+    if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
+
+    const logs = page.getNetworkLog().slice(-limit);
+    return { success: true, data: logs };
+  }
+
+  /** Check monitoring status */
+  isMonitoring(): boolean {
+    const page = this.getActivePage();
+    return page?.monitoring ?? false;
+  }
+
+  // ════════════════════════════════════════════════════
   //  Cleanup
   // ════════════════════════════════════════════════════
 

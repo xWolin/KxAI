@@ -1707,6 +1707,55 @@ export class ToolsService {
       },
       async () => browser.refreshCookies(),
     );
+
+    // ── Monitoring tools (Faza 1.5) ──
+
+    this.register(
+      {
+        name: 'browser_monitor_start',
+        description:
+          'Włącza monitoring strony w tle: logi konsoli (console.log/warn/error), zapytania sieciowe (HTTP requests/responses), nawigacje, zmiany DOM, dialogi JS. Wyniki pobieraj za pomocą browser_console_logs i browser_network_logs.',
+        category: 'browser',
+        parameters: {},
+      },
+      async () => browser.startMonitoring(),
+    );
+
+    this.register(
+      {
+        name: 'browser_monitor_stop',
+        description: 'Wyłącza monitoring strony i czyści bufor logów.',
+        category: 'browser',
+        parameters: {},
+      },
+      async () => browser.stopMonitoring(),
+    );
+
+    this.register(
+      {
+        name: 'browser_console_logs',
+        description:
+          'Pobiera logi konsoli przeglądarki (console.log, console.error itd.). Wymaga wcześniejszego browser_monitor_start.',
+        category: 'browser',
+        parameters: {
+          limit: { type: 'number', description: 'Maks. liczba wpisów (domyślnie 50)' },
+        },
+      },
+      async (params) => browser.getConsoleLogs(params.limit || 50),
+    );
+
+    this.register(
+      {
+        name: 'browser_network_logs',
+        description:
+          'Pobiera log zapytań sieciowych (URL, metoda, status). Wymaga wcześniejszego browser_monitor_start.',
+        category: 'browser',
+        parameters: {
+          limit: { type: 'number', description: 'Maks. liczba wpisów (domyślnie 50)' },
+        },
+      },
+      async (params) => browser.getNetworkLogs(params.limit || 50),
+    );
   }
 
   // ─── RAG Tools ───

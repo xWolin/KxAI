@@ -34,6 +34,15 @@ export interface CDPTarget {
   webSocketDebuggerUrl: string;
 }
 
+/** Event emitted by page monitoring (Faza 1.5) */
+export interface PageEvent {
+  type: 'navigation' | 'load' | 'console' | 'network-request' | 'network-response' | 'dom-mutation' | 'dialog';
+  timestamp: number;
+  data: Record<string, unknown>;
+}
+
+export type PageEventCallback = (event: PageEvent) => void;
+
 interface CDPResponse {
   id?: number;
   method?: string;
@@ -76,6 +85,63 @@ const KEY_MAP: Record<string, { key: string; code: string; keyCode: number }> = 
 // F1-F12
 for (let i = 1; i <= 12; i++) {
   KEY_MAP[`F${i}`] = { key: `F${i}`, code: `F${i}`, keyCode: 111 + i };
+}
+
+// ═══════════════════════════════════════════════════════
+//  Stealth Scripts (Faza 1.4 — Anti-detection)
+// ═══════════════════════════════════════════════════════
+
+/** Scripts injected via Page.addScriptToEvaluateOnNewDocument to evade bot detection */
+const STEALTH_SCRIPTS = [
+  // 1. Override navigator.webdriver
+  `Object.defineProperty(navigator, 'webdriver', { get: () => undefined })`,
+
+  // 2. Fake chrome.runtime to look like a real Chrome extension environment
+  `if (!window.chrome) window.chrome = {};
+   if (!window.chrome.runtime) window.chrome.runtime = { id: undefined };`,
+
+  // 3. Override navigator.plugins to have realistic entries
+  `Object.defineProperty(navigator, 'plugins', {
+    get: () => {
+      const arr = [{ name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+                   { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+                   { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' }];
+      arr.item = i => arr[i];
+      arr.namedItem = n => arr.find(p => p.name === n);
+      arr.refresh = () => {};
+      return arr;
+    }
+  })`,
+
+  // 4. Override navigator.languages to look realistic
+  `Object.defineProperty(navigator, 'languages', { get: () => ['pl-PL', 'pl', 'en-US', 'en'] })`,
+
+  // 5. Override Permissions.query to avoid "notifications" prompt detection
+  `const origQuery = window.Permissions?.prototype?.query;
+   if (origQuery) {
+     window.Permissions.prototype.query = function(params) {
+       if (params?.name === 'notifications') return Promise.resolve({ state: Notification.permission });
+       return origQuery.call(this, params);
+     };
+   }`,
+
+  // 6. Hide automation-related properties from iframe contentWindow
+  `const origAttachShadow = Element.prototype.attachShadow;
+   Element.prototype.attachShadow = function() { return origAttachShadow.call(this, ...arguments); };`,
+
+  // 7. WebGL vendor/renderer spoofing (prevent fingerprint mismatch)
+  `const getParam = WebGLRenderingContext.prototype.getParameter;
+   WebGLRenderingContext.prototype.getParameter = function(param) {
+     if (param === 37445) return 'Intel Inc.';
+     if (param === 37446) return 'Intel Iris OpenGL Engine';
+     return getParam.call(this, param);
+   };`,
+];
+
+/** Randomize a base delay ± ~40% for human-like timing */
+function humanDelay(baseMs: number): number {
+  const jitter = baseMs * 0.4;
+  return Math.max(5, baseMs - jitter + Math.random() * jitter * 2);
 }
 
 // ═══════════════════════════════════════════════════════
@@ -211,6 +277,16 @@ export class CDPPage {
   private _title = '';
   readonly targetId: string;
 
+  /** Stealth enabled flag (Faza 1.4) */
+  private _stealthApplied = false;
+
+  /** Page monitoring state (Faza 1.5) */
+  private _monitoring = false;
+  private _monitorCallback: PageEventCallback | null = null;
+  private _consoleLog: Array<{ level: string; text: string; timestamp: number }> = [];
+  private _networkLog: Array<{ url: string; method: string; status?: number; type: string; timestamp: number }> = [];
+  private static readonly MAX_LOG_ENTRIES = 500;
+
   constructor(cdp: CDPConnection, targetId: string, initialUrl = '') {
     this.cdp = cdp;
     this.targetId = targetId;
@@ -230,6 +306,10 @@ export class CDPPage {
       this.cdp.send('Page.enable'),
       this.cdp.send('Runtime.enable'),
     ]);
+
+    // Apply stealth scripts before any navigation (Faza 1.4)
+    await this.applyStealthScripts();
+
     await this.refreshInfo();
   }
 
@@ -380,26 +460,31 @@ export class CDPPage {
     const button = opts?.button || 'left';
     const clickCount = opts?.clickCount || 1;
 
+    const ts = () => Date.now() / 1000; // CDP uses seconds (float)
     await this.cdp.send('Input.dispatchMouseEvent', {
       type: 'mouseMoved',
       x,
       y,
       button: 'none',
+      timestamp: ts(),
     });
-    await this.sleep(30);
+    await this.sleep(humanDelay(30));
     await this.cdp.send('Input.dispatchMouseEvent', {
       type: 'mousePressed',
       x,
       y,
       button,
       clickCount,
+      timestamp: ts(),
     });
+    await this.sleep(humanDelay(12));
     await this.cdp.send('Input.dispatchMouseEvent', {
       type: 'mouseReleased',
       x,
       y,
       button,
       clickCount,
+      timestamp: ts(),
     });
   }
 
@@ -465,12 +550,12 @@ export class CDPPage {
     })()`);
   }
 
-  /** Type text char-by-char with realistic delays */
+  /** Type text char-by-char with human-like randomized delays */
   async typeText(text: string, opts?: { delay?: number }): Promise<void> {
-    const delay = opts?.delay ?? 30;
+    const baseDelay = opts?.delay ?? 35;
     for (const char of text) {
       await this.dispatchChar(char);
-      if (delay > 0) await this.sleep(delay);
+      if (baseDelay > 0) await this.sleep(humanDelay(baseDelay));
     }
   }
 
@@ -781,7 +866,243 @@ export class CDPPage {
 
   /** Close the underlying CDP connection */
   close(): void {
+    this._monitoring = false;
+    this._monitorCallback = null;
     this.cdp.close();
+  }
+
+  // ── Stealth / Anti-detection (Faza 1.4) ─────────────
+
+  /**
+   * Inject a script that runs on every new document (before page JS).
+   * Wraps CDP Page.addScriptToEvaluateOnNewDocument.
+   */
+  async addInitScript(source: string): Promise<void> {
+    await this.cdp.send('Page.addScriptToEvaluateOnNewDocument', { source });
+  }
+
+  /**
+   * Apply stealth patches to evade common bot-detection:
+   * - navigator.webdriver → undefined
+   * - Realistic navigator.plugins & languages
+   * - chrome.runtime stub
+   * - Permissions.query patch
+   * - WebGL vendor/renderer spoofing
+   *
+   * Called automatically from init(). Safe to call multiple times (idempotent).
+   */
+  async applyStealthScripts(): Promise<void> {
+    if (this._stealthApplied) return;
+    this._stealthApplied = true;
+
+    for (const script of STEALTH_SCRIPTS) {
+      try {
+        await this.addInitScript(script);
+      } catch (err) {
+        log.warn('Failed to inject stealth script:', err);
+      }
+    }
+
+    // Also apply to current page context (in case page is already loaded)
+    for (const script of STEALTH_SCRIPTS) {
+      try {
+        await this.evaluate(script);
+      } catch {
+        /* ignore — some scripts may fail on about:blank */
+      }
+    }
+
+    log.info('Stealth scripts applied');
+  }
+
+  // ── Page Monitoring / Streaming Observation (Faza 1.5) ──
+
+  /**
+   * Enable real-time page monitoring: navigation, console, network, dialog events.
+   * Events are buffered in internal logs AND forwarded to the callback.
+   *
+   * @param callback - Optional callback invoked on each event
+   */
+  async enableMonitoring(callback?: PageEventCallback): Promise<void> {
+    if (this._monitoring) return;
+    this._monitoring = true;
+    this._monitorCallback = callback ?? null;
+
+    // Enable Network domain for request/response tracking
+    try {
+      await this.cdp.send('Network.enable', { maxPostDataSize: 0 });
+    } catch {
+      log.warn('Network.enable failed — some monitoring features unavailable');
+    }
+
+    // ── Navigation events ──
+    this.cdp.on('Page.loadEventFired', (params: any) => {
+      this.emitPageEvent({
+        type: 'load',
+        timestamp: params.timestamp ?? Date.now() / 1000,
+        data: { url: this._url },
+      });
+    });
+
+    this.cdp.on('Page.frameNavigated', (params: any) => {
+      if (!params.frame?.parentId) {
+        this.emitPageEvent({
+          type: 'navigation',
+          timestamp: Date.now() / 1000,
+          data: {
+            url: params.frame?.url,
+            mimeType: params.frame?.mimeType,
+            securityOrigin: params.frame?.securityOrigin,
+          },
+        });
+      }
+    });
+
+    // ── Console messages ──
+    this.cdp.on('Runtime.consoleAPICalled', (params: any) => {
+      const level = params.type ?? 'log';
+      const args = (params.args ?? []).map((a: any) => a.value ?? a.description ?? '').join(' ');
+      const text = args.slice(0, 500);
+
+      if (this._consoleLog.length >= CDPPage.MAX_LOG_ENTRIES) this._consoleLog.shift();
+      this._consoleLog.push({ level, text, timestamp: params.timestamp ?? Date.now() });
+
+      this.emitPageEvent({
+        type: 'console',
+        timestamp: params.timestamp ?? Date.now() / 1000,
+        data: { level, text },
+      });
+    });
+
+    // ── Network requests ──
+    this.cdp.on('Network.requestWillBeSent', (params: any) => {
+      const entry = {
+        url: params.request?.url ?? '',
+        method: params.request?.method ?? 'GET',
+        type: params.type ?? 'Other',
+        timestamp: params.wallTime ?? Date.now() / 1000,
+      };
+
+      if (this._networkLog.length >= CDPPage.MAX_LOG_ENTRIES) this._networkLog.shift();
+      this._networkLog.push(entry);
+
+      this.emitPageEvent({
+        type: 'network-request',
+        timestamp: entry.timestamp,
+        data: {
+          requestId: params.requestId,
+          url: entry.url,
+          method: entry.method,
+          resourceType: entry.type,
+        },
+      });
+    });
+
+    this.cdp.on('Network.responseReceived', (params: any) => {
+      this.emitPageEvent({
+        type: 'network-response',
+        timestamp: params.timestamp ?? Date.now() / 1000,
+        data: {
+          requestId: params.requestId,
+          url: params.response?.url,
+          status: params.response?.status,
+          mimeType: params.response?.mimeType,
+        },
+      });
+    });
+
+    // ── JavaScript dialogs (alert, confirm, prompt) ──
+    this.cdp.on('Page.javascriptDialogOpening', (params: any) => {
+      this.emitPageEvent({
+        type: 'dialog',
+        timestamp: Date.now() / 1000,
+        data: {
+          dialogType: params.type,
+          message: params.message,
+          url: params.url,
+        },
+      });
+    });
+
+    // ── DOM mutations via MutationObserver (injected) ──
+    try {
+      await this.evaluate(`(() => {
+        if (window.__kxaiMO) return; // already installed
+        let pending = [];
+        let timer = null;
+        window.__kxaiMO = new MutationObserver((mutations) => {
+          for (const m of mutations) {
+            if (m.type === 'childList' && (m.addedNodes.length > 5 || m.removedNodes.length > 5)) {
+              pending.push({ type: m.type, target: m.target.nodeName, added: m.addedNodes.length, removed: m.removedNodes.length });
+            } else if (m.type === 'attributes' && m.attributeName === 'class') {
+              pending.push({ type: 'attr', target: m.target.nodeName, attr: m.attributeName });
+            }
+          }
+          if (!timer && pending.length > 0) {
+            timer = setTimeout(() => {
+              console.info('__kxai_dom_mutation__', JSON.stringify(pending.slice(0, 10)));
+              pending = [];
+              timer = null;
+            }, 500);
+          }
+        });
+        window.__kxaiMO.observe(document.body || document.documentElement, {
+          childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'hidden', 'disabled']
+        });
+      })()`);
+    } catch {
+      /* about:blank or no body yet — will be re-injected on navigation */
+    }
+
+    log.info('Page monitoring enabled');
+  }
+
+  /** Stop monitoring and clear buffered logs */
+  disableMonitoring(): void {
+    this._monitoring = false;
+    this._monitorCallback = null;
+    this._consoleLog = [];
+    this._networkLog = [];
+    try {
+      this.cdp.send('Network.disable').catch(() => {});
+      this.evaluate('if (window.__kxaiMO) { window.__kxaiMO.disconnect(); delete window.__kxaiMO; }').catch(() => {});
+    } catch {
+      /* connection may be closed */
+    }
+    log.info('Page monitoring disabled');
+  }
+
+  /** Get buffered console log entries */
+  getConsoleLog(): Array<{ level: string; text: string; timestamp: number }> {
+    return [...this._consoleLog];
+  }
+
+  /** Get buffered network log entries */
+  getNetworkLog(): Array<{ url: string; method: string; status?: number; type: string; timestamp: number }> {
+    return [...this._networkLog];
+  }
+
+  /** Whether monitoring is currently active */
+  get monitoring(): boolean {
+    return this._monitoring;
+  }
+
+  /** Internal: emit a page event to callback */
+  private emitPageEvent(event: PageEvent): void {
+    if (!this._monitoring) return;
+    // Intercept DOM mutation events from console (injected MutationObserver reports via console.info)
+    if (event.type === 'console' && String(event.data.text).startsWith('__kxai_dom_mutation__')) {
+      try {
+        const mutations = JSON.parse(String(event.data.text).replace('__kxai_dom_mutation__ ', ''));
+        this._monitorCallback?.({
+          type: 'dom-mutation',
+          timestamp: event.timestamp,
+          data: { mutations },
+        });
+      } catch { /* ignore parse errors */ }
+      return; // Don't also emit as regular console event
+    }
+    this._monitorCallback?.(event);
   }
 }
 

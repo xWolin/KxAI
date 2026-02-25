@@ -285,7 +285,7 @@ src/
 > **Innowacja**: Zamiast Playwright (heavy, separate browser), podłączamy się BEZPOŚREDNIO do Chrome/Edge użytkownika przez Chrome DevTools Protocol, z jego cookies, sesje, rozszerzenia. Zero dodatkowych binarek.
 
 ### Krok 1.1 — Native CDP Client (`cdp-client.ts`) ✅
-> **Zaimplementowano**: `cdp-client.ts` (~926 LOC) z 3 klasami: `CDPConnection` (WebSocket wrapper z request tracking), `CDPPage` (Page/Runtime/Input commands), `CDPBrowser` (HTTP target management). Obsługuje connect do istniejącej przeglądarki, multiple tabs via `/json/list`, full input emulation.
+> **Zaimplementowano**: `cdp-client.ts` (~1100 LOC) z 3 klasami: `CDPConnection` (WebSocket wrapper z request tracking), `CDPPage` (Page/Runtime/Input commands + stealth + monitoring), `CDPBrowser` (HTTP target management). Obsługuje connect do istniejącej przeglądarki, multiple tabs via `/json/list`, full input emulation, anti-detection (stealth scripts), streaming page observation.
 
 - [x] Stwórz klient CDP oparty na WebSocket ✅ (CDPConnection + CDPPage + CDPBrowser)
 - [x] Obsługa connection do istniejącej przeglądarki ✅ (HTTP /json/version, DevToolsActivePort parsing)
@@ -306,17 +306,24 @@ src/
 - [x] Fallback na dedykowany profil KxAI ✅
 - [ ] Permission dialog: "KxAI chce użyć Twojej przeglądarki — pozwolić?" (przyszła iteracja)
 
-### Krok 1.4 — Anti-detection layer
-- [ ] CDP ma wbudowane sposoby na omijanie bot detection:
-  - `Page.addScriptToEvaluateOnNewDocument` — nadpisz `navigator.webdriver`
-  - Realistic input delays via `Input.dispatchMouseEvent` z timestamps
-  - User-agent inheritance z prawdziwego Chrome
-- [ ] Agent działa jak człowiek — nie jak Selenium/Playwright bot
+### Krok 1.4 — Anti-detection layer ✅
+> **Zaimplementowano**: `CDPPage.applyStealthScripts()` — 7 skryptów stealth via `Page.addScriptToEvaluateOnNewDocument`: navigator.webdriver override, chrome.runtime stub, realistic navigator.plugins (3 pluginy), navigator.languages (pl-PL, en-US), Permissions.query patch, WebGL vendor/renderer spoofing (Intel Iris). Automatyczne ładowanie w `init()`. Randomizacja delayów input (±40% jitter via `humanDelay()`): clickAt (30ms move→press + 12ms press→release), typeText (35ms base per char). CDP timestamps w eventach myszy.
 
-### Krok 1.5 — Streaming page observation
-- [ ] CDP `Page.domContentEventFired`, `Page.loadEventFired` — śledź nawigację
-- [ ] MutationObserver via `Runtime.evaluate` — reaguj na zmiany DOM w real-time
-- [ ] Agent "widzi" stronę w continuous mode, nie tylko na żądanie snapshot
+- [x] `Page.addScriptToEvaluateOnNewDocument` — nadpisanie `navigator.webdriver` ✅
+- [x] Realistic input delays via `humanDelay()` z randomizacją ±40% ✅
+- [x] CDP timestamps w Input.dispatchMouseEvent ✅
+- [x] 7 stealth scripts (webdriver, plugins, languages, chrome.runtime, permissions, WebGL) ✅
+- [x] User-agent inheritance z prawdziwego Chrome (via connect to existing browser) ✅
+
+### Krok 1.5 — Streaming page observation ✅
+> **Zaimplementowano**: `CDPPage.enableMonitoring()` — real-time page observation via CDP event subscriptions. 7 typów eventów: `navigation` (Page.frameNavigated), `load` (Page.loadEventFired), `console` (Runtime.consoleAPICalled), `network-request` (Network.requestWillBeSent), `network-response` (Network.responseReceived), `dialog` (Page.javascriptDialogOpening), `dom-mutation` (MutationObserver injected via Runtime.evaluate). Buforowane logi: console (500 entries) + network (500 entries) z getConsoleLog()/getNetworkLog(). BrowserService: startMonitoring(), stopMonitoring(), getConsoleLogs(), getNetworkLogs(). 4 nowe narzędzia AI: `browser_monitor_start`, `browser_monitor_stop`, `browser_console_logs`, `browser_network_logs`.
+
+- [x] CDP `Page.domContentEventFired`, `Page.loadEventFired` — śledzi nawigację ✅
+- [x] `Runtime.consoleAPICalled` — przechwytywanie console.log/warn/error ✅
+- [x] `Network.requestWillBeSent`, `Network.responseReceived` — monitoring HTTP ✅
+- [x] MutationObserver via `Runtime.evaluate` — reagowanie na zmiany DOM ✅
+- [x] `Page.javascriptDialogOpening` — detekcja alert/confirm/prompt ✅
+- [x] 4 narzędzia AI (monitor_start, monitor_stop, console_logs, network_logs) ✅
 
 ---
 
@@ -714,7 +721,7 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-### ✅ Ukończone (44/47)
+### ✅ Ukończone (45/47)
 
 | # | Zadanie | Faza | Status |
 |---|---------|------|--------|
@@ -762,13 +769,12 @@ src/
 | 35 | Proactive Intelligence Engine | 6.4 | ✅ |
 | 33 | Workflow Automator (Macro Recorder) | 6.2 | ✅ |
 
-### ⬜ Remaining (3 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (2 tasks) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 |
 | 44 | Code signing + distribution | 7.6 | 🟢 Medium | 1 sesja | P4 |
-| 45-47 | CDP anti-detection, streaming, network | 1.4-1.5 | 🟢 Medium | 3 sesje | P4 |
 
 **Effort legend**: 1 sesja = 1 konwersacja z AI agentem (~1-3h).
 
