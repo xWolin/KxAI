@@ -328,6 +328,9 @@ contextBridge.exposeInMainWorld('kxai', {
   mcpReconnect: (id: string) => ipcRenderer.invoke(Ch.MCP_RECONNECT, id),
   mcpGetStatus: () => ipcRenderer.invoke(Ch.MCP_GET_STATUS),
   mcpGetRegistry: () => ipcRenderer.invoke(Ch.MCP_GET_REGISTRY),
+  mcpSearchRegistry: (query?: string, category?: string) =>
+    ipcRenderer.invoke(Ch.MCP_SEARCH_REGISTRY, query, category),
+  mcpGetCategories: () => ipcRenderer.invoke(Ch.MCP_GET_CATEGORIES),
   mcpCallTool: (serverId: string, toolName: string, args: any) =>
     ipcRenderer.invoke(Ch.MCP_CALL_TOOL, serverId, toolName, args),
   onMcpStatus: (callback: (data: any) => void) => {

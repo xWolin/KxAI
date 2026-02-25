@@ -195,10 +195,14 @@ export const pl: TranslationDict = {
   'settings.mcp.addServerButton': '✅ Dodaj serwer',
   'settings.mcp.registry': '📦 Rejestr integracji',
   'settings.mcp.registryHint':
-    'Gotowe integracje MCP. Kliknij aby dodać i połączyć z zewnętrzną usługą.',
+    'Gotowe integracje MCP — 50 popularnych serwerów. Szukaj lub filtruj wg kategorii.',
   'settings.mcp.requiresSetup': '⚙ Wymaga konfiguracji',
   'settings.mcp.alreadyAdded': 'Już dodany',
   'settings.mcp.addAndConnect': 'Dodaj i połącz',
+  'settings.mcp.searchPlaceholder': '🔍 Szukaj serwera...',
+  'settings.mcp.filterCategory': 'Filtruj wg kategorii',
+  'settings.mcp.allCategories': 'Wszystkie kategorie',
+  'settings.mcp.noResults': 'Brak wyników — spróbuj inną frazę lub kategorię.',
 
   // SettingsPanel — Calendar
   'settings.calendar.title': '📅 Połączenia kalendarzy (CalDAV)',

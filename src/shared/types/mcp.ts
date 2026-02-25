@@ -80,6 +80,21 @@ export interface McpHubStatus {
   connectedCount: number;
 }
 
+/** Category keys for MCP registry grouping */
+export type McpCategory =
+  | 'Komunikacja'
+  | 'Developer'
+  | 'Produktywność'
+  | 'Web'
+  | 'Bazy danych'
+  | 'System'
+  | 'AI'
+  | 'Finanse'
+  | 'Bezpieczeństwo'
+  | 'Monitoring'
+  | 'Dane'
+  | 'Inne';
+
 /** Entry in the curated MCP server registry (popular servers) */
 export interface McpRegistryEntry {
   /** Unique key */
@@ -95,7 +110,7 @@ export interface McpRegistryEntry {
   /** Default environment variables */
   env?: Record<string, string>;
   /** Category for grouping */
-  category: string;
+  category: McpCategory;
   /** Icon emoji */
   icon: string;
   /** Transport type */
@@ -104,4 +119,8 @@ export interface McpRegistryEntry {
   requiresSetup?: boolean;
   /** Link to docs/setup instructions */
   docsUrl?: string;
+  /** Searchable tags for discovery */
+  tags?: string[];
+  /** Featured / recommended server */
+  featured?: boolean;
 }

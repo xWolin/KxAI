@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { KxAIConfig, RAGFolderInfo } from '../types';
-import type { McpServerConfig, McpHubStatus, McpRegistryEntry } from '@shared/types/mcp';
+import type { McpServerConfig, McpHubStatus, McpRegistryEntry, McpCategory } from '@shared/types/mcp';
 import type { CalendarConfig, CalendarStatus, CalendarInfo, CalendarProvider } from '@shared/types/calendar';
 import s from './SettingsPanel.module.css';
 import { cn } from '../utils/cn';
@@ -82,6 +82,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   });
   const [mcpEnvEditing, setMcpEnvEditing] = useState<string | null>(null);
   const [mcpEnvInput, setMcpEnvInput] = useState('');
+  const [mcpSearchQuery, setMcpSearchQuery] = useState('');
+  const [mcpFilterCategory, setMcpFilterCategory] = useState<McpCategory | ''>('');
+  const [mcpCategories, setMcpCategories] = useState<McpCategory[]>([]);
 
   // Calendar state
   const [calStatus, setCalStatus] = useState<CalendarStatus | null>(null);
@@ -217,9 +220,14 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const loadMcpData = useCallback(async () => {
     try {
       setMcpLoading(true);
-      const [status, registry] = await Promise.all([window.kxai.mcpGetStatus(), window.kxai.mcpGetRegistry()]);
+      const [status, registry, categories] = await Promise.all([
+        window.kxai.mcpGetStatus(),
+        window.kxai.mcpGetRegistry(),
+        window.kxai.mcpGetCategories(),
+      ]);
       setMcpStatus(status);
       setMcpRegistry(registry);
+      setMcpCategories(categories);
     } catch (err) {
       console.error('Failed to load MCP data:', err);
     } finally {
@@ -1022,29 +1030,91 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 {t('settings.mcp.registryHint')}
               </p>
 
-              {mcpRegistry.map((entry) => {
-                const alreadyAdded = mcpStatus?.servers.some((s) => s.name.toLowerCase() === entry.name.toLowerCase());
-                return (
-                  <div key={entry.id} className={s.mcpRegistryItem}>
-                    <div className={s.mcpRegistryInfo}>
-                      <span className={s.mcpServerIcon}>{entry.icon}</span>
-                      <div>
-                        <div className={s.mcpRegistryName}>{entry.name}</div>
-                        <div className={s.mcpRegistryDesc}>{entry.description}</div>
-                        {entry.requiresSetup && <span className={s.mcpRequiresSetup}>{t('settings.mcp.requiresSetup')}</span>}
-                      </div>
+              {/* Search + Category Filter */}
+              <div className={s.mcpDiscoveryBar}>
+                <input
+                  type="text"
+                  className={s.mcpSearchInput}
+                  placeholder={t('settings.mcp.searchPlaceholder')}
+                  value={mcpSearchQuery}
+                  onChange={(e) => setMcpSearchQuery(e.target.value)}
+                  aria-label={t('settings.mcp.searchPlaceholder')}
+                />
+                <select
+                  className={s.mcpCategorySelect}
+                  value={mcpFilterCategory}
+                  onChange={(e) => setMcpFilterCategory(e.target.value as McpCategory | '')}
+                  aria-label={t('settings.mcp.filterCategory')}
+                >
+                  <option value="">{t('settings.mcp.allCategories')}</option>
+                  {mcpCategories.map((cat) => (
+                    <option key={cat} value={cat}>
+                      {cat}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {(() => {
+                // Client-side filter
+                const q = mcpSearchQuery.trim().toLowerCase();
+                let filtered = mcpRegistry;
+                if (mcpFilterCategory) {
+                  filtered = filtered.filter((e) => e.category === mcpFilterCategory);
+                }
+                if (q) {
+                  filtered = filtered.filter((e) => {
+                    const searchable = [e.name, e.description, e.id, ...(e.tags ?? [])].join(' ').toLowerCase();
+                    return searchable.includes(q);
+                  });
+                }
+                // Sort: featured first, then alphabetical
+                filtered = [...filtered].sort((a, b) => {
+                  if (a.featured && !b.featured) return -1;
+                  if (!a.featured && b.featured) return 1;
+                  return a.name.localeCompare(b.name);
+                });
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className={s.mcpEmptySearch}>
+                      {t('settings.mcp.noResults')}
                     </div>
-                    <button
-                      className={alreadyAdded ? s.mcpBtnSmall : s.mcpBtnSmallAccent}
-                      onClick={() => !alreadyAdded && handleMcpAddFromRegistry(entry)}
-                      disabled={alreadyAdded || mcpAddingServer}
-                      title={alreadyAdded ? t('settings.mcp.alreadyAdded') : t('settings.mcp.addAndConnect')}
-                    >
-                      {alreadyAdded ? '✓' : '+'}
-                    </button>
-                  </div>
-                );
-              })}
+                  );
+                }
+
+                return filtered.map((entry) => {
+                  const alreadyAdded = mcpStatus?.servers.some(
+                    (srv) => srv.name.toLowerCase() === entry.name.toLowerCase(),
+                  );
+                  return (
+                    <div key={entry.id} className={cn(s.mcpRegistryItem, entry.featured && s.mcpFeatured)}>
+                      <div className={s.mcpRegistryInfo}>
+                        <span className={s.mcpServerIcon}>{entry.icon}</span>
+                        <div>
+                          <div className={s.mcpRegistryName}>
+                            {entry.name}
+                            {entry.featured && <span className={s.mcpFeaturedBadge}>⭐</span>}
+                            <span className={s.mcpCategoryBadge}>{entry.category}</span>
+                          </div>
+                          <div className={s.mcpRegistryDesc}>{entry.description}</div>
+                          {entry.requiresSetup && (
+                            <span className={s.mcpRequiresSetup}>{t('settings.mcp.requiresSetup')}</span>
+                          )}
+                        </div>
+                      </div>
+                      <button
+                        className={alreadyAdded ? s.mcpBtnSmall : s.mcpBtnSmallAccent}
+                        onClick={() => !alreadyAdded && handleMcpAddFromRegistry(entry)}
+                        disabled={alreadyAdded || mcpAddingServer}
+                        title={alreadyAdded ? t('settings.mcp.alreadyAdded') : t('settings.mcp.addAndConnect')}
+                      >
+                        {alreadyAdded ? '✓' : '+'}
+                      </button>
+                    </div>
+                  );
+                });
+              })()}
             </div>
           </div>
         )}

@@ -34,7 +34,7 @@ src/
 │   │   ├── errors.ts       # KxAIError class, ErrorCode enum, ErrorSeverity (Faza 3.5 ✅)
 │   │   └── index.ts        # Barrel re-export (~90+ eksportowanych typów z 17 modułów)
 │   └── constants.ts        # Stałe (limity, domyślne wartości)
-│   └── ipc-schema.ts        # IPC channel/event constants: 117 Ch + 24 Ev + 2 ChSend = 143 kanały (Faza 3.1 ✅)
+│   └── ipc-schema.ts        # IPC channel/event constants: 119 Ch + 24 Ev + 2 ChSend = 145 kanały (Faza 3.1 ✅)
 │   └── schemas/
 │       ├── ai-responses.ts  # Zod schemas: ScreenAnalysis, CronSuggestion, MemoryUpdate, TakeControl (Faza 2.2 ✅)
 │       ├── config-schema.ts  # Zod schema for KxAIConfig — single source of truth (Faza 3.6 ✅)
@@ -694,11 +694,14 @@ src/
 - [x] One-shot reminders z auto-disable po wykonaniu ✅ (CronJob.oneShot + runAt)
 - [ ] Integration z kalendarzem — auto-tworzenie eventów z reminderów (wymaga Phase 8.2)
 
-### Krok 8.5 — MCP Server Discovery
-- [ ] Dynamiczny fetch rejestru z glama.ai/mcp/servers lub GitHub awesome-mcp-servers
-- [ ] Search + filter w dashboard UI
-- [ ] One-click install z auto-detect wymaganych env vars
-- [ ] Community rating / popularity sorting
+### Krok 8.5 — MCP Server Discovery ✅
+> **Zaimplementowano**: Rozszerzony `McpRegistryEntry` o `McpCategory` (12 kategorii), `tags?: string[]`, `featured?: boolean`. CURATED_REGISTRY rozbudowany z 14 do 50 serwerów (12 kategorii: Komunikacja, Developer, Produktywność, Web, Bazy danych, System, AI, Finanse, Bezpieczeństwo, Monitoring, Dane, Inne). Nowe metody: `searchRegistry(query?, category?)` — filtrowanie po name/description/tags + kategoria, featured first; `getRegistryCategories()`. 2 nowe kanały IPC: `MCP_SEARCH_REGISTRY`, `MCP_GET_CATEGORIES`. UI w SettingsPanel: search input + category dropdown + featured badge (⭐) + category badge. i18n: 4 nowe klucze PL+EN. CSS: discovery bar, category select, featured highlight, empty state.
+
+- [x] Curated registry rozbudowany z 14 do 50 serwerów ✅ (12 kategorii, tags, featured)
+- [x] Search + filter w Settings UI ✅ (search input + category dropdown)
+- [x] One-click install z auto-detect wymaganych env vars ✅ (istniejący handleMcpAddFromRegistry)
+- [ ] Dynamiczny fetch rejestru z GitHub awesome-mcp-servers (przyszła iteracja)
+- [ ] Community rating / popularity sorting (przyszła iteracja)
 
 ---
 
@@ -707,7 +710,7 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-### ✅ Ukończone (37/47)
+### ✅ Ukończone (38/47)
 
 | # | Zadanie | Faza | Status |
 |---|---------|------|--------|
@@ -748,8 +751,9 @@ src/
 | 32 | Smart Clipboard Pipeline | 6.1 | ✅ |
 | 42 | i18n (PL + EN) | 7.4 | ✅ |
 | 41 | Accessibility (a11y) | 7.3 | ✅ |
+| 39 | MCP Server Discovery | 8.5 | ✅ |
 
-### ⬜ Remaining (9 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (8 tasks) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
@@ -759,7 +763,6 @@ src/
 | 33 | Workflow Automator (Macro Recorder) | 6.2 | 🟡 High | 3-4 sesje | P4 |
 | 34 | Knowledge Graph | 6.3 | 🟡 High | 3-4 sesje | P4 |
 | 35 | Proactive Intelligence Engine | 6.4 | 🟡 High | 3-4 sesje | P4 |
-| 39 | MCP Server Discovery | 8.5 | 🟢 Medium | 1 sesja | P4 |
 | 44 | Code signing + distribution | 7.6 | 🟢 Medium | 1 sesja | P4 |
 | 45-47 | CDP anti-detection, streaming, network | 1.4-1.5 | 🟢 Medium | 3 sesje | P4 |
 

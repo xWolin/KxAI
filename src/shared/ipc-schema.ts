@@ -172,6 +172,8 @@ export const Ch = {
   MCP_RECONNECT: 'mcp:reconnect',
   MCP_GET_STATUS: 'mcp:get-status',
   MCP_GET_REGISTRY: 'mcp:get-registry',
+  MCP_SEARCH_REGISTRY: 'mcp:search-registry',
+  MCP_GET_CATEGORIES: 'mcp:get-categories',
   MCP_CALL_TOOL: 'mcp:call-tool',
 
   // Calendar (CalDAV)

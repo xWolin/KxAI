@@ -206,6 +206,11 @@ export interface KxAIBridge {
   mcpReconnect: (id: string) => Promise<{ success: boolean }>;
   mcpGetStatus: () => Promise<import('@shared/types').McpHubStatus>;
   mcpGetRegistry: () => Promise<import('@shared/types').McpRegistryEntry[]>;
+  mcpSearchRegistry: (
+    query?: string,
+    category?: string,
+  ) => Promise<import('@shared/types').McpRegistryEntry[]>;
+  mcpGetCategories: () => Promise<import('@shared/types').McpCategory[]>;
   mcpCallTool: (serverId: string, toolName: string, args: any) => Promise<import('@shared/types').ToolResult>;
   onMcpStatus: (callback: (status: import('@shared/types').McpHubStatus) => void) => () => void;
 

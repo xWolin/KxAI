@@ -1129,6 +1129,14 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     return mcpClient.getRegistry();
   });
 
+  ipcMain.handle(Ch.MCP_SEARCH_REGISTRY, (_event, query?: string, category?: string) => {
+    return mcpClient.searchRegistry(query, category as any);
+  });
+
+  ipcMain.handle(Ch.MCP_GET_CATEGORIES, () => {
+    return mcpClient.getRegistryCategories();
+  });
+
   validatedHandle(Ch.MCP_CALL_TOOL, async (_event, serverId: string, toolName: string, args: any) => {
     return mcpClient.callTool(serverId, toolName, args);
   });
