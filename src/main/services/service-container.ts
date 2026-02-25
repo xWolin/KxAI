@@ -130,6 +130,12 @@ export class ServiceContainer {
   /**
    * Initialize all services in dependency order.
    * Replaces the ~100 lines of initializeServices() in main.ts.
+   *
+   * Performance optimizations:
+   * - Phase 3: memory + embedding initialized in parallel (no cross-deps)
+   * - Phase 4: rag + plugins initialized in parallel
+   * - Phase 6 (deferred): MCP, dashboard, diagnostic — non-critical, post-window
+   * - Per-phase timing for profiling
    */
   async init(): Promise<void> {
     if (this.initialized) {
@@ -138,8 +144,13 @@ export class ServiceContainer {
 
     log.info('Initializing services...');
     const t0 = Date.now();
+    const phase = (name: string) => {
+      const start = Date.now();
+      return () => log.info(`  ${name}: ${Date.now() - start}ms`);
+    };
 
     // ── Phase 1: Core (no deps) ──
+    let p = phase('Phase 1 — Core');
     const config = new ConfigService();
     const security = new SecurityService();
     const database = new DatabaseService();
@@ -149,8 +160,10 @@ export class ServiceContainer {
 
     // Initialize database early (needed by memory, embedding, RAG)
     database.initialize();
+    p();
 
-    // ── Phase 2: Services depending on core ──
+    // ── Phase 2: Services depending on core (constructors only — fast) ──
+    p = phase('Phase 2 — Construct');
     const memory = new MemoryService(config, database);
     const ai = new AIService(config, security);
     const screenCapture = new ScreenCaptureService();
@@ -186,19 +199,22 @@ export class ServiceContainer {
     this.set('transcription', transcription);
     this.set('updater', updater);
     this.set('mcpClient', mcpClient);
+    p();
 
-    // ── Phase 3: Async initialization ──
-    await memory.initialize();
-    await embedding.initialize();
+    // ── Phase 3: Async initialization (parallelized — no cross-deps) ──
+    p = phase('Phase 3 — Async init (memory ‖ embedding)');
+    await Promise.all([memory.initialize(), embedding.initialize()]);
+    p();
 
-    // ── Phase 4: Services depending on async-initialized services ──
+    // ── Phase 4: Services depending on async-initialized services (parallelized) ──
+    p = phase('Phase 4 — RAG ‖ plugins');
     const rag = new RAGService(embedding, config, database);
-    await rag.initialize();
     this.set('rag', rag);
+    await Promise.all([rag.initialize(), plugins.initialize()]);
+    p();
 
-    await plugins.initialize();
-
-    // ── Phase 5: Cross-service wiring ──
+    // ── Phase 5: Cross-service wiring (sync, fast) ──
+    p = phase('Phase 5 — Wiring');
     ai.setMemoryService(memory);
 
     tools.setServices({
@@ -209,7 +225,7 @@ export class ServiceContainer {
       cron,
     });
 
-    // MCP Client wiring
+    // MCP Client wiring (dependencies only, no network I/O)
     mcpClient.setDependencies({ toolsService: tools, configService: config });
 
     // Agent loop — central orchestrator
@@ -226,6 +242,42 @@ export class ServiceContainer {
     // Meeting Coach
     const meetingCoach = new MeetingCoachService(transcription, ai, config, security, rag, screenCapture);
     this.set('meetingCoach', meetingCoach);
+
+    // Start cron jobs (non-blocking, no I/O)
+    cron.startAll();
+    p();
+
+    this.initialized = true;
+    log.info(`Core services initialized in ${Date.now() - t0}ms`);
+  }
+
+  /**
+   * Initialize non-critical services after the main window is shown.
+   * This includes dashboard, diagnostic, MCP client auto-connect.
+   * Splitting these from init() shaves ~200-500ms off perceived startup time.
+   */
+  async initDeferred(): Promise<void> {
+    if (!this.initialized) {
+      throw new Error('ServiceContainer not initialized — call init() first');
+    }
+
+    log.info('Initializing deferred services...');
+    const t0 = Date.now();
+
+    const meetingCoach = this.get('meetingCoach');
+    const tools = this.get('tools');
+    const cron = this.get('cron');
+    const rag = this.get('rag');
+    const workflow = this.get('workflow');
+    const systemMonitor = this.get('systemMonitor');
+    const mcpClient = this.get('mcpClient');
+    const ai = this.get('ai');
+    const memory = this.get('memory');
+    const config = this.get('config');
+    const browser = this.get('browser');
+    const screenMonitor = this.get('screenMonitor');
+    const screenCapture = this.get('screenCapture');
+    const tts = this.get('tts');
 
     // Dashboard server
     const meetingConfig = meetingCoach.getConfig();
@@ -295,14 +347,10 @@ export class ServiceContainer {
       },
     );
 
-    // Initialize MCP Client (auto-connects configured servers)
+    // Initialize MCP Client (auto-connects configured servers — network I/O)
     await mcpClient.initialize();
 
-    // Start cron jobs
-    cron.startAll();
-
-    this.initialized = true;
-    log.info(`All services initialized in ${Date.now() - t0}ms`);
+    log.info(`Deferred services initialized in ${Date.now() - t0}ms`);
   }
 
   /**
@@ -336,7 +384,10 @@ export class ServiceContainer {
     this.trySync('tts', (s) => s.cleanup());
 
     // ── Phase 5: Flush caches & persist data ──
-    this.trySync('embedding', (s) => s.flushCache());
+    this.trySync('embedding', (s) => {
+      s.flushCache();
+      s.terminateWorker();
+    });
     await this.tryAsync('config', (s) => s.shutdown());
 
     // ── Phase 6: Close database (must be last) ──

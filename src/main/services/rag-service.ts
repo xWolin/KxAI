@@ -19,10 +19,22 @@ import type { RAGFolderInfo as IndexedFolderInfo } from '../../shared/types/rag'
 // --- File type configuration ---
 
 const CODE_EXTENSIONS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
-  '.py', '.pyx',
-  '.java', '.kt', '.scala',
-  '.cpp', '.c', '.h', '.hpp', '.cc',
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.py',
+  '.pyx',
+  '.java',
+  '.kt',
+  '.scala',
+  '.cpp',
+  '.c',
+  '.h',
+  '.hpp',
+  '.cc',
   '.cs',
   '.go',
   '.rs',
@@ -30,47 +42,84 @@ const CODE_EXTENSIONS = new Set([
   '.php',
   '.swift',
   '.lua',
-  '.sh', '.bash', '.zsh', '.ps1', '.bat', '.cmd',
+  '.sh',
+  '.bash',
+  '.zsh',
+  '.ps1',
+  '.bat',
+  '.cmd',
   '.sql',
-  '.r', '.R',
+  '.r',
+  '.R',
 ]);
 
 const DOCUMENT_EXTENSIONS = new Set([
-  '.md', '.mdx', '.markdown',
-  '.txt', '.text', '.rst',
-  '.json', '.jsonc', '.json5',
-  '.yaml', '.yml',
+  '.md',
+  '.mdx',
+  '.markdown',
+  '.txt',
+  '.text',
+  '.rst',
+  '.json',
+  '.jsonc',
+  '.json5',
+  '.yaml',
+  '.yml',
   '.toml',
   '.xml',
-  '.csv', '.tsv',
-  '.ini', '.cfg', '.conf',
-  '.env', '.env.example',
+  '.csv',
+  '.tsv',
+  '.ini',
+  '.cfg',
+  '.conf',
+  '.env',
+  '.env.example',
   '.log',
-  '.html', '.htm',
-  '.css', '.scss', '.less',
+  '.html',
+  '.htm',
+  '.css',
+  '.scss',
+  '.less',
   '.svg',
 ]);
 
 /** Binary document formats that need special extraction */
-const BINARY_DOCUMENT_EXTENSIONS = new Set([
-  '.pdf',
-  '.docx',
-  '.epub',
-]);
+const BINARY_DOCUMENT_EXTENSIONS = new Set(['.pdf', '.docx', '.epub']);
 
 const DEFAULT_EXTENSIONS = new Set([...CODE_EXTENSIONS, ...DOCUMENT_EXTENSIONS, ...BINARY_DOCUMENT_EXTENSIONS]);
 
 /** Directories always excluded from scanning */
 const EXCLUDED_DIRS = new Set([
-  'node_modules', '.git', '.svn', '.hg',
-  'dist', 'build', 'out', 'target', 'bin', 'obj',
-  '__pycache__', '.pytest_cache', '.mypy_cache',
-  '.venv', 'venv', 'env', '.env',
-  '.next', '.nuxt', '.output',
-  '.cache', '.tmp', '.temp',
-  'coverage', '.nyc_output',
-  '.idea', '.vscode', '.vs',
-  'vendor', 'packages',
+  'node_modules',
+  '.git',
+  '.svn',
+  '.hg',
+  'dist',
+  'build',
+  'out',
+  'target',
+  'bin',
+  'obj',
+  '__pycache__',
+  '.pytest_cache',
+  '.mypy_cache',
+  '.venv',
+  'venv',
+  'env',
+  '.env',
+  '.next',
+  '.nuxt',
+  '.output',
+  '.cache',
+  '.tmp',
+  '.temp',
+  'coverage',
+  '.nyc_output',
+  '.idea',
+  '.vscode',
+  '.vs',
+  'vendor',
+  'packages',
   'rag', // Our own index folder
 ]);
 
@@ -208,7 +257,7 @@ export class RAGService {
    */
   getFolderStats(): IndexedFolderInfo[] {
     const dbStats = this.dbService.getRAGFolderStats();
-    return dbStats.map(s => ({
+    return dbStats.map((s) => ({
       path: s.folder_path,
       fileCount: s.file_count,
       chunkCount: s.chunk_count,
@@ -379,7 +428,8 @@ export class RAGService {
 
       // ─── Phase 4: Embeddings — batch with progress ───
       if (!this.embeddingService.hasOpenAI()) {
-        this.embeddingService.buildIDF(allTexts);
+        // Use worker thread for IDF build (non-blocking)
+        await this.embeddingService.buildIDFAsync(allTexts);
       }
 
       if (allChunks.length > 0) {
@@ -405,7 +455,7 @@ export class RAGService {
 
           await this.yieldToEventLoop();
           const embedPercent = Math.round(((i + batchTexts.length) / allTexts.length) * 100);
-          const overallPercent = 55 + Math.round(embedPercent * 0.40); // 55-95%
+          const overallPercent = 55 + Math.round(embedPercent * 0.4); // 55-95%
           emitProgress({
             phase: 'embedding',
             filesProcessed: totalFiles,
@@ -448,15 +498,15 @@ export class RAGService {
   private updateFolderStats(
     allChunks: RAGChunk[],
     allFiles: Array<{ path: string; sourceFolder: string }>,
-    userFolders: string[]
+    userFolders: string[],
   ): void {
-    const wsFiles = allFiles.filter(f => f.sourceFolder === 'workspace');
-    const wsChunks = allChunks.filter(c => !c.sourceFolder || c.sourceFolder === 'workspace');
+    const wsFiles = allFiles.filter((f) => f.sourceFolder === 'workspace');
+    const wsChunks = allChunks.filter((c) => !c.sourceFolder || c.sourceFolder === 'workspace');
     this.dbService.upsertFolderStats('workspace', wsFiles.length, wsChunks.length);
 
     for (const folder of userFolders) {
-      const folderFiles = allFiles.filter(f => f.sourceFolder === folder);
-      const folderChunks = allChunks.filter(c => c.sourceFolder === folder);
+      const folderFiles = allFiles.filter((f) => f.sourceFolder === folder);
+      const folderChunks = allChunks.filter((c) => c.sourceFolder === folder);
       this.dbService.upsertFolderStats(folder, folderFiles.length, folderChunks.length);
     }
   }
@@ -477,8 +527,12 @@ export class RAGService {
       log.info(`Indexing folder ${folderPath}: ${files.length} files`);
 
       this.onProgress?.({
-        phase: 'chunking', filesProcessed: 0, filesTotal: files.length,
-        chunksCreated: 0, embeddingPercent: 0, overallPercent: 5,
+        phase: 'chunking',
+        filesProcessed: 0,
+        filesTotal: files.length,
+        chunksCreated: 0,
+        embeddingPercent: 0,
+        overallPercent: 5,
       });
 
       const newChunks: RAGChunk[] = [];
@@ -497,15 +551,20 @@ export class RAGService {
             newChunks.push(...chunks);
             texts.push(...chunks.map((c) => c.content));
           }
-        } catch { /* skip */ }
+        } catch {
+          /* skip */
+        }
 
         processed++;
         if (processed % 50 === 0) {
           await this.yieldToEventLoop();
           this.onProgress?.({
-            phase: 'chunking', currentFile: file.relativePath,
-            filesProcessed: processed, filesTotal: files.length,
-            chunksCreated: newChunks.length, embeddingPercent: 0,
+            phase: 'chunking',
+            currentFile: file.relativePath,
+            filesProcessed: processed,
+            filesTotal: files.length,
+            chunksCreated: newChunks.length,
+            embeddingPercent: 0,
             overallPercent: 5 + Math.round((processed / files.length) * 45),
           });
         }
@@ -517,7 +576,7 @@ export class RAGService {
 
         // Generate and store embeddings
         if (!this.embeddingService.hasOpenAI()) {
-          this.embeddingService.buildIDF(texts);
+          await this.embeddingService.buildIDFAsync(texts);
         }
 
         const embeddings = await this.embeddingService.embedBatch(texts);
@@ -616,8 +675,8 @@ export class RAGService {
 
     // Convert HybridSearchResult to RAGSearchResult for backward compatibility
     return hybridResults
-      .filter(r => r.combinedScore >= minScore)
-      .map(r => ({
+      .filter((r) => r.combinedScore >= minScore)
+      .map((r) => ({
         chunk: {
           id: r.chunkId,
           filePath: r.filePath,
@@ -644,9 +703,8 @@ export class RAGService {
     let currentTokens = 0;
 
     for (const { chunk, score } of results) {
-      const source = chunk.sourceFolder && chunk.sourceFolder !== 'workspace'
-        ? path.basename(chunk.sourceFolder)
-        : 'memory';
+      const source =
+        chunk.sourceFolder && chunk.sourceFolder !== 'workspace' ? path.basename(chunk.sourceFolder) : 'memory';
       const typeLabel = chunk.fileType ? `[${chunk.fileType}]` : '';
       const chunkText = `### [${source}] ${typeLabel} ${chunk.fileName} > ${chunk.section}\n${chunk.content}\n(score: ${score.toFixed(4)})\n`;
       const approxTokens = chunkText.length / 4;
@@ -695,7 +753,7 @@ export class RAGService {
   private collectFiles(
     rootDir: string,
     sourceFolder: string,
-    isWorkspace: boolean
+    isWorkspace: boolean,
   ): Array<{ path: string; relativePath: string; sourceFolder: string }> {
     const files: Array<{ path: string; relativePath: string; sourceFolder: string }> = [];
     const allowedExtensions = new Set(this.getIndexedExtensions());
@@ -721,7 +779,7 @@ export class RAGService {
     allowedExtensions: Set<string>,
     sourceFolder: string,
     rootDir: string,
-    recursive: boolean
+    recursive: boolean,
   ): void {
     if (files.length >= MAX_TOTAL_FILES) return;
 
@@ -740,7 +798,9 @@ export class RAGService {
           try {
             const stat = fs.statSync(fullPath);
             if (stat.size > MAX_FILE_SIZE) continue;
-          } catch { continue; }
+          } catch {
+            continue;
+          }
 
           files.push({
             path: fullPath,
@@ -755,7 +815,9 @@ export class RAGService {
           this.scanDirGeneric(fullPath, files, allowedExtensions, sourceFolder, rootDir, true);
         }
       }
-    } catch { /* ignore unreadable dirs */ }
+    } catch {
+      /* ignore unreadable dirs */
+    }
   }
 
   // --- Smart Chunking ---
@@ -795,13 +857,21 @@ export class RAGService {
 
   /** Chunk already-extracted text content using format-appropriate strategy */
   private chunkTextContent(
-    content: string, ext: string, fileName: string,
-    relativePath: string, sourceFolder: string, filePath: string,
+    content: string,
+    ext: string,
+    fileName: string,
+    relativePath: string,
+    sourceFolder: string,
+    filePath: string,
   ): RAGChunk[] {
     const chunks: RAGChunk[] = [];
 
     let mtime = 0;
-    try { mtime = fs.statSync(filePath).mtimeMs; } catch { /* ok */ }
+    try {
+      mtime = fs.statSync(filePath).mtimeMs;
+    } catch {
+      /* ok */
+    }
 
     // Choose chunking strategy based on file type
     let sections: Array<{ header: string; content: string }>;
@@ -826,9 +896,7 @@ export class RAGService {
       const subChunks = this.splitLargeChunk(section.content, 1500);
 
       for (let i = 0; i < subChunks.length; i++) {
-        const subSection = subChunks.length > 1
-          ? `${section.header} (${i + 1}/${subChunks.length})`
-          : section.header;
+        const subSection = subChunks.length > 1 ? `${section.header} (${i + 1}/${subChunks.length})` : section.header;
 
         chunks.push({
           id: `${sourceFolder}:${relativePath}:${subSection}:${i}`,
@@ -851,8 +919,11 @@ export class RAGService {
 
   /** Extract text from binary documents (PDF, DOCX, EPUB) and chunk them */
   private chunkBinaryDocument(
-    filePath: string, relativePath: string, sourceFolder: string,
-    ext: string, fileName: string,
+    filePath: string,
+    relativePath: string,
+    sourceFolder: string,
+    ext: string,
+    fileName: string,
   ): RAGChunk[] {
     // We must use sync approach here; extraction is async so we cache results
     // The actual extraction happens in chunkBinaryDocumentAsync, called during indexing
@@ -860,13 +931,15 @@ export class RAGService {
   }
 
   /** Async extraction for binary documents — called during indexAll/incrementalReindex */
-  async chunkBinaryDocumentAsync(
-    filePath: string, relativePath: string, sourceFolder: string,
-  ): Promise<RAGChunk[]> {
+  async chunkBinaryDocumentAsync(filePath: string, relativePath: string, sourceFolder: string): Promise<RAGChunk[]> {
     const ext = path.extname(filePath).toLowerCase();
     const fileName = path.basename(filePath);
     let mtime = 0;
-    try { mtime = fs.statSync(filePath).mtimeMs; } catch { /* ok */ }
+    try {
+      mtime = fs.statSync(filePath).mtimeMs;
+    } catch {
+      /* ok */
+    }
 
     let text = '';
 
@@ -895,9 +968,7 @@ export class RAGService {
       const subChunks = this.splitLargeChunk(section.content, 1500);
 
       for (let i = 0; i < subChunks.length; i++) {
-        const subSection = subChunks.length > 1
-          ? `${section.header} (${i + 1}/${subChunks.length})`
-          : section.header;
+        const subSection = subChunks.length > 1 ? `${section.header} (${i + 1}/${subChunks.length})` : section.header;
 
         chunks.push({
           id: `${sourceFolder}:${relativePath}:${subSection}:${i}`,
@@ -1082,7 +1153,12 @@ export class RAGService {
   /** Get regex patterns for code symbol detection based on file extension */
   private getCodePatterns(ext: string): RegExp[] {
     switch (ext) {
-      case '.ts': case '.tsx': case '.js': case '.jsx': case '.mjs': case '.cjs':
+      case '.ts':
+      case '.tsx':
+      case '.js':
+      case '.jsx':
+      case '.mjs':
+      case '.cjs':
         return [
           /^(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+(\w+)/,
           /^(?:export\s+)?(?:abstract\s+)?class\s+(\w+)/,
@@ -1091,22 +1167,19 @@ export class RAGService {
           /^(?:export\s+)?type\s+(\w+)/,
           /^(?:export\s+)?enum\s+(\w+)/,
         ];
-      case '.py': case '.pyx':
-        return [
-          /^(?:async\s+)?def\s+(\w+)/,
-          /^class\s+(\w+)/,
-        ];
-      case '.java': case '.kt': case '.scala':
+      case '.py':
+      case '.pyx':
+        return [/^(?:async\s+)?def\s+(\w+)/, /^class\s+(\w+)/];
+      case '.java':
+      case '.kt':
+      case '.scala':
         return [
           /^(?:public|private|protected)?\s*(?:static\s+)?(?:abstract\s+)?class\s+(\w+)/,
           /^(?:public|private|protected)?\s*(?:static\s+)?(?:abstract\s+)?interface\s+(\w+)/,
           /^(?:public|private|protected)?\s*(?:static\s+)?(?:\w+\s+)+(\w+)\s*\(/,
         ];
       case '.go':
-        return [
-          /^func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)/,
-          /^type\s+(\w+)\s+(?:struct|interface)/,
-        ];
+        return [/^func\s+(?:\(\w+\s+\*?\w+\)\s+)?(\w+)/, /^type\s+(\w+)\s+(?:struct|interface)/];
       case '.rs':
         return [
           /^(?:pub\s+)?(?:async\s+)?fn\s+(\w+)/,
@@ -1121,22 +1194,11 @@ export class RAGService {
           /^(?:public|private|protected|internal)?\s*(?:static\s+)?(?:\w+\s+)+(\w+)\s*\(/,
         ];
       case '.rb':
-        return [
-          /^(?:\s*)def\s+(\w+)/,
-          /^(?:\s*)class\s+(\w+)/,
-          /^(?:\s*)module\s+(\w+)/,
-        ];
+        return [/^(?:\s*)def\s+(\w+)/, /^(?:\s*)class\s+(\w+)/, /^(?:\s*)module\s+(\w+)/];
       case '.php':
-        return [
-          /^(?:public|private|protected)?\s*(?:static\s+)?function\s+(\w+)/,
-          /^class\s+(\w+)/,
-        ];
+        return [/^(?:public|private|protected)?\s*(?:static\s+)?function\s+(\w+)/, /^class\s+(\w+)/];
       default:
-        return [
-          /^(?:export\s+)?(?:async\s+)?function\s+(\w+)/,
-          /^class\s+(\w+)/,
-          /^def\s+(\w+)/,
-        ];
+        return [/^(?:export\s+)?(?:async\s+)?function\s+(\w+)/, /^class\s+(\w+)/, /^def\s+(\w+)/];
     }
   }
 
@@ -1362,7 +1424,11 @@ export class RAGService {
 
   private stopWatchers(): void {
     for (const w of this.watchers) {
-      try { w.close(); } catch { /* ok */ }
+      try {
+        w.close();
+      } catch {
+        /* ok */
+      }
     }
     this.watchers = [];
     if (this.watcherDebounce) {
@@ -1397,7 +1463,9 @@ export class RAGService {
       if (this.dbService.getRAGChunkCount() > 0) {
         log.info('SQLite already has RAG data, skipping legacy migration');
         // Rename legacy file to avoid re-checking
-        try { fs.renameSync(this.legacyIndexPath, this.legacyIndexPath + '.migrated'); } catch {}
+        try {
+          fs.renameSync(this.legacyIndexPath, this.legacyIndexPath + '.migrated');
+        } catch {}
         return;
       }
 
@@ -1412,17 +1480,15 @@ export class RAGService {
         // Migrate folder stats if present
         if (data.folderStats) {
           for (const [key, stats] of Object.entries(data.folderStats) as [string, any][]) {
-            this.dbService.upsertFolderStats(
-              stats.path || key,
-              stats.fileCount || 0,
-              stats.chunkCount || 0,
-            );
+            this.dbService.upsertFolderStats(stats.path || key, stats.fileCount || 0, stats.chunkCount || 0);
           }
         }
       }
 
       // Rename legacy file
-      try { fs.renameSync(this.legacyIndexPath, this.legacyIndexPath + '.migrated'); } catch {}
+      try {
+        fs.renameSync(this.legacyIndexPath, this.legacyIndexPath + '.migrated');
+      } catch {}
       log.info('Legacy index migration complete');
     } catch (err) {
       log.warn('Legacy index migration failed (will rebuild on next reindex):', err);

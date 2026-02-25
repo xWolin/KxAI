@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
+import { Worker } from 'worker_threads';
 import { app } from 'electron';
 import { SecurityService } from './security';
 import { ConfigService } from './config';
@@ -26,7 +27,7 @@ export class EmbeddingService {
   private embeddingModel: string = 'text-embedding-3-small';
   private hotCache: Map<string, number[]> = new Map(); // in-memory hot cache
   private static readonly MAX_HOT_CACHE = 10000; // evict from memory when exceeded
-  private static readonly MAX_DB_CACHE = 200000;  // evict from SQLite when exceeded
+  private static readonly MAX_DB_CACHE = 200000; // evict from SQLite when exceeded
   private initialized = false;
 
   // Legacy cache paths (for migration)
@@ -36,6 +37,12 @@ export class EmbeddingService {
   // TF-IDF fallback
   private idfMap: Map<string, number> = new Map();
   private vocabSize = 0;
+
+  // Worker thread for CPU-intensive TF-IDF operations
+  private worker: Worker | null = null;
+  private workerReady = false;
+  private workerMsgId = 0;
+  private workerCallbacks = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void }>();
 
   constructor(security: SecurityService, config: ConfigService, dbService: DatabaseService) {
     this.security = security;
@@ -60,8 +67,8 @@ export class EmbeddingService {
 
     // Try to initialize OpenAI client for embeddings
     // Priority: dedicated 'openai-embeddings' key > main 'openai' key
-    const embeddingKey = await this.security.getApiKey('openai-embeddings')
-      ?? await this.security.getApiKey('openai');
+    const embeddingKey =
+      (await this.security.getApiKey('openai-embeddings')) ?? (await this.security.getApiKey('openai'));
     if (embeddingKey) {
       try {
         const OpenAI = require('openai').default;
@@ -72,7 +79,9 @@ export class EmbeddingService {
     }
 
     this.initialized = true;
-    log.info(`Initialized (model: ${this.embeddingModel}, openai: ${!!this.openaiClient}, cache: ${this.dbService.getEmbeddingCacheSize()} entries)`);
+    log.info(
+      `Initialized (model: ${this.embeddingModel}, openai: ${!!this.openaiClient}, cache: ${this.dbService.getEmbeddingCacheSize()} entries)`,
+    );
   }
 
   /**
@@ -171,8 +180,7 @@ export class EmbeddingService {
     if (this.openaiClient) {
       // Batch via OpenAI (max 2048 per request)
       for (let start = 0; start < uncachedTexts.length; start += 2048) {
-        const batch = uncachedTexts.slice(start, start + 2048)
-          .map(t => t.slice(0, 8000)); // token limit safety
+        const batch = uncachedTexts.slice(start, start + 2048).map((t) => t.slice(0, 8000)); // token limit safety
         try {
           const response = await this.openaiClient.embeddings.create({
             model: this.embeddingModel,
@@ -204,14 +212,37 @@ export class EmbeddingService {
         }
       }
     } else {
-      // TF-IDF fallback
-      for (let i = 0; i < uncachedTexts.length; i++) {
-        const idx = uncachedIndexes[i];
-        const hash = uncachedHashes[i];
-        const embedding = this.tfidfEmbed(uncachedTexts[i]);
-        results[idx] = embedding;
-        this.hotCache.set(hash, embedding);
-        newEmbeddings.push({ hash, embedding, model: 'tfidf' });
+      // TF-IDF fallback — use worker thread for large batches (>50 texts)
+      if (uncachedTexts.length > 50) {
+        try {
+          const embeddings = await this.tfidfEmbedBatchAsync(uncachedTexts);
+          for (let i = 0; i < embeddings.length; i++) {
+            const idx = uncachedIndexes[i];
+            const hash = uncachedHashes[i];
+            results[idx] = embeddings[i];
+            this.hotCache.set(hash, embeddings[i]);
+            newEmbeddings.push({ hash, embedding: embeddings[i], model: 'tfidf' });
+          }
+        } catch {
+          // Final fallback: inline TF-IDF
+          for (let i = 0; i < uncachedTexts.length; i++) {
+            const idx = uncachedIndexes[i];
+            const hash = uncachedHashes[i];
+            const embedding = this.tfidfEmbed(uncachedTexts[i]);
+            results[idx] = embedding;
+            this.hotCache.set(hash, embedding);
+            newEmbeddings.push({ hash, embedding, model: 'tfidf' });
+          }
+        }
+      } else {
+        for (let i = 0; i < uncachedTexts.length; i++) {
+          const idx = uncachedIndexes[i];
+          const hash = uncachedHashes[i];
+          const embedding = this.tfidfEmbed(uncachedTexts[i]);
+          results[idx] = embedding;
+          this.hotCache.set(hash, embedding);
+          newEmbeddings.push({ hash, embedding, model: 'tfidf' });
+        }
       }
     }
 
@@ -373,8 +404,12 @@ export class EmbeddingService {
         if (savedModel !== this.embeddingModel) {
           log.warn(`Legacy cache model (${savedModel}) differs from current (${this.embeddingModel}), skipping import`);
           // Clean up legacy files
-          try { fs.unlinkSync(this.legacyCachePath); } catch {}
-          try { fs.unlinkSync(this.legacyCacheModelPath); } catch {}
+          try {
+            fs.unlinkSync(this.legacyCachePath);
+          } catch {}
+          try {
+            fs.unlinkSync(this.legacyCacheModelPath);
+          } catch {}
           return;
         }
       }
@@ -383,8 +418,12 @@ export class EmbeddingService {
       if (imported > 0) {
         log.info(`Migrated ${imported} embeddings from JSON to SQLite`);
         // Remove legacy files after successful migration
-        try { fs.unlinkSync(this.legacyCachePath); } catch {}
-        try { fs.unlinkSync(this.legacyCacheModelPath); } catch {}
+        try {
+          fs.unlinkSync(this.legacyCachePath);
+        } catch {}
+        try {
+          fs.unlinkSync(this.legacyCacheModelPath);
+        } catch {}
         // Also remove .tmp files if exist
         try {
           const tmpPath = this.legacyCachePath + '.tmp';
@@ -422,5 +461,119 @@ export class EmbeddingService {
   clearCache(): void {
     this.hotCache.clear();
     this.dbService.clearEmbeddingCache();
+  }
+
+  // ─── Worker Thread Management ───
+
+  /**
+   * Initialize the worker thread for CPU-intensive TF-IDF operations.
+   * Called lazily on first batch TF-IDF operation.
+   */
+  private ensureWorker(): Worker {
+    if (this.worker && this.workerReady) return this.worker;
+
+    const workerPath = path.join(__dirname, 'embedding-worker.js');
+    if (!fs.existsSync(workerPath)) {
+      throw new Error(`Worker file not found: ${workerPath}`);
+    }
+
+    this.worker = new Worker(workerPath);
+    this.workerReady = true;
+
+    this.worker.on('message', (msg: { id: number; type: string; result?: any; error?: string }) => {
+      const cb = this.workerCallbacks.get(msg.id);
+      if (!cb) return;
+      this.workerCallbacks.delete(msg.id);
+
+      if (msg.error) {
+        cb.reject(new Error(msg.error));
+      } else {
+        cb.resolve(msg.result);
+      }
+    });
+
+    this.worker.on('error', (err: Error) => {
+      log.error('Embedding worker error:', err);
+      this.workerReady = false;
+      // Reject all pending callbacks
+      for (const [, cb] of this.workerCallbacks) {
+        cb.reject(err);
+      }
+      this.workerCallbacks.clear();
+    });
+
+    this.worker.on('exit', (code) => {
+      if (code !== 0) {
+        log.warn(`Embedding worker exited with code ${code}`);
+      }
+      this.workerReady = false;
+      this.worker = null;
+    });
+
+    log.info('TF-IDF worker thread started');
+    return this.worker;
+  }
+
+  /**
+   * Send a message to the worker and await the result.
+   */
+  private workerCall<T>(msg: Record<string, any>): Promise<T> {
+    const id = ++this.workerMsgId;
+    return new Promise<T>((resolve, reject) => {
+      this.workerCallbacks.set(id, { resolve, reject });
+      try {
+        const worker = this.ensureWorker();
+        worker.postMessage({ ...msg, id });
+      } catch (err: any) {
+        this.workerCallbacks.delete(id);
+        reject(err);
+      }
+    });
+  }
+
+  /**
+   * Build IDF via worker thread (non-blocking main thread).
+   */
+  async buildIDFAsync(documents: string[]): Promise<void> {
+    try {
+      const result = await this.workerCall<{ vocabSize: number }>({
+        type: 'buildIDF',
+        documents,
+      });
+      this.vocabSize = result.vocabSize;
+      // Also build locally for single embed() calls (fast for small corpora)
+      this.buildIDF(documents);
+    } catch (err) {
+      log.warn('Worker buildIDF failed, falling back to main thread:', err);
+      this.buildIDF(documents);
+    }
+  }
+
+  /**
+   * Batch TF-IDF embeddings via worker thread (non-blocking main thread).
+   */
+  async tfidfEmbedBatchAsync(texts: string[]): Promise<number[][]> {
+    try {
+      const result = await this.workerCall<{ embeddings: number[][] }>({
+        type: 'embedBatch',
+        texts,
+      });
+      return result.embeddings;
+    } catch (err) {
+      log.warn('Worker embedBatch failed, falling back to main thread:', err);
+      return texts.map((t) => this.tfidfEmbed(t));
+    }
+  }
+
+  /**
+   * Terminate the worker thread (called during shutdown).
+   */
+  terminateWorker(): void {
+    if (this.worker) {
+      this.worker.terminate();
+      this.worker = null;
+      this.workerReady = false;
+      this.workerCallbacks.clear();
+    }
   }
 }

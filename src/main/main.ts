@@ -327,6 +327,12 @@ app.whenReady().then(async () => {
   // Initialize auto-updater (needs BrowserWindow for push events)
   container.get('updater').initialize(mainWindow);
 
+  // Deferred init — non-critical services (dashboard, diagnostic, MCP)
+  // Runs after window is created so user sees UI immediately
+  container.initDeferred().catch((err) => {
+    log.error('Deferred service initialization failed:', err);
+  });
+
   // Auto-restore proactive mode (smart companion) if it was enabled before restart
   const proactiveSaved = container.get('config').get('proactiveMode');
   if (proactiveSaved) {
