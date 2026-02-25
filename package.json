@@ -49,6 +49,7 @@
     "node-ical": "^0.25.4",
     "openai": "^4.73.0",
     "pdf-parse": "^2.4.5",
+    "shiki": "^3.23.0",
     "sqlite-vec": "^0.1.7-alpha.2",
     "tsdav": "^2.1.8",
     "uuid": "^11.0.0",

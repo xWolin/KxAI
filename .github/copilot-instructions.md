@@ -469,12 +469,14 @@ src/
 - [ ] WebSocket client rewrite — reconnection, buffering
 - [ ] Responsive design (mobile-friendly — do przyszłego mobile companion)
 
-### Krok 4.5 — Rich interactions
-- [ ] Drag & Drop files do czatu → auto-upload + analiza (PDF, obrazki, kod)
-- [ ] Inline tool call visualization (expandable cards zamiast tekstu)
-- [ ] Image previews w czacie (screenshoty, wykresy)
-- [ ] Code blocks z syntax highlighting (Prism.js/Shiki)
-- [ ] Keyboard shortcuts panel (Ctrl+K search, Ctrl+Shift+K take-control, etc.)
+### Krok 4.5 — Rich interactions ✅
+> **Zaimplementowano**: Syntax highlighting z shiki (tokyo-night theme, 30+ języków, lazy init). Code block copy button z event delegation. Screenshot preview (thumbnail w user bubble). Drag & Drop plików do czatu (auto-analiza via AI tools). Keyboard shortcuts: Ctrl+L (focus input), Esc (zamknij), Ctrl+Shift+S (screenshot), Ctrl+Shift+X (stop agent), Ctrl+Shift+Backspace (clear chat). DOMPurify z `ADD_ATTR: ['style']` dla shiki inline styles.
+
+- [x] Drag & Drop files do czatu → auto-upload + analiza (PDF, obrazki, kod) ✅
+- [ ] Inline tool call visualization (expandable cards zamiast tekstu) — przyszła iteracja
+- [x] Image previews w czacie (screenshoty) ✅
+- [x] Code blocks z syntax highlighting (Shiki) ✅
+- [x] Keyboard shortcuts (Ctrl+L, Esc, Ctrl+Shift+S/X/Backspace) ✅
 
 ---
 
@@ -710,7 +712,7 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-### ✅ Ukończone (38/47)
+### ✅ Ukończone (40/47)
 
 | # | Zadanie | Faza | Status |
 |---|---------|------|--------|
@@ -752,14 +754,14 @@ src/
 | 42 | i18n (PL + EN) | 7.4 | ✅ |
 | 41 | Accessibility (a11y) | 7.3 | ✅ |
 | 39 | MCP Server Discovery | 8.5 | ✅ |
+| 31 | Rich interactions (D&D, highlight) | 4.5 | ✅ |
 
-### ⬜ Remaining (8 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (7 tasks) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 |
 | 30 | Dashboard SPA refactor | 4.4 | 🟢 Medium | 1-2 sesje | P4 |
-| 31 | Rich interactions (D&D, highlight) | 4.5 | 🟢 Medium | 2 sesje | P4 |
 | 33 | Workflow Automator (Macro Recorder) | 6.2 | 🟡 High | 3-4 sesje | P4 |
 | 34 | Knowledge Graph | 6.3 | 🟡 High | 3-4 sesje | P4 |
 | 35 | Proactive Intelligence Engine | 6.4 | 🟡 High | 3-4 sesje | P4 |

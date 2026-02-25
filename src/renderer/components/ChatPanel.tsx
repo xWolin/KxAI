@@ -6,6 +6,7 @@ import { useAgentStore } from '../stores';
 import s from './ChatPanel.module.css';
 import { cn } from '../utils/cn';
 import { useTranslation } from '../i18n';
+import { initHighlighter, highlightCode } from '../utils/highlighter';
 
 // Configure marked for chat messages
 marked.setOptions({
@@ -19,6 +20,22 @@ renderer.link = ({ href, title, text }: { href: string; title?: string | null; t
   const titleAttr = title ? ` title="${title}"` : '';
   return `<a href="${href}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`;
 };
+
+// Escape HTML for plain code fallback
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// Syntax highlighting for code blocks (shiki when ready, plain fallback)
+renderer.code = ({ text, lang }: { text: string; lang?: string }) => {
+  const language = lang || '';
+  const highlighted = language ? highlightCode(text, language) : null;
+  const codeHtml = highlighted || `<pre><code>${escapeHtml(text)}</code></pre>`;
+  const langLabel = language ? `<span data-code-lang>${escapeHtml(language)}</span>` : '';
+  const copyBtn = `<button data-code-copy aria-label="Copy code">📋</button>`;
+  return `<div data-code-block><div data-code-header>${langLabel}${copyBtn}</div>${codeHtml}</div>`;
+};
+
 marked.use({ renderer });
 
 /**
@@ -42,15 +59,15 @@ function renderMarkdown(text: string): string {
   const html = marked.parse(cleaned);
   // marked.parse can return string | Promise<string> — we only use sync mode
   if (typeof html !== 'string') return '';
-  return DOMPurify.sanitize(html);
+  return DOMPurify.sanitize(html, { ADD_ATTR: ['style'] });
 }
 
 /**
  * Memoized markdown message bubble with copy button.
  */
-function MessageContent({ content }: { content: string }) {
+function MessageContent({ content, highlighterReady }: { content: string; highlighterReady: boolean }) {
   const { t } = useTranslation();
-  const html = useMemo(() => renderMarkdown(content), [content]);
+  const html = useMemo(() => renderMarkdown(content), [content, highlighterReady]);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
@@ -62,13 +79,32 @@ function MessageContent({ content }: { content: string }) {
     } catch {}
   }, [content]);
 
+  /** Event delegation: handle clicks on code block copy buttons inside rendered markdown. */
+  const handleCodeCopy = useCallback((e: React.MouseEvent) => {
+    const target = e.target as HTMLElement;
+    if (target.hasAttribute('data-code-copy')) {
+      e.stopPropagation();
+      const block = target.closest('[data-code-block]');
+      if (block) {
+        const code = block.querySelector('code');
+        if (code) {
+          navigator.clipboard.writeText(code.textContent || '');
+          target.textContent = '✓';
+          setTimeout(() => {
+            target.textContent = '📋';
+          }, 1500);
+        }
+      }
+    }
+  }, []);
+
   if (!html) return null;
   return (
     <div className={s.bubbleWrapper}>
       <button className={copied ? s.copyBtnCopied : s.copyBtn} onClick={handleCopy} title={t('chat.copyMessage')} aria-label={t('chat.copyMessage')}>
         {copied ? '✓' : '📋'}
       </button>
-      <div className={s.markdown} dangerouslySetInnerHTML={{ __html: html }} />
+      <div className={s.markdown} dangerouslySetInnerHTML={{ __html: html }} onClick={handleCodeCopy} />
     </div>
   );
 }
@@ -96,6 +132,9 @@ export function ChatPanel({
   const [streamingContent, setStreamingContent] = useState('');
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [highlighterReady, setHighlighterReady] = useState(false);
+  const [screenshotPreviews, setScreenshotPreviews] = useState<Record<string, string>>({});
+  const [isDragging, setIsDragging] = useState(false);
 
   // Agent status & RAG progress from global store (subscribed in useStoreInit)
   const agentStatus = useAgentStore((s) => s.agentStatus);
@@ -112,6 +151,7 @@ export function ChatPanel({
   useEffect(() => {
     loadHistory();
     loadProactiveMode();
+    initHighlighter().then(() => setHighlighterReady(true));
 
     // Listen for streaming chunks
     const cleanup = window.kxai.onAIStream((data) => {
@@ -243,15 +283,30 @@ export function ChatPanel({
     setStreamingContent('');
     streamingContentRef.current = '';
 
+    // Capture screenshot for preview thumbnail
+    let previewUrl: string | undefined;
+    try {
+      const capture = await window.kxai.captureScreen();
+      if (capture.success && capture.data?.[0]?.base64) {
+        previewUrl = capture.data[0].base64;
+      }
+    } catch {}
+
     // Add optimistic user message so it's visible immediately
+    const msgId = `opt-${Date.now()}`;
     const screenshotMsg: ConversationMessage = {
-      id: `opt-${Date.now()}`,
+      id: msgId,
       role: 'user',
       content: t('chat.screenshot.prompt'),
       timestamp: Date.now(),
       type: 'analysis',
     };
     setMessages((prev) => [...prev, screenshotMsg]);
+
+    // Store preview thumbnail
+    if (previewUrl) {
+      setScreenshotPreviews((prev) => ({ ...prev, [msgId]: previewUrl! }));
+    }
 
     try {
       const result = await window.kxai.streamWithScreen(
@@ -292,6 +347,141 @@ export function ChatPanel({
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       sendMessage();
+    }
+  }
+
+  // ─── Global keyboard shortcuts ───
+
+  useEffect(() => {
+    function handleGlobalKeyDown(e: KeyboardEvent) {
+      const ctrl = e.ctrlKey || e.metaKey;
+
+      // Ctrl+L — focus input
+      if (ctrl && e.key === 'l') {
+        e.preventDefault();
+        inputRef.current?.focus();
+        return;
+      }
+
+      // Escape — close panel (when input is not focused or is empty)
+      if (e.key === 'Escape') {
+        if (document.activeElement !== inputRef.current || !input) {
+          onClose();
+        }
+        return;
+      }
+
+      // Ctrl+Shift+S — screenshot & analyze
+      if (ctrl && e.shiftKey && e.key === 'S') {
+        e.preventDefault();
+        if (!isStreaming) captureAndAnalyze();
+        return;
+      }
+
+      // Ctrl+Shift+X — stop agent
+      if (ctrl && e.shiftKey && e.key === 'X') {
+        e.preventDefault();
+        if (isStreaming) {
+          window.kxai.agentStop();
+          setIsStreaming(false);
+        }
+        return;
+      }
+
+      // Ctrl+Shift+Backspace — clear chat
+      if (ctrl && e.shiftKey && e.key === 'Backspace') {
+        e.preventDefault();
+        window.kxai.clearConversationHistory().then(() => {
+          setMessages([]);
+        });
+        return;
+      }
+    }
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [input, isStreaming, onClose]);
+
+  // ─── Drag & Drop files ───
+
+  const dragCounter = useRef(0);
+
+  function handleDragEnter(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
+    if (e.dataTransfer.types.includes('Files')) {
+      setIsDragging(true);
+    }
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    if (dragCounter.current <= 0) {
+      dragCounter.current = 0;
+      setIsDragging(false);
+    }
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  async function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current = 0;
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length === 0) return;
+
+    // Electron adds .path to File objects (not in standard Web API)
+    const paths = files.map((f) => (f as File & { path: string }).path).filter(Boolean);
+    if (paths.length === 0) return;
+
+    // Build a message asking the AI to analyze the dropped files
+    const fileList = paths.map((p) => `- ${p}`).join('\n');
+    const message =
+      paths.length === 1
+        ? t('chat.drop.single', { path: paths[0] })
+        : t('chat.drop.multiple', { files: fileList });
+
+    // Send as a regular chat message
+    setInput('');
+    setIsStreaming(true);
+    setStreamingContent('');
+    streamingContentRef.current = '';
+
+    const userMsg: ConversationMessage = {
+      id: `opt-${Date.now()}`,
+      role: 'user',
+      content: message,
+      timestamp: Date.now(),
+      type: 'chat',
+    };
+    setMessages((prev) => [...prev, userMsg]);
+
+    try {
+      const result = await window.kxai.streamMessage(message);
+      setIsStreaming(false);
+      if (result.success) {
+        await loadHistory();
+      }
+    } catch (error: any) {
+      setIsStreaming(false);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: Date.now().toString(),
+          role: 'assistant',
+          content: t('chat.error.generic', { error: error.message }),
+          timestamp: Date.now(),
+        },
+      ]);
     }
   }
 
@@ -396,7 +586,21 @@ export function ChatPanel({
   }
 
   return (
-    <div className={s.panel}>
+    <div
+      className={s.panel}
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {/* Drag & Drop overlay */}
+      {isDragging && (
+        <div className={s.dropOverlay}>
+          <div className={s.dropIcon}>📎</div>
+          <div className={s.dropText}>{t('chat.drop.hint')}</div>
+        </div>
+      )}
+
       {/* Header */}
       <div className={s.header}>
         <div className={s.headerInfo}>
@@ -533,7 +737,15 @@ export function ChatPanel({
         {messages.map((msg) => (
           <div key={msg.id} className={cn('fade-in', msg.role === 'user' ? s.msgUser : s.msgAssistant)}>
             <div className={msg.role === 'user' ? s.bubbleUser : s.bubbleAssistant}>
-              {msg.role === 'assistant' ? <MessageContent content={msg.content} /> : msg.content}
+              {msg.type === 'analysis' && screenshotPreviews[msg.id] && (
+                <img
+                  src={screenshotPreviews[msg.id]}
+                  alt={t('chat.screenshot.preview')}
+                  className={s.screenshotPreview}
+                  loading="lazy"
+                />
+              )}
+              {msg.role === 'assistant' ? <MessageContent content={msg.content} highlighterReady={highlighterReady} /> : msg.content}
             </div>
             <div className={s.msgTime}>{formatTime(msg.timestamp)}</div>
           </div>
@@ -544,7 +756,7 @@ export function ChatPanel({
           <div className={cn('fade-in', s.streaming)} aria-live="polite">
             <div className={s.bubbleAssistant}>
               {streamingContent ? (
-                <MessageContent content={streamingContent} />
+                <MessageContent content={streamingContent} highlighterReady={highlighterReady} />
               ) : (
                 <div className={s.typing}>
                   <span className={s.dot1}>●</span>

@@ -32,6 +32,37 @@
   border-radius: var(--radius);
 }
 
+/* ── Drag & Drop overlay ── */
+.dropOverlay {
+  position: absolute;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 10, 20, 0.88);
+  border: 2px dashed var(--neon-cyan);
+  border-radius: var(--radius);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  pointer-events: none;
+  animation: drop-fade-in 0.15s ease-out;
+}
+.dropIcon {
+  font-size: 40px;
+  filter: drop-shadow(0 0 12px var(--neon-cyan));
+}
+.dropText {
+  color: var(--neon-cyan);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+@keyframes drop-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
 .header {
   padding: 12px 16px;
   background: var(--bg-secondary);
@@ -268,6 +299,64 @@
   font-size: 0.9em;
   color: var(--neon-cyan);
 }
+/* ── Code blocks with syntax highlighting ── */
+.markdown :global([data-code-block]) {
+  position: relative;
+  margin: 8px 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+.markdown :global([data-code-block]) pre {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.4) !important; /* override shiki inline style */
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+.markdown :global([data-code-block]) pre code {
+  background: none;
+  padding: 0;
+}
+.markdown :global([data-code-header]) {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 4px 12px;
+  background: rgba(0, 0, 0, 0.55);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  min-height: 28px;
+}
+.markdown :global([data-code-lang]) {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  text-transform: lowercase;
+  letter-spacing: 0.02em;
+}
+.markdown :global([data-code-copy]) {
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: background 0.2s, color 0.2s;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.markdown :global([data-code-copy]):hover {
+  background: rgba(0, 240, 255, 0.15);
+  color: var(--text-primary);
+}
+
+/* Plain code blocks (no data-code-block wrapper — inline pre from markdown) */
 .markdown pre {
   background: rgba(0, 0, 0, 0.4);
   padding: 10px 12px;
@@ -350,33 +439,23 @@
   color: var(--neon-green);
 }
 
-/* Code block copy button */
-.codeCopy {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.08);
-  color: var(--text-muted);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 12px;
-  opacity: 0;
+/* Screenshot preview thumbnail in user bubble */
+.screenshotPreview {
+  max-width: 100%;
+  max-height: 160px;
+  border-radius: 8px;
+  margin-bottom: 6px;
+  border: 1px solid var(--border);
+  object-fit: contain;
+  cursor: zoom-in;
+  display: block;
+  opacity: 0.9;
   transition: opacity 0.2s;
-  -webkit-user-select: none;
-  user-select: none;
+}
+.screenshotPreview:hover {
+  opacity: 1;
 }
 
-.markdown pre:hover .codeCopy { opacity: 1; }
-.codeCopy:hover {
-  background: rgba(0, 240, 255, 0.15);
-  color: var(--text-primary);
-}
 
 .msgTime {
   font-size: 10px;
