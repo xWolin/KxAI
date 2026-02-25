@@ -173,6 +173,21 @@ export const Ch = {
   MCP_GET_STATUS: 'mcp:get-status',
   MCP_GET_REGISTRY: 'mcp:get-registry',
   MCP_CALL_TOOL: 'mcp:call-tool',
+
+  // Calendar (CalDAV)
+  CALENDAR_GET_CONNECTIONS: 'calendar:get-connections',
+  CALENDAR_ADD_CONNECTION: 'calendar:add-connection',
+  CALENDAR_REMOVE_CONNECTION: 'calendar:remove-connection',
+  CALENDAR_CONNECT: 'calendar:connect',
+  CALENDAR_DISCONNECT: 'calendar:disconnect',
+  CALENDAR_GET_CALENDARS: 'calendar:get-calendars',
+  CALENDAR_GET_STATUS: 'calendar:get-status',
+  CALENDAR_STORE_CREDENTIAL: 'calendar:store-credential',
+
+  // Privacy & GDPR
+  PRIVACY_GET_SUMMARY: 'privacy:get-summary',
+  PRIVACY_EXPORT_DATA: 'privacy:export-data',
+  PRIVACY_DELETE_DATA: 'privacy:delete-data',
 } as const;
 
 // ─── Send Channels (renderer → main, fire-and-forget) ───
@@ -205,6 +220,7 @@ export const Ev = {
   SUBAGENT_PROGRESS: 'subagent:progress',
   UPDATE_STATE: 'update:state',
   MCP_STATUS: 'mcp:status',
+  CALENDAR_STATUS: 'calendar:status',
   CONFIG_CHANGED: 'config:changed',
   NAVIGATE: 'navigate',
 } as const;

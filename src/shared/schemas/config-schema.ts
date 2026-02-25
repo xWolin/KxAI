@@ -31,6 +31,20 @@ const McpServerConfigSchema = z.object({
   timeout: z.number().optional(),
 });
 
+const CalendarConnectionSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  provider: z.enum(['google', 'icloud', 'nextcloud', 'caldav', 'ics']),
+  serverUrl: z.string(),
+  authMethod: z.enum(['Basic', 'OAuth', 'Bearer']).default('Basic'),
+  username: z.string(),
+  enabled: z.boolean().default(true),
+  selectedCalendars: z.array(z.string()).optional(),
+  lastSync: z.number().optional(),
+  googleClientId: z.string().optional(),
+  googleClientSecret: z.string().optional(),
+});
+
 // ─── Main config schema ───
 
 export const KxAIConfigSchema = z
@@ -80,6 +94,9 @@ export const KxAIConfigSchema = z
 
     // ── Meeting coach (opaque sub-object, persisted by MeetingCoachService) ──
     meetingCoach: z.record(z.string(), z.unknown()).optional(),
+
+    // ── Calendar connections ──
+    calendarConnections: z.array(CalendarConnectionSchema).optional(),
   })
   .passthrough(); // Allow unknown keys for forward-compat
 

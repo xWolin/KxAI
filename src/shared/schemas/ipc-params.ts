@@ -201,6 +201,31 @@ const McpReconnectParams = z.tuple([nonEmptyString]);
 
 const McpCallToolParams = z.tuple([nonEmptyString, nonEmptyString, z.any()]);
 
+// ─── Calendar ───
+
+const CalendarAddConnectionParams = z.tuple([
+  z.object({
+    name: z.string().min(1).max(200),
+    provider: z.enum(['google', 'icloud', 'nextcloud', 'caldav', 'ics']),
+    serverUrl: z.string().min(1),
+    authMethod: z.enum(['Basic', 'OAuth', 'Bearer']),
+    username: z.string().optional(),
+    selectedCalendars: z.array(z.string()).optional(),
+    googleClientId: z.string().optional(),
+    googleClientSecret: z.string().optional(),
+  }),
+]);
+
+const CalendarRemoveConnectionParams = z.tuple([nonEmptyString]);
+
+const CalendarConnectParams = z.tuple([nonEmptyString]);
+
+const CalendarDisconnectParams = z.tuple([nonEmptyString]);
+
+const CalendarGetCalendarsParams = z.tuple([nonEmptyString]);
+
+const CalendarStoreCredentialParams = z.tuple([nonEmptyString, nonEmptyString]);
+
 // ─── Send Channels ───
 
 const MeetingAudioChunkParams = z.tuple([
@@ -311,6 +336,14 @@ export const IpcParamSchemas: Partial<Record<string, z.ZodType>> = {
   [Ch.MCP_DISCONNECT]: McpDisconnectParams,
   [Ch.MCP_RECONNECT]: McpReconnectParams,
   [Ch.MCP_CALL_TOOL]: McpCallToolParams,
+
+  // Calendar
+  [Ch.CALENDAR_ADD_CONNECTION]: CalendarAddConnectionParams,
+  [Ch.CALENDAR_REMOVE_CONNECTION]: CalendarRemoveConnectionParams,
+  [Ch.CALENDAR_CONNECT]: CalendarConnectParams,
+  [Ch.CALENDAR_DISCONNECT]: CalendarDisconnectParams,
+  [Ch.CALENDAR_GET_CALENDARS]: CalendarGetCalendarsParams,
+  [Ch.CALENDAR_STORE_CREDENTIAL]: CalendarStoreCredentialParams,
 };
 
 /**
