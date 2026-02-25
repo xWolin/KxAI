@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { KxAIConfig, RAGFolderInfo } from '../types';
 import type { McpServerConfig, McpHubStatus, McpRegistryEntry } from '@shared/types/mcp';
+import type { CalendarConfig, CalendarStatus, CalendarInfo, CalendarProvider } from '@shared/types/calendar';
 import s from './SettingsPanel.module.css';
 import { cn } from '../utils/cn';
 
@@ -52,7 +53,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [saving, setSaving] = useState(false);
   const [soulContent, setSoulContent] = useState('');
   const [memoryContent, setMemoryContent] = useState('');
-  const [activeTab, setActiveTab] = useState<'general' | 'persona' | 'memory' | 'knowledge' | 'mcp'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'persona' | 'memory' | 'knowledge' | 'mcp' | 'calendar'>(
+    'general',
+  );
   const [indexedFolders, setIndexedFolders] = useState<string[]>([]);
   const [folderStats, setFolderStats] = useState<RAGFolderInfo[]>([]);
   const [ragStats, setRagStats] = useState<{ totalChunks: number; totalFiles: number; embeddingType: string } | null>(
@@ -77,6 +80,19 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   });
   const [mcpEnvEditing, setMcpEnvEditing] = useState<string | null>(null);
   const [mcpEnvInput, setMcpEnvInput] = useState('');
+
+  // Calendar state
+  const [calStatus, setCalStatus] = useState<CalendarStatus | null>(null);
+  const [calLoading, setCalLoading] = useState(false);
+  const [calShowAddForm, setCalShowAddForm] = useState(false);
+  const [calCalendars, setCalCalendars] = useState<Record<string, CalendarInfo[]>>({});
+  const [calNewConn, setCalNewConn] = useState({
+    name: '',
+    provider: 'caldav' as CalendarProvider,
+    serverUrl: '',
+    username: '',
+    password: '',
+  });
 
   useEffect(() => {
     checkApiKey();
@@ -349,6 +365,115 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     }
   }
 
+  // ─── Calendar handlers ───
+
+  const loadCalendarData = useCallback(async () => {
+    try {
+      setCalLoading(true);
+      const status = await window.kxai.calendarGetStatus();
+      setCalStatus(status);
+    } catch (err) {
+      console.error('Failed to load calendar data:', err);
+    } finally {
+      setCalLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'calendar') {
+      loadCalendarData();
+      const unsub = window.kxai.onCalendarStatus((status: CalendarStatus) => {
+        setCalStatus(status);
+      });
+      return unsub;
+    }
+  }, [activeTab, loadCalendarData]);
+
+  async function handleCalendarAdd() {
+    if (!calNewConn.name || !calNewConn.serverUrl) return;
+    try {
+      setCalLoading(true);
+      const providerDefaults: Record<string, { serverUrl: string; authMethod: string }> = {
+        google: { serverUrl: 'https://apidata.googleusercontent.com/caldav/v2/', authMethod: 'OAuth' },
+        icloud: { serverUrl: 'https://caldav.icloud.com/', authMethod: 'Basic' },
+        nextcloud: { serverUrl: calNewConn.serverUrl, authMethod: 'Basic' },
+        caldav: { serverUrl: calNewConn.serverUrl, authMethod: 'Basic' },
+      };
+      const defaults = providerDefaults[calNewConn.provider] || providerDefaults.caldav;
+      const result = await window.kxai.calendarAddConnection({
+        name: calNewConn.name,
+        provider: calNewConn.provider,
+        serverUrl:
+          calNewConn.provider === 'google' || calNewConn.provider === 'icloud'
+            ? defaults.serverUrl
+            : calNewConn.serverUrl,
+        authMethod: defaults.authMethod as 'Basic' | 'OAuth' | 'Bearer',
+        username: calNewConn.username || '',
+        enabled: true,
+      });
+      if (result.success && result.connectionId && calNewConn.password) {
+        await window.kxai.calendarStoreCredential(result.connectionId, calNewConn.password);
+      }
+      setCalShowAddForm(false);
+      setCalNewConn({ name: '', provider: 'caldav', serverUrl: '', username: '', password: '' });
+      await loadCalendarData();
+    } catch (err) {
+      console.error('Calendar add error:', err);
+    } finally {
+      setCalLoading(false);
+    }
+  }
+
+  async function handleCalendarConnect(id: string) {
+    try {
+      await window.kxai.calendarConnect(id);
+      await loadCalendarData();
+    } catch (err) {
+      console.error('Calendar connect error:', err);
+    }
+  }
+
+  async function handleCalendarDisconnect(id: string) {
+    try {
+      await window.kxai.calendarDisconnect(id);
+      await loadCalendarData();
+    } catch (err) {
+      console.error('Calendar disconnect error:', err);
+    }
+  }
+
+  async function handleCalendarRemove(id: string, name: string) {
+    if (!confirm(`Usunąć połączenie "${name}"?`)) return;
+    try {
+      await window.kxai.calendarRemoveConnection(id);
+      await loadCalendarData();
+    } catch (err) {
+      console.error('Calendar remove error:', err);
+    }
+  }
+
+  async function handleCalendarLoadCalendars(connectionId: string) {
+    try {
+      const calendars = await window.kxai.calendarGetCalendars(connectionId);
+      setCalCalendars((prev) => ({ ...prev, [connectionId]: calendars }));
+    } catch (err) {
+      console.error('Calendar load calendars error:', err);
+    }
+  }
+
+  function getCalStatusBadge(status: string) {
+    switch (status) {
+      case 'connected':
+        return { text: 'Połączony', cls: s.mcpBadgeConnected };
+      case 'connecting':
+        return { text: 'Łączenie...', cls: s.mcpBadgeConnecting };
+      case 'error':
+        return { text: 'Błąd', cls: s.mcpBadgeError };
+      default:
+        return { text: 'Rozłączony', cls: s.mcpBadgeDisconnected };
+    }
+  }
+
   return (
     <div className={s.panel}>
       {/* Header */}
@@ -375,6 +500,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         </button>
         <button className={activeTab === 'mcp' ? s.tabActive : s.tab} onClick={() => setActiveTab('mcp')}>
           🔌 MCP
+        </button>
+        <button className={activeTab === 'calendar' ? s.tabActive : s.tab} onClick={() => setActiveTab('calendar')}>
+          📅 Kalendarz
         </button>
       </div>
 
@@ -903,6 +1031,183 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   </div>
                 );
               })}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'calendar' && (
+          <div className="fade-in">
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>📅 Połączenia kalendarzy (CalDAV)</h3>
+              <p className={s.hint}>
+                Połącz kalendarze Google, iCloud, Nextcloud lub dowolny serwer CalDAV. Agent będzie mógł sprawdzać
+                wydarzenia, tworzyć przypomnienia i proaktywnie informować o spotkaniach.
+              </p>
+
+              {calLoading && <div className={s.mcpLoading}>Ładowanie...</div>}
+
+              {/* Connection list */}
+              {calStatus?.connections.map((conn) => {
+                const badge = getCalStatusBadge(conn.status);
+                const connCalendars = calCalendars[conn.id];
+                return (
+                  <div key={conn.id} className={s.mcpServerItem}>
+                    <div className={s.mcpServerHeader}>
+                      <div className={s.mcpServerInfo}>
+                        <span className={s.mcpServerIcon}>
+                          {conn.provider === 'google' ? '📊' : conn.provider === 'icloud' ? '🍎' : '📅'}
+                        </span>
+                        <div>
+                          <div className={s.mcpServerName}>{conn.name}</div>
+                          <div className={s.mcpServerTransport}>
+                            {conn.provider} · {conn.serverUrl}
+                          </div>
+                          {conn.lastSync && (
+                            <div className={s.mcpServerTransport}>
+                              Ostatnia sync: {new Date(conn.lastSync).toLocaleString('pl-PL')}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className={s.mcpServerActions}>
+                        <span className={badge.cls}>{badge.text}</span>
+                        {conn.status === 'connected' ? (
+                          <button className={s.mcpBtnSmall} onClick={() => handleCalendarDisconnect(conn.id)}>
+                            Rozłącz
+                          </button>
+                        ) : (
+                          <button className={s.mcpBtnSmallAccent} onClick={() => handleCalendarConnect(conn.id)}>
+                            Połącz
+                          </button>
+                        )}
+                        <button className={s.mcpBtnSmall} onClick={() => handleCalendarLoadCalendars(conn.id)}>
+                          📋
+                        </button>
+                        <button className={s.mcpBtnSmall} onClick={() => handleCalendarRemove(conn.id, conn.name)}>
+                          🗑
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Calendars list (when loaded) */}
+                    {connCalendars && connCalendars.length > 0 && (
+                      <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
+                        <div className={s.hint}>Kalendarze:</div>
+                        {connCalendars.map((cal) => (
+                          <div
+                            key={cal.url}
+                            style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0' }}
+                          >
+                            <span
+                              style={{
+                                width: 12,
+                                height: 12,
+                                borderRadius: '50%',
+                                background: cal.color || 'var(--accent)',
+                                display: 'inline-block',
+                              }}
+                            />
+                            <span>{cal.displayName || cal.url}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Add connection form */}
+              {!calShowAddForm ? (
+                <button className={s.mcpBtnPrimary} onClick={() => setCalShowAddForm(true)}>
+                  + Dodaj połączenie
+                </button>
+              ) : (
+                <div className={s.mcpAddForm}>
+                  <h4>Nowe połączenie CalDAV</h4>
+
+                  <label className={s.label}>Dostawca</label>
+                  <select
+                    className={s.input}
+                    value={calNewConn.provider}
+                    onChange={(e) =>
+                      setCalNewConn({
+                        ...calNewConn,
+                        provider: e.target.value as CalendarProvider,
+                        serverUrl:
+                          e.target.value === 'icloud'
+                            ? 'https://caldav.icloud.com/'
+                            : e.target.value === 'google'
+                              ? 'https://apidata.googleusercontent.com/caldav/v2/'
+                              : calNewConn.serverUrl,
+                      })
+                    }
+                  >
+                    <option value="caldav">CalDAV (ogólny)</option>
+                    <option value="nextcloud">Nextcloud</option>
+                    <option value="icloud">iCloud</option>
+                    <option value="google">Google Calendar</option>
+                  </select>
+
+                  <label className={s.label}>Nazwa</label>
+                  <input
+                    className={s.input}
+                    value={calNewConn.name}
+                    onChange={(e) => setCalNewConn({ ...calNewConn, name: e.target.value })}
+                    placeholder="np. Mój kalendarz"
+                  />
+
+                  {calNewConn.provider !== 'google' && (
+                    <>
+                      <label className={s.label}>URL serwera CalDAV</label>
+                      <input
+                        className={s.input}
+                        value={calNewConn.serverUrl}
+                        onChange={(e) => setCalNewConn({ ...calNewConn, serverUrl: e.target.value })}
+                        placeholder="https://caldav.example.com/"
+                      />
+                    </>
+                  )}
+
+                  <label className={s.label}>Użytkownik</label>
+                  <input
+                    className={s.input}
+                    value={calNewConn.username}
+                    onChange={(e) => setCalNewConn({ ...calNewConn, username: e.target.value })}
+                    placeholder="email@example.com"
+                  />
+
+                  <label className={s.label}>
+                    {calNewConn.provider === 'icloud' ? 'Hasło aplikacji (app-specific password)' : 'Hasło'}
+                  </label>
+                  <input
+                    className={s.input}
+                    type="password"
+                    value={calNewConn.password}
+                    onChange={(e) => setCalNewConn({ ...calNewConn, password: e.target.value })}
+                    placeholder="••••••••"
+                  />
+
+                  {calNewConn.provider === 'google' && (
+                    <p className={s.hint}>
+                      ⚠️ Google Calendar wymaga OAuth 2.0. Funkcja w przygotowaniu — na razie użyj CalDAV z innym
+                      dostawcą.
+                    </p>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                    <button
+                      className={s.mcpBtnPrimary}
+                      onClick={handleCalendarAdd}
+                      disabled={calLoading || !calNewConn.name || !calNewConn.serverUrl}
+                    >
+                      Dodaj i połącz
+                    </button>
+                    <button className={s.mcpBtnSmall} onClick={() => setCalShowAddForm(false)}>
+                      Anuluj
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
