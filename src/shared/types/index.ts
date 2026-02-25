@@ -112,6 +112,15 @@ export type {
   CalendarOperationResult,
 } from './calendar';
 
+// Clipboard
+export type {
+  ClipboardContentType,
+  ClipboardEntry,
+  ClipboardSearchOptions,
+  ClipboardConfig,
+  ClipboardStatus,
+} from './clipboard';
+
 // Errors
 export { KxAIError, ErrorCode } from './errors';
 export type { ErrorSeverity } from './errors';

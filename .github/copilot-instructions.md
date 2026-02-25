@@ -30,10 +30,11 @@ src/
 │   │   ├── ai-provider.ts  # AIProvider interface (Faza 2.5 ✅)
 │   │   ├── calendar.ts     # CalendarConfig, CalendarEvent, CalendarStatus (Faza 8.2 ✅)
 │   │   ├── privacy.ts      # PrivacyDataSummary, PrivacyExportResult, PrivacyDeleteResult (Faza 7.5 ✅)
+│   │   ├── clipboard.ts    # ClipboardEntry, ClipboardContentType, ClipboardConfig, ClipboardStatus (Faza 6.1 ✅)
 │   │   ├── errors.ts       # KxAIError class, ErrorCode enum, ErrorSeverity (Faza 3.5 ✅)
-│   │   └── index.ts        # Barrel re-export (~85+ eksportowanych typów z 16 modułów)
+│   │   └── index.ts        # Barrel re-export (~90+ eksportowanych typów z 17 modułów)
 │   └── constants.ts        # Stałe (limity, domyślne wartości)
-│   └── ipc-schema.ts        # IPC channel/event constants: 109 Ch + 24 Ev + 2 ChSend = 135 kanały (Faza 3.1 ✅)
+│   └── ipc-schema.ts        # IPC channel/event constants: 117 Ch + 24 Ev + 2 ChSend = 143 kanały (Faza 3.1 ✅)
 │   └── schemas/
 │       ├── ai-responses.ts  # Zod schemas: ScreenAnalysis, CronSuggestion, MemoryUpdate, TakeControl (Faza 2.2 ✅)
 │       ├── config-schema.ts  # Zod schema for KxAIConfig — single source of truth (Faza 3.6 ✅)
@@ -88,6 +89,7 @@ src/
 │       ├── file-intelligence.ts # File analysis: PDF/DOCX/XLSX/EPUB extraction, search, folder analysis (718 LOC, Faza 6.6 ✅)
 │       ├── calendar-service.ts  # CalDAV calendar integration: tsdav + node-ical (852 LOC, Faza 8.2 ✅)
 │       ├── privacy-service.ts   # GDPR compliance: data summary, export, deletion (Faza 7.5 ✅)
+│       ├── clipboard-service.ts # Smart Clipboard Pipeline: monitoring, history, content detection, AI tools (860 LOC, Faza 6.1 ✅)
 │       └── config.ts          # Configuration v2: Zod-validated, typed, reactive, debounced (Faza 3.6 ✅)
 ├── renderer/               # React frontend
 │   ├── App.tsx             # Routing z zustand stores (Faza 4.3 ✅)
@@ -126,7 +128,7 @@ src/
 - **Typy**: Używaj TypeScript strict mode; współdzielone typy w `src/shared/types/` (canonical source), re-exportowane w serwisach dla backward compat
 - **Path aliases**: `@shared/*` → `src/shared/*`, `@main/*` → `src/main/*`, `@renderer/*` → `src/renderer/*`
 - **IPC**: Kanały IPC definiowane jako stałe w `src/shared/ipc-schema.ts` (109 Ch + 24 Ev + 2 ChSend = 135 kanały). Każdy nowy handler dodaj w `ipc.ts` (1177 LOC) używając stałych, expose w `preload.ts`, typuj w `types.ts`. Parametry walidowane runtime z zod w `src/shared/schemas/ipc-params.ts` via `validatedHandle()` (54 schematy)
-- **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). ServiceMap ma 28 kluczy. Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
+- **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). ServiceMap ma 30 kluczy. Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
 - **State management**: Zustand stores w `src/renderer/stores/`. 4 stores: `useNavigationStore`, `useConfigStore`, `useAgentStore`, `useChatStore`. IPC event subscriptions scentralizowane w `useStoreInit`. Import: `import { useAgentStore } from '../stores'`
 - **Styling**: CSS Modules per-component (`*.module.css`), `cn()` utility, design tokens w `global.css` `:root`. Import: `import s from './Comp.module.css'`
 - **UI components**: Reusable atomic components w `src/renderer/components/ui/`. Import: `import { Button, Input, Badge } from '../ui'`. Nie duplikuj styli — użyj istniejących komponentów
@@ -526,12 +528,15 @@ src/
 
 > Te funkcje robią z KxAI produkt, którego nie ma na rynku.
 
-### Krok 6.1 — Smart Clipboard Pipeline
-- [ ] Monitor schowka w tle (opt-in):
-  - Skopiowany tekst → auto-detect type (URL, code, email, address, JSON)
-  - AI enrichment: URL → auto-summary, code → explain, JSON → format
-  - Clipboard history z searchem
-- [ ] "Paste with AI" — Ctrl+Shift+V transformuje zawartość przed wklejeniem
+### Krok 6.1 — Smart Clipboard Pipeline ✅
+> **Zaimplementowano**: `clipboard-service.ts` (~860 LOC) z background monitoring (polling 1.5s, opt-in), auto-detect 12 typów treści (URL, email, kod, JSON, ścieżka, kolor, telefon, HTML, markdown, adres, liczba, unknown), SQLite-backed history z FTS5 full-text search, deduplication (SHA256 content hash, 24h window), pinning (przeżywa retention policy), retention policy (konfigurowany maxHistory + retentionDays). 5 narzędzi AI: `clipboard_history`, `clipboard_search`, `clipboard_pin`, `clipboard_clear`, `clipboard_analyze`. 8 kanałów IPC (Ch.CLIPBOARD_*). ServiceContainer wired (Phase 2 construct, Phase 5 deps, initDeferred, shutdown Phase 1).
+
+- [x] Monitor schowka w tle (opt-in) z auto-detect type ✅
+- [x] Clipboard history z FTS5 searchem i SQLite storage ✅
+- [x] Deduplication, pinning, retention policy ✅
+- [x] 5 AI tools (history, search, pin, clear, analyze) ✅
+- [ ] AI enrichment: URL → auto-summary, code → explain (przyszła iteracja)
+- [ ] "Paste with AI" — Ctrl+Shift+V transformacja (przyszła iteracja)
 
 ### Krok 6.2 — Workflow Automator (Macro Recorder)
 - [ ] Nagrywaj sekwencje akcji użytkownika:
@@ -693,7 +698,7 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-### ✅ Ukończone (34/47)
+### ✅ Ukończone (35/47)
 
 | # | Zadanie | Faza | Status |
 |---|---------|------|--------|
@@ -731,15 +736,15 @@ src/
 | 37 | Google Calendar (CalDAV) | 8.2 | ✅ |
 | 43 | Privacy & compliance (GDPR) | 7.5 | ✅ |
 | 38 | Gmail / Email via MCP | 8.3 | ✅ |
+| 32 | Smart Clipboard Pipeline | 6.1 | ✅ |
 
-### ⬜ Remaining (12 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (11 tasks) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 |
 | 30 | Dashboard SPA refactor | 4.4 | 🟢 Medium | 1-2 sesje | P4 |
 | 31 | Rich interactions (D&D, highlight) | 4.5 | 🟢 Medium | 2 sesje | P4 |
-| 32 | Smart Clipboard Pipeline | 6.1 | 🟢 Medium | 1-2 sesje | P4 |
 | 33 | Workflow Automator (Macro Recorder) | 6.2 | 🟡 High | 3-4 sesje | P4 |
 | 34 | Knowledge Graph | 6.3 | 🟡 High | 3-4 sesje | P4 |
 | 35 | Proactive Intelligence Engine | 6.4 | 🟡 High | 3-4 sesje | P4 |

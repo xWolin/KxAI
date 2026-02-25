@@ -41,6 +41,7 @@ import { McpClientService } from './mcp-client-service';
 import { FileIntelligenceService } from './file-intelligence';
 import { CalendarService } from './calendar-service';
 import { PrivacyService } from './privacy-service';
+import { ClipboardService } from './clipboard-service';
 
 const log = createLogger('Container');
 
@@ -75,6 +76,7 @@ export interface ServiceMap {
   fileIntelligence: FileIntelligenceService;
   calendar: CalendarService;
   privacy: PrivacyService;
+  clipboard: ClipboardService;
 }
 
 export type ServiceKey = keyof ServiceMap;
@@ -107,6 +109,7 @@ export interface IPCServices {
   mcpClientService: McpClientService;
   calendarService: CalendarService;
   privacyService: PrivacyService;
+  clipboardService: ClipboardService;
 }
 
 export class ServiceContainer {
@@ -192,6 +195,7 @@ export class ServiceContainer {
     const fileIntelligence = new FileIntelligenceService();
     const calendar = new CalendarService(config);
     const privacy = new PrivacyService(database);
+    const clipboardSvc = new ClipboardService();
 
     this.set('memory', memory);
     this.set('ai', ai);
@@ -213,6 +217,7 @@ export class ServiceContainer {
     this.set('fileIntelligence', fileIntelligence);
     this.set('calendar', calendar);
     this.set('privacy', privacy);
+    this.set('clipboard', clipboardSvc);
     p();
 
     // ── Phase 3: Async initialization (parallelized — no cross-deps) ──
@@ -246,6 +251,9 @@ export class ServiceContainer {
 
     // MCP Client wiring (dependencies only, no network I/O)
     mcpClient.setDependencies({ toolsService: tools, configService: config });
+
+    // Clipboard wiring
+    clipboardSvc.setDependencies({ database, toolsService: tools, configService: config });
 
     // Agent loop — central orchestrator
     const agentLoop = new AgentLoop(ai, tools, cron, workflow, memory, config);
@@ -372,6 +380,10 @@ export class ServiceContainer {
     // Initialize MCP Client (auto-connects configured servers — network I/O)
     await mcpClient.initialize();
 
+    // Initialize Clipboard Pipeline (opt-in monitoring, tools registration)
+    const clipboardSvc = this.get('clipboard');
+    await clipboardSvc.initialize();
+
     log.info(`Deferred services initialized in ${Date.now() - t0}ms`);
   }
 
@@ -390,6 +402,7 @@ export class ServiceContainer {
     this.trySync('screenMonitor', (s) => s.stop());
     this.trySync('cron', (s) => s.stopAll());
     this.trySync('updater', (s) => s.destroy());
+    this.trySync('clipboard', (s) => s.shutdown());
 
     // ── Phase 2: Close network connections ──
     await this.tryAsync('calendar', (s) => s.shutdown());
@@ -449,6 +462,7 @@ export class ServiceContainer {
       mcpClientService: this.get('mcpClient'),
       calendarService: this.get('calendar'),
       privacyService: this.get('privacy'),
+      clipboardService: this.get('clipboard'),
     };
   }
 

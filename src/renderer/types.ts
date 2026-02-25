@@ -230,6 +230,18 @@ export interface KxAIBridge {
   privacyDeleteData: (
     options?: import('@shared/types').PrivacyDeleteOptions,
   ) => Promise<import('@shared/types').PrivacyDeleteResult>;
+
+  // Clipboard
+  clipboardGetStatus: () => Promise<import('@shared/types').ClipboardStatus>;
+  clipboardStartMonitoring: () => Promise<{ success: boolean }>;
+  clipboardStopMonitoring: () => Promise<{ success: boolean }>;
+  clipboardGetHistory: (limit?: number) => Promise<import('@shared/types').ClipboardEntry[]>;
+  clipboardSearch: (
+    options: import('@shared/types').ClipboardSearchOptions,
+  ) => Promise<import('@shared/types').ClipboardEntry[]>;
+  clipboardTogglePin: (entryId: string) => Promise<boolean>;
+  clipboardDeleteEntry: (entryId: string) => Promise<boolean>;
+  clipboardClearHistory: () => Promise<number>;
 }
 
 // ──────────────── Updates ────────────────

@@ -188,6 +188,16 @@ export const Ch = {
   PRIVACY_GET_SUMMARY: 'privacy:get-summary',
   PRIVACY_EXPORT_DATA: 'privacy:export-data',
   PRIVACY_DELETE_DATA: 'privacy:delete-data',
+
+  // Clipboard
+  CLIPBOARD_GET_STATUS: 'clipboard:get-status',
+  CLIPBOARD_START_MONITORING: 'clipboard:start-monitoring',
+  CLIPBOARD_STOP_MONITORING: 'clipboard:stop-monitoring',
+  CLIPBOARD_GET_HISTORY: 'clipboard:get-history',
+  CLIPBOARD_SEARCH: 'clipboard:search',
+  CLIPBOARD_TOGGLE_PIN: 'clipboard:toggle-pin',
+  CLIPBOARD_DELETE_ENTRY: 'clipboard:delete-entry',
+  CLIPBOARD_CLEAR_HISTORY: 'clipboard:clear-history',
 } as const;
 
 // ─── Send Channels (renderer → main, fire-and-forget) ───

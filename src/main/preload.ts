@@ -360,4 +360,14 @@ contextBridge.exposeInMainWorld('kxai', {
   privacyGetSummary: () => ipcRenderer.invoke(Ch.PRIVACY_GET_SUMMARY),
   privacyExportData: (options?: any) => ipcRenderer.invoke(Ch.PRIVACY_EXPORT_DATA, options),
   privacyDeleteData: (options?: any) => ipcRenderer.invoke(Ch.PRIVACY_DELETE_DATA, options),
+
+  // Clipboard
+  clipboardGetStatus: () => ipcRenderer.invoke(Ch.CLIPBOARD_GET_STATUS),
+  clipboardStartMonitoring: () => ipcRenderer.invoke(Ch.CLIPBOARD_START_MONITORING),
+  clipboardStopMonitoring: () => ipcRenderer.invoke(Ch.CLIPBOARD_STOP_MONITORING),
+  clipboardGetHistory: (limit?: number) => ipcRenderer.invoke(Ch.CLIPBOARD_GET_HISTORY, limit),
+  clipboardSearch: (options: any) => ipcRenderer.invoke(Ch.CLIPBOARD_SEARCH, options),
+  clipboardTogglePin: (entryId: string) => ipcRenderer.invoke(Ch.CLIPBOARD_TOGGLE_PIN, entryId),
+  clipboardDeleteEntry: (entryId: string) => ipcRenderer.invoke(Ch.CLIPBOARD_DELETE_ENTRY, entryId),
+  clipboardClearHistory: () => ipcRenderer.invoke(Ch.CLIPBOARD_CLEAR_HISTORY),
 });

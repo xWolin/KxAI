@@ -28,6 +28,7 @@ import { UpdaterService } from './services/updater-service';
 import { McpClientService } from './services/mcp-client-service';
 import { CalendarService } from './services/calendar-service';
 import { PrivacyService } from './services/privacy-service';
+import { ClipboardService } from './services/clipboard-service';
 
 const log = createLogger('IPC');
 
@@ -55,6 +56,7 @@ interface Services {
   mcpClientService: McpClientService;
   calendarService: CalendarService;
   privacyService: PrivacyService;
+  clipboardService: ClipboardService;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
@@ -1221,5 +1223,43 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     }
 
     return privacyService.deleteData(options);
+  });
+
+  // ─── Clipboard ───
+
+  const clipboardService = services.clipboardService;
+
+  ipcMain.handle(Ch.CLIPBOARD_GET_STATUS, async () => {
+    return clipboardService.getStatus();
+  });
+
+  ipcMain.handle(Ch.CLIPBOARD_START_MONITORING, async () => {
+    clipboardService.startMonitoring();
+    return { success: true };
+  });
+
+  ipcMain.handle(Ch.CLIPBOARD_STOP_MONITORING, async () => {
+    clipboardService.stopMonitoring();
+    return { success: true };
+  });
+
+  ipcMain.handle(Ch.CLIPBOARD_GET_HISTORY, async (_event, limit?: number) => {
+    return clipboardService.getHistory(limit ?? 50);
+  });
+
+  validatedHandle(Ch.CLIPBOARD_SEARCH, async (_event, options: any) => {
+    return clipboardService.search(options ?? {});
+  });
+
+  ipcMain.handle(Ch.CLIPBOARD_TOGGLE_PIN, async (_event, entryId: string) => {
+    return clipboardService.togglePin(entryId);
+  });
+
+  ipcMain.handle(Ch.CLIPBOARD_DELETE_ENTRY, async (_event, entryId: string) => {
+    return clipboardService.deleteEntry(entryId);
+  });
+
+  ipcMain.handle(Ch.CLIPBOARD_CLEAR_HISTORY, async () => {
+    return clipboardService.clearHistory();
   });
 }

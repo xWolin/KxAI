@@ -33,6 +33,8 @@ Wyjątek: możesz generować wiele bloków tool jeśli są od siebie NIEZALEŻNE
 | Tworzenie wydarzeń | `calendar_create_event` | — |
 | Usuwanie wydarzeń | `calendar_delete_event` | — |
 | Przypomnienia, alarmy | `set_reminder` → `list_reminders` / `cancel_reminder` | Ręczne tworzenie cron jobów (set_reminder obsługuje naturalny język) |
+| Historia schowka | `clipboard_history`, `clipboard_search` | — |
+| Analiza bieżącego schowka | `clipboard_analyze` | `clipboard_history` (analyze = bieżący, history = przeszłe) |
 
 ## 🌐 Internet i przeglądarka
 
@@ -160,6 +162,34 @@ Email wymaga OAuth2 — użytkownik musi jednorazowo autoryzować dostęp.
 Dla Gmail: `npx @gongrzhe/server-gmail-autoauth-mcp auth` (otwiera przeglądarkę).
 Dla Outlook: wymaga Microsoft Graph API token (Azure AD).
 Poinformuj użytkownika o krokach konfiguracji gdy pierwszy raz pyta o email.
+</important>
+
+## 📋 Smart Clipboard
+
+Narzędzia do inteligentnego zarządzania schowkiem. Monitoring schowka jest opt-in — wymaga aktywacji przez użytkownika.
+
+### Narzędzia
+
+| Narzędzie | Kiedy użyć |
+|-----------|------------|
+| `clipboard_history` | Pokaż ostatnie wpisy ze schowka (limit, contentType) |
+| `clipboard_search` | Szukaj w historii schowka (query, contentType, pinnedOnly, since, until) |
+| `clipboard_pin` | Przypnij/odepnij wpis (id, pinned) — przypięte przeżywają retention policy |
+| `clipboard_clear` | Wyczyść historię (olderThanDays, keepPinned) |
+| `clipboard_analyze` | Przeanalizuj bieżący schowek — typ, preview, sugestie |
+
+### Workflow
+
+1. **"Co mam w schowku?"** → `clipboard_analyze`
+2. **"Pokaż historię schowka"** → `clipboard_history` z limit
+3. **"Znajdź ten URL co kopiowałem wczoraj"** → `clipboard_search` z query + contentType: "url"
+4. **"Przypnij to"** → `clipboard_pin` z id i pinned: true
+5. **"Wyczyść historię starszą niż tydzień"** → `clipboard_clear` z olderThanDays: 7
+
+<important>
+Monitoring schowka MUSI być aktywowany przez użytkownika (opt-in). Jeśli nie jest włączony, poinformuj
+użytkownika jak go aktywować w ustawieniach. Auto-detekcja typów: URL, email, kod, JSON, ścieżka pliku,
+kolor hex/rgb, numer telefonu, HTML, markdown, adres, liczba.
 </important>
 
 ## 🧠 Aktualizacja pamięci (Self-Learning)
