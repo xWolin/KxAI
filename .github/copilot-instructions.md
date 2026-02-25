@@ -488,6 +488,16 @@ src/
 - [ ] Scenariusze: onboarding → chat → tool use → settings
 - [ ] Screenshot regression testing
 
+### Krok 5.5 — Advanced tests (race conditions, contracts, timing)
+> **Cel**: Łapanie bugów jakich nie łapią unit testy z mockami — cross-cutting concerns,
+> race conditions, API contract violations. Dopełnienie code review.
+
+- [ ] **Concurrent access tests**: Symulacja równoczesnych wywołań (streamWithTools + heartbeat, start + stop take-control, MCP disconnect during tool loop). Weryfikacja, że shared state (MemoryService, ToolsService registry, AbortControllers) nie prowadzi do data corruption.
+- [ ] **Signal propagation tests**: End-to-end test AbortSignal flow: IPC AGENT_STOP → AgentLoop.stopProcessing → abortController.abort → AIService → provider SDK. Weryfikacja, że signal dociera do wszystkich aktywnych ścieżek (streamWithTools, processWithTools, startTakeControl, heartbeat).
+- [ ] **SDK contract tests**: Testy shape'u parametrów przekazywanych do OpenAI/Anthropic SDK — weryfikacja, że `signal` jest w poprawnym miejscu (`create({...}, {signal})` vs `create({..., signal})`), `max_completion_tokens` zamiast `max_tokens`, `developer` role dla GPT-5+.
+- [ ] **Shutdown ordering tests**: Weryfikacja, że in-flight operacje kończą się przed destrukcją zależnych serwisów. Test: start tool loop → trigger shutdown → verify no "service not found" errors.
+- [ ] **Dependency map conformance**: Automated check, że `docs/SERVICE-DEPENDENCY-MAP.md` jest spójny z kodem — nowe serwisy dodane do mapy, signal flow nadal zgodny.
+
 ### Krok 5.4 — CI pipeline update ✅
 > **Zaimplementowano**: Quality gate z 7 krokami: env preflight → lint → typecheck (main+renderer) → testy z coverage → format check → npm audit (prod). Coverage thresholds w vitest.config.ts (30/25/20%). lcov reporter. Husky v9 + lint-staged (prettier pre-commit).
 
@@ -689,6 +699,7 @@ src/
 | 24 | Integration tests | 5.2 | 🟡 High | 2 sesje | P3 | ✅ Done (45) |
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 | ⬜ |
 | 26 | CI coverage gate + env tests | 5.4+5.5 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
+| 48 | Advanced tests (race, contracts, timing) | 5.5 | 🟡 High | 2 sesje | P2 | ⬜ |
 | 27 | lint-staged + husky | 0.2 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
 | 28 | Component library (ui/) | 4.2 | 🟡 High | 2 sesje | P3 | ✅ Done |
 | 29 | State management (zustand) | 4.3 | 🟡 High | 1 sesja | P3 | ✅ Done |
