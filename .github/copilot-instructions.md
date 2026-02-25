@@ -515,10 +515,12 @@ src/
 - [ ] RAG pipeline test — index → search → result quality
 - [ ] Cron scheduling accuracy
 
-### Krok 5.3 — E2E tests
-- [ ] Electron E2E z Playwright Test (osobne od browser-service!)
-- [ ] Scenariusze: onboarding → chat → tool use → settings
-- [ ] Screenshot regression testing
+### Krok 5.3 — E2E tests ✅
+> **Zaimplementowano**: Playwright Test v1.58.2 z Electron fixtures. `e2e/playwright.config.ts` (sequential workers, 60s timeout). `e2e/fixtures.ts` — `electronApp` + `page` fixtures z test env isolation via `KXAI_USER_DATA` env var → `app.setPath('userData')`. `e2e/helpers/setup-test-env.ts` — pre-populate userData (onboarded/fresh). 5 spec plików (20 testów): navigation (launch, widget→chat→settings→back), onboarding (fresh wizard, steps, progress dots), chat (input, send, close, Escape shortcut), settings (tabs, provider, language, back), window (frameless, alwaysOnTop, resize). `npm run test:e2e` (build + playwright test).
+
+- [x] Electron E2E z Playwright Test (osobne od browser-service!) ✅ (e2e/fixtures.ts, _electron.launch)
+- [x] Scenariusze: onboarding → chat → settings → navigation ✅ (5 spec plików, 20 testów)
+- [ ] Screenshot regression testing (przyszła iteracja)
 
 ### Krok 5.5 — Advanced tests (race conditions, contracts, timing) ✅
 > **Zaimplementowano**: `tests/advanced.test.ts` (34 testów w 5 grupach). SDK contract tests (9) — max_completion_tokens, developer role, signal placement w OpenAI i Anthropic providerach. Signal propagation (7) — AIService forwarding do SDK, AbortController lifecycle. Concurrent access (11) — ToolsService registry mutation safety, HeartbeatEngine timer race, TakeControlEngine start/stop. Shutdown ordering (2) — phase sequence, worker cleanup. Dependency map conformance (5) — API surface validation. Bug fix: AnthropicProvider.computerUseStep() signal forwarding.
@@ -721,7 +723,7 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-### ✅ Ukończone (45/47)
+### ✅ Ukończone (46/47)
 
 | # | Zadanie | Faza | Status |
 |---|---------|------|--------|
@@ -768,12 +770,12 @@ src/
 | 34 | Knowledge Graph | 6.3 | ✅ |
 | 35 | Proactive Intelligence Engine | 6.4 | ✅ |
 | 33 | Workflow Automator (Macro Recorder) | 6.2 | ✅ |
+| 25 | E2E tests (Playwright Test) | 5.3 | ✅ |
 
-### ⬜ Remaining (2 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (1 task) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
-|---|---------|------|--------|--------|-----------|
-| 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 |
+|---|---------|------|--------|--------|-----------||
 | 44 | Code signing + distribution | 7.6 | 🟢 Medium | 1 sesja | P4 |
 
 **Effort legend**: 1 sesja = 1 konwersacja z AI agentem (~1-3h).
