@@ -1,0 +1,517 @@
+/* ═══════════════════════════════════════════════════════════════
+   KxAI — Shared UI Component Styles
+   Atomic design tokens → reusable across all panels
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Button base ─── */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  transition: var(--transition);
+  outline: none;
+  white-space: nowrap;
+  line-height: 1.4;
+}
+
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* ── Variants ── */
+
+.btnPrimary {
+  composes: btn;
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(0, 240, 255, 0.1));
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  color: var(--text-primary);
+  padding: 8px 16px;
+}
+
+.btnPrimary:hover:not(:disabled) {
+  box-shadow: 0 0 16px var(--accent-glow);
+  border-color: rgba(0, 240, 255, 0.5);
+}
+
+.btnSecondary {
+  composes: btn;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 8px 16px;
+}
+
+.btnSecondary:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-bright);
+  color: var(--text-primary);
+}
+
+.btnDanger {
+  composes: btn;
+  background: transparent;
+  border: 1px solid var(--error);
+  color: var(--error);
+  padding: 8px 16px;
+}
+
+.btnDanger:hover:not(:disabled) {
+  background: rgba(255, 51, 85, 0.1);
+}
+
+.btnGhost {
+  composes: btn;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+}
+
+.btnGhost:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.btnIcon {
+  composes: btn;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  font-size: 14px;
+}
+
+.btnIcon:hover:not(:disabled) {
+  border-color: rgba(0, 240, 255, 0.3);
+  color: var(--accent);
+}
+
+.btnIconActive {
+  composes: btnIcon;
+  background: var(--accent-glow);
+  border-color: rgba(0, 240, 255, 0.3);
+  color: var(--accent);
+  box-shadow: 0 0 8px var(--accent-glow);
+}
+
+/* ── Sizes ── */
+
+.btnSm { font-size: 12px; padding: 4px 10px; }
+.btnLg { font-size: 14px; padding: 12px 20px; }
+.btnFull { width: 100%; }
+
+/* ── Loading state ── */
+
+.btnLoading {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+/* ─── Input ─── */
+
+.input {
+  width: 100%;
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.input:focus {
+  border-color: rgba(0, 240, 255, 0.3);
+}
+
+.input:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ─── Textarea ─── */
+
+.textarea {
+  composes: input;
+  resize: vertical;
+  min-height: 60px;
+  line-height: 1.5;
+}
+
+/* ─── Select ─── */
+
+.select {
+  composes: input;
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%2399a1b3' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  padding-right: 32px;
+}
+
+/* ─── Label ─── */
+
+.label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ─── Hint / description text ─── */
+
+.hint {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  line-height: 1.5;
+}
+
+/* ─── Form group (label + input combo) ─── */
+
+.formGroup {
+  margin-bottom: 12px;
+}
+
+/* ─── Badge ─── */
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 99px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.badgeDefault {
+  composes: badge;
+  background: var(--glass);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+}
+
+.badgeAccent {
+  composes: badge;
+  background: var(--accent-glow);
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  color: var(--accent);
+}
+
+.badgeSuccess {
+  composes: badge;
+  background: rgba(0, 255, 136, 0.1);
+  border: 1px solid rgba(0, 255, 136, 0.3);
+  color: var(--success);
+}
+
+.badgeWarning {
+  composes: badge;
+  background: rgba(255, 230, 0, 0.1);
+  border: 1px solid rgba(255, 230, 0, 0.3);
+  color: var(--warning);
+}
+
+.badgeError {
+  composes: badge;
+  background: rgba(255, 51, 85, 0.1);
+  border: 1px solid rgba(255, 51, 85, 0.3);
+  color: var(--error);
+}
+
+/* ─── Section / Card ─── */
+
+.section {
+  margin-bottom: 20px;
+}
+
+.sectionTitle {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.sectionTitleDanger {
+  composes: sectionTitle;
+  color: var(--error);
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+}
+
+.card:hover {
+  border-color: var(--border-bright);
+}
+
+/* ─── Stat Card ─── */
+
+.statCard {
+  composes: card;
+  text-align: center;
+}
+
+.statCardValue {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--accent);
+  font-family: var(--font-mono);
+}
+
+.statCardLabel {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 4px;
+}
+
+/* ─── Empty state ─── */
+
+.empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  text-align: center;
+  gap: 8px;
+}
+
+.emptyIcon {
+  font-size: 48px;
+  margin-bottom: 8px;
+  opacity: 0.8;
+}
+
+.emptyTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.emptySubtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+/* ─── Spinner / Typing Indicator ─── */
+
+.spinner {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.spinnerDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: dot-pulse 1.4s ease-in-out infinite both;
+}
+
+.spinnerDot:nth-child(2) { animation-delay: 0.16s; }
+.spinnerDot:nth-child(3) { animation-delay: 0.32s; }
+
+@keyframes dot-pulse {
+  0%, 80%, 100% { transform: scale(0); opacity: 0; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
+/* ─── Progress Bar ─── */
+
+.progressBar {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* ─── Panel Header ─── */
+
+.panelHeader {
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+  -webkit-app-region: drag;
+}
+
+.panelHeaderInfo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.panelHeaderEmoji {
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.panelHeaderName {
+  font-weight: 600;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panelHeaderSubtitle {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.panelHeaderActions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+/* ─── Toggle ─── */
+
+.toggle {
+  width: 36px;
+  height: 20px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-tertiary);
+  cursor: pointer;
+  position: relative;
+  transition: var(--transition);
+  padding: 0;
+}
+
+.toggle::after {
+  content: '';
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: var(--transition);
+}
+
+.toggleOn {
+  composes: toggle;
+  background: rgba(0, 255, 136, 0.15);
+  border-color: rgba(0, 255, 136, 0.3);
+}
+
+.toggleOn::after {
+  background: var(--success);
+  left: 18px;
+}
+
+/* ─── Emoji Grid / Picker ─── */
+
+.emojiGrid {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.emojiBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: transparent;
+  cursor: pointer;
+  font-size: 18px;
+  transition: var(--transition);
+  padding: 0;
+}
+
+.emojiBtn:hover {
+  background: var(--glass);
+  border-color: var(--border-bright);
+}
+
+.emojiBtnSelected {
+  composes: emojiBtn;
+  border: 2px solid var(--accent);
+  background: var(--accent-glow);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* ─── Tabs ─── */
+
+.tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  flex: 1;
+  padding: 6px 12px;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: var(--transition);
+  white-space: nowrap;
+}
+
+.tab:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.tabActive {
+  composes: tab;
+  background: var(--accent-glow);
+  color: var(--accent);
+}
