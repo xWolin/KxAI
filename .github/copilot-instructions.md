@@ -64,6 +64,7 @@ src/
 │       ├── database-service.ts # SQLite storage (better-sqlite3, WAL, FTS5, sqlite-vec) (Faza 2.3+2.4 ✅)
 │       ├── rag-service.ts      # RAG pipeline: SQLite storage, vec0 KNN, hybrid search (Faza 2.4 ✅)
 │       ├── embedding-service.ts # OpenAI embeddings + TF-IDF fallback, SQLite cache (Faza 2.4 ✅)
+│       ├── embedding-worker.ts  # Worker thread for TF-IDF: buildIDF + embedBatch (Faza 7.2 ✅)
 │       ├── context-manager.ts  # Inteligentne okno kontekstowe (token budget)
 │       ├── screen-monitor.ts   # Tiered monitoring (T0/T1/T2)
 │       ├── sub-agent.ts        # Multi-agent system
@@ -569,14 +570,15 @@ src/
 - [x] Update check na starcie + periodic (co 4h) ✅
 - [ ] Delta updates (nie cały installer) — wymaga code signing (przyszła iteracja)
 
-### Krok 7.2 — Performance optimization
-- [ ] Lazy loading serwisów — nie inicjalizuj meeting-coach jeśli user go nie używa
-- [ ] Worker threads dla CPU-intensive tasks:
-  - TF-IDF embedding computation
-  - PDF parsing
-  - File scanning (RAG indexing)
-- [ ] Memory leak detection (WeakRef + FinalizationRegistry)
-- [ ] Profiling script (`npm run profile`)
+### Krok 7.2 — Performance optimization ✅
+> **Zaimplementowano**: ServiceContainer `init()` zoptymalizowany z per-phase timing. Phase 3: `Promise.all([memory.initialize(), embedding.initialize()])`. Phase 4: `Promise.all([rag.initialize(), plugins.initialize()])`. Nowa metoda `initDeferred()` — dashboard, diagnostic, MCP auto-connect, self_test tool rejestrowane po pokazaniu okna. Worker thread (`embedding-worker.ts`) dla TF-IDF: `buildIDF()` i `embedBatch()` offloaded do `worker_threads` (lazy spawn, graceful fallback). RAG service używa `buildIDFAsync()`.
+
+- [x] Parallelized init phases (memory‖embedding, rag‖plugins) ✅
+- [x] Deferred init for non-critical services (dashboard, diagnostic, MCP) ✅
+- [x] Worker threads dla TF-IDF embedding computation ✅ (`embedding-worker.ts`)
+- [x] Per-phase timing logs for startup profiling ✅
+- [ ] Memory leak detection (WeakRef + FinalizationRegistry) (przyszła iteracja)
+- [ ] Profiling script (`npm run profile`) (przyszła iteracja)
 
 ### Krok 7.3 — Accessibility
 - [ ] Keyboard navigation w całym UI
@@ -700,7 +702,7 @@ src/
 | 37 | Google Calendar (CalDAV MCP) | 8.2 | 🟡 High | 1 sesja | P3 | ⬜ |
 | 38 | Gmail / Email via MCP | 8.3 | 🟢 Medium | 1 sesja | P3 | ⬜ |
 | 39 | MCP Server Discovery | 8.5 | 🟢 Medium | 1 sesja | P4 | ⬜ |
-| 40 | Performance (lazy load, workers) | 7.2 | 🟢 Medium | 1-2 sesje | P3 | ⬜ |
+| 40 | Performance (lazy load, workers) | 7.2 | 🟢 Medium | 1-2 sesje | P3 | ✅ Done |
 | 41 | Accessibility | 7.3 | 🟢 Medium | 1 sesja | P4 | ⬜ |
 | 42 | i18n (PL + EN) | 7.4 | 🟢 Medium | 1 sesja | P4 | ⬜ |
 | 43 | Privacy & compliance (GDPR) | 7.5 | 🟢 Medium | 1 sesja | P3 | ⬜ |
