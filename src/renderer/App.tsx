@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import { FloatingWidget } from './components/FloatingWidget';
 import { ChatPanel } from './components/ChatPanel';
 import { OnboardingWizard } from './components/OnboardingWizard';
@@ -7,126 +7,35 @@ import { CronPanel } from './components/CronPanel';
 import { ProactiveNotification } from './components/ProactiveNotification';
 import { CoachingOverlay } from './components/CoachingOverlay';
 import { ErrorBoundary } from './components/ErrorBoundary';
-import { initTTS, speak } from './utils/tts';
-import type { ProactiveMessage, KxAIConfig, MeetingStateInfo } from './types';
-
-type View = 'widget' | 'chat' | 'settings' | 'onboarding' | 'cron' | 'meeting';
+import { useNavigationStore, useConfigStore, useAgentStore, useStoreInit } from './stores';
 
 export default function App() {
-  const [view, setView] = useState<View>('widget');
-  const [config, setConfig] = useState<KxAIConfig | null>(null);
-  const [proactiveMessages, setProactiveMessages] = useState<ProactiveMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  // Meeting coach active — keep CoachingOverlay mounted even when navigated away
-  const [meetingActive, setMeetingActive] = useState(false);
-  // Track view in a ref so the proactive listener always sees current value
-  const viewRef = useRef<View>(view);
-  viewRef.current = view;
-  // Counter to signal ChatPanel to reload history when proactive msg arrives while chat is open
-  const [chatRefreshTrigger, setChatRefreshTrigger] = useState(0);
-  // Take-control state from Ctrl+Shift+K
-  const [controlActive, setControlActive] = useState(false);
-  // Smart companion states
-  const [hasSuggestion, setHasSuggestion] = useState(false);
-  const [wantsToSpeak, setWantsToSpeak] = useState(false);
+  // Initialize stores — subscribes to IPC events, loads config, etc.
+  useStoreInit();
 
-  useEffect(() => {
-    async function init() {
-      try {
-        const isOnboarded = await window.kxai.isOnboarded();
-        const cfg = await window.kxai.getConfig();
-        setConfig(cfg);
+  // ── Store selectors ──
+  const view = useNavigationStore((s) => s.view);
+  const isLoading = useNavigationStore((s) => s.isLoading);
+  const chatRefreshTrigger = useNavigationStore((s) => s.chatRefreshTrigger);
+  const navigateTo = useNavigationStore((s) => s.navigateTo);
+  const setView = useNavigationStore((s) => s.setView);
 
-        if (!isOnboarded) {
-          setView('onboarding');
-        } else {
-          // Window starts at 420x600 — shrink to widget size to avoid invisible click-blocking area
-          window.kxai.setWindowSize(100, 100);
-          // Enable click-through so transparent areas don't block desktop clicks
-          window.kxai.setClickThrough(true);
-        }
-      } catch (error) {
-        console.error('Init error:', error);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-    init();
+  const config = useConfigStore((s) => s.config);
+  const proactiveMessages = useConfigStore((s) => s.proactiveMessages);
+  const dismissProactive = useConfigStore((s) => s.dismissProactive);
+  const reloadConfig = useConfigStore((s) => s.reloadConfig);
 
-    // Initialize TTS
-    initTTS();
-
-    // Listen for proactive messages
-    const cleanupProactive = window.kxai.onProactiveMessage((data) => {
-      const msgWithId: ProactiveMessage = { ...data, id: data.id || `proactive-${Date.now()}-${Math.random().toString(36).slice(2)}` };
-
-      // NOTE: TTS is no longer auto-triggered — user can press 🔊 button in notification
-
-      if (viewRef.current === 'chat') {
-        // Chat is open — don't show popup, just refresh chat to show the saved message
-        setChatRefreshTrigger((n) => n + 1);
-      } else {
-        // Widget/other view — show popup notification
-        setProactiveMessages((prev) => [...prev, msgWithId]);
-        const msgId = msgWithId.id;
-        setTimeout(() => {
-          setProactiveMessages((prev) => prev.filter((m) => m.id !== msgId));
-        }, 15000);
-      }
-    });
-
-    // Listen for navigation events (from tray menu)
-    const cleanupNavigate = window.kxai.onNavigate((target) => {
-      if (target === 'widget') {
-        window.kxai.setWindowSize(100, 100);
-        window.kxai.setClickThrough(true);
-      } else {
-        window.kxai.setClickThrough(false);
-        window.kxai.setWindowSize(420, 600);
-      }
-      setView(target as View);
-    });
-
-    // Track meeting coach state — keep overlay alive while meeting is active
-    const cleanupMeeting = window.kxai.onMeetingState((state: MeetingStateInfo) => {
-      setMeetingActive(state.active);
-    });
-    window.kxai.meetingGetState().then((state: MeetingStateInfo) => {
-      setMeetingActive(state?.active ?? false);
-    }).catch(err => {
-      console.error('[App] Failed to get meeting state:', err);
-    });
-
-    // Listen for take-control state changes (from Ctrl+Shift+K)
-    const cleanupControl = window.kxai.onControlState((data) => {
-      setControlActive(data.active);
-    });
-
-    // Listen for companion state changes (suggestion / wantsToSpeak)
-    const cleanupCompanion = window.kxai.onCompanionState((data) => {
-      if (data.hasSuggestion !== undefined) setHasSuggestion(data.hasSuggestion);
-      if (data.wantsToSpeak !== undefined) setWantsToSpeak(data.wantsToSpeak);
-    });
-
-    return () => {
-      cleanupProactive();
-      cleanupNavigate();
-      cleanupMeeting();
-      cleanupControl();
-      cleanupCompanion();
-    };
-  }, []);
+  const meetingActive = useAgentStore((s) => s.meetingActive);
+  const controlActive = useAgentStore((s) => s.controlActive);
+  const hasSuggestion = useAgentStore((s) => s.hasSuggestion);
+  const wantsToSpeak = useAgentStore((s) => s.wantsToSpeak);
+  const clearCompanionStates = useAgentStore((s) => s.clearCompanionStates);
 
   const handleOnboardingComplete = async () => {
-    const cfg = await window.kxai.getConfig();
-    setConfig(cfg);
+    await reloadConfig();
     window.kxai.setClickThrough(true);
     window.kxai.setWindowSize(100, 100);
     setView('widget');
-  };
-
-  const dismissProactive = (id: string) => {
-    setProactiveMessages((prev) => prev.filter((m) => m.id !== id));
   };
 
   if (isLoading) {
@@ -139,98 +48,77 @@ export default function App() {
 
   return (
     <ErrorBoundary label="App">
-    <div className={`app-container${view === 'widget' ? ' app-container--transparent' : ''}`}>
-      {/* Proactive notifications — hide during active meeting (compact bar mode) */}
-      {!meetingActive && proactiveMessages.map((msg) => (
-        <ProactiveNotification
-          key={msg.id}
-          message={msg}
-          onDismiss={() => dismissProactive(msg.id)}
-          onReply={(text: string) => {
-            window.kxai.setClickThrough(false);
-            window.kxai.setWindowSize(420, 600);
-            setView('chat');
-            dismissProactive(msg.id);
-          }}
-        />
-      ))}
-
-      {/* Main content */}
-      {view === 'onboarding' && (
-        <ErrorBoundary label="Onboarding">
-          <OnboardingWizard onComplete={handleOnboardingComplete} />
-        </ErrorBoundary>
-      )}
-
-      {view === 'widget' && (
-        <FloatingWidget
-          emoji={config?.agentEmoji || '🤖'}
-          name={config?.agentName || 'KxAI'}
-          onClick={() => {
-            // Clear companion states when opening chat
-            setHasSuggestion(false);
-            setWantsToSpeak(false);
-            // Disable click-through and resize window for chat view
-            window.kxai.setClickThrough(false);
-            window.kxai.setWindowSize(420, 600);
-            setView('chat');
-          }}
-          hasNotification={proactiveMessages.length > 0}
-          controlActive={controlActive}
-          hasSuggestion={hasSuggestion}
-          wantsToSpeak={wantsToSpeak}
-        />
-      )}
-
-      {view === 'chat' && (
-        <ErrorBoundary label="Chat">
-          <ChatPanel
-            config={config!}
-            onClose={() => {
-              // Shrink window back to widget size and enable click-through
-              window.kxai.setWindowSize(100, 100);
-              window.kxai.setClickThrough(true);
-              setView('widget');
-            }}
-            onOpenSettings={() => setView('settings')}
-            onOpenCron={() => setView('cron')}
-            onOpenMeeting={() => setView('meeting')}
-            refreshTrigger={chatRefreshTrigger}
-          />
-        </ErrorBoundary>
-      )}
-
-      {view === 'cron' && (
-        <ErrorBoundary label="Cron">
-          <CronPanel onBack={() => setView('chat')} />
-        </ErrorBoundary>
-      )}
-
-      {/* CoachingOverlay stays mounted while meeting is active — audio capture & IPC listeners survive navigation */}
-      {(view === 'meeting' || meetingActive) && config && (
-        <ErrorBoundary label="Meeting">
-          <div style={{ display: view === 'meeting' ? 'contents' : 'none' }}>
-            <CoachingOverlay
-              config={config}
-              onBack={() => setView('chat')}
+      <div className={`app-container${view === 'widget' ? ' app-container--transparent' : ''}`}>
+        {/* Proactive notifications — hide during active meeting (compact bar mode) */}
+        {!meetingActive &&
+          proactiveMessages.map((msg) => (
+            <ProactiveNotification
+              key={msg.id}
+              message={msg}
+              onDismiss={() => dismissProactive(msg.id)}
+              onReply={() => {
+                navigateTo('chat');
+                dismissProactive(msg.id);
+              }}
             />
-          </div>
-        </ErrorBoundary>
-      )}
+          ))}
 
-      {view === 'settings' && (
-        <ErrorBoundary label="Settings">
-          <SettingsPanel
-            config={config!}
-            onBack={() => setView('chat')}
-            onConfigUpdate={async () => {
-              const cfg = await window.kxai.getConfig();
-              setConfig(cfg);
+        {/* Main content */}
+        {view === 'onboarding' && (
+          <ErrorBoundary label="Onboarding">
+            <OnboardingWizard onComplete={handleOnboardingComplete} />
+          </ErrorBoundary>
+        )}
+
+        {view === 'widget' && (
+          <FloatingWidget
+            emoji={config?.agentEmoji || '🤖'}
+            name={config?.agentName || 'KxAI'}
+            onClick={() => {
+              clearCompanionStates();
+              navigateTo('chat');
             }}
+            hasNotification={proactiveMessages.length > 0}
+            controlActive={controlActive}
+            hasSuggestion={hasSuggestion}
+            wantsToSpeak={wantsToSpeak}
           />
-        </ErrorBoundary>
-      )}
-    </div>
+        )}
+
+        {view === 'chat' && (
+          <ErrorBoundary label="Chat">
+            <ChatPanel
+              config={config!}
+              onClose={() => navigateTo('widget')}
+              onOpenSettings={() => navigateTo('settings')}
+              onOpenCron={() => navigateTo('cron')}
+              onOpenMeeting={() => navigateTo('meeting')}
+              refreshTrigger={chatRefreshTrigger}
+            />
+          </ErrorBoundary>
+        )}
+
+        {view === 'cron' && (
+          <ErrorBoundary label="Cron">
+            <CronPanel onBack={() => navigateTo('chat')} />
+          </ErrorBoundary>
+        )}
+
+        {/* CoachingOverlay stays mounted while meeting is active — audio capture & IPC listeners survive navigation */}
+        {(view === 'meeting' || meetingActive) && config && (
+          <ErrorBoundary label="Meeting">
+            <div style={{ display: view === 'meeting' ? 'contents' : 'none' }}>
+              <CoachingOverlay config={config} onBack={() => navigateTo('chat')} />
+            </div>
+          </ErrorBoundary>
+        )}
+
+        {view === 'settings' && (
+          <ErrorBoundary label="Settings">
+            <SettingsPanel config={config!} onBack={() => navigateTo('chat')} onConfigUpdate={reloadConfig} />
+          </ErrorBoundary>
+        )}
+      </div>
     </ErrorBoundary>
   );
 }
