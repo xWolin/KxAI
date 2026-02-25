@@ -194,6 +194,7 @@ export interface AIProvider {
     messages: any[],
     config: ComputerUseConfig,
     model: string,
+    options?: { signal?: AbortSignal },
   ): Promise<ComputerUseStepResult[]>;
 
   // ─── Cost ───

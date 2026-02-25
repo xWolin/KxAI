@@ -175,12 +175,15 @@ export class AnthropicProvider implements AIProvider {
     const { systemContent, conversationMessages } = this.extractSystem(messages);
     const systemParam = this.buildSystemParam(systemContent);
 
-    const response = await this.client.messages.create({
-      model: options.model,
-      max_tokens: options.maxTokens ?? 4096,
-      system: systemParam,
-      messages: conversationMessages,
-    }, { signal: options.signal });
+    const response = await this.client.messages.create(
+      {
+        model: options.model,
+        max_tokens: options.maxTokens ?? 4096,
+        system: systemParam,
+        messages: conversationMessages,
+      },
+      { signal: options.signal },
+    );
 
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     const usage = response.usage;
@@ -219,12 +222,15 @@ export class AnthropicProvider implements AIProvider {
     const { systemContent, conversationMessages } = this.extractSystem(messages);
     const systemParam = this.buildSystemParam(systemContent);
 
-    const stream = this.client.messages.stream({
-      model: options.model,
-      max_tokens: options.maxTokens ?? 4096,
-      system: systemParam,
-      messages: conversationMessages,
-    }, { signal: options.signal });
+    const stream = this.client.messages.stream(
+      {
+        model: options.model,
+        max_tokens: options.maxTokens ?? 4096,
+        system: systemParam,
+        messages: conversationMessages,
+      },
+      { signal: options.signal },
+    );
 
     let fullText = '';
     for await (const event of stream) {
@@ -250,17 +256,20 @@ export class AnthropicProvider implements AIProvider {
 
     const imageContents = images.map((img) => this.convertImage(img.base64Data, img.mediaType));
 
-    const response = await this.client.messages.create({
-      model: options.model,
-      max_tokens: options.maxTokens ?? 1024,
-      system: systemPrompt,
-      messages: [
-        {
-          role: 'user',
-          content: [{ type: 'text', text: userMessage }, ...imageContents],
-        },
-      ],
-    }, { signal: options.signal });
+    const response = await this.client.messages.create(
+      {
+        model: options.model,
+        max_tokens: options.maxTokens ?? 1024,
+        system: systemPrompt,
+        messages: [
+          {
+            role: 'user',
+            content: [{ type: 'text', text: userMessage }, ...imageContents],
+          },
+        ],
+      },
+      { signal: options.signal },
+    );
 
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     const usage = response.usage;
@@ -295,13 +304,16 @@ export class AnthropicProvider implements AIProvider {
     const { systemContent, conversationMessages } = this.extractSystem(messages);
     const systemParam = this.buildSystemParam(systemContent);
 
-    const stream = this.client.messages.stream({
-      model: options.model,
-      max_tokens: options.maxTokens ?? 4096,
-      system: systemParam,
-      messages: conversationMessages,
-      tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-    }, { signal: options.signal });
+    const stream = this.client.messages.stream(
+      {
+        model: options.model,
+        max_tokens: options.maxTokens ?? 4096,
+        system: systemParam,
+        messages: conversationMessages,
+        tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+      },
+      { signal: options.signal },
+    );
 
     let text = '';
     const toolCalls: Array<{ id: string; name: string; arguments: Record<string, any> }> = [];
@@ -384,27 +396,31 @@ export class AnthropicProvider implements AIProvider {
     messages: any[],
     config: ComputerUseConfig,
     model: string,
+    options?: { signal?: AbortSignal },
   ): Promise<ComputerUseStepResult[]> {
     if (!this.client) throw new Error('Anthropic client not initialized');
 
     const toolVersion = 'computer_20250124';
     const betaFlag = 'computer-use-2025-01-24';
 
-    const response = await this.client.beta.messages.create({
-      model,
-      max_tokens: 1024,
-      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-      tools: [
-        {
-          type: toolVersion,
-          name: 'computer',
-          display_width_px: config.displayWidth,
-          display_height_px: config.displayHeight,
-        },
-      ],
-      messages,
-      betas: [betaFlag, 'prompt-caching-2024-07-31'],
-    });
+    const response = await this.client.beta.messages.create(
+      {
+        model,
+        max_tokens: 1024,
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+        tools: [
+          {
+            type: toolVersion,
+            name: 'computer',
+            display_width_px: config.displayWidth,
+            display_height_px: config.displayHeight,
+          },
+        ],
+        messages,
+        betas: [betaFlag, 'prompt-caching-2024-07-31'],
+      },
+      { signal: options?.signal },
+    );
 
     const steps: ComputerUseStepResult[] = [];
 
