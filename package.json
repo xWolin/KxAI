@@ -29,6 +29,10 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:env": "vitest run tests/environment/ --reporter=verbose",
+    "test:security": "vitest run tests/environment/security.test.ts --reporter=verbose",
+    "preflight": "npm run test:env && npm run typecheck && npm run format:check",
+    "audit:prod": "npm audit --omit=dev",
     "start": "electron .",
     "prepare": "husky"
   },

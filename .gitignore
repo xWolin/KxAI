@@ -1,11 +1,15 @@
 node_modules/
 dist/
 release/
+coverage/
 .env
+.env.*
 *.enc
 .kxai-key
 .kxai-secrets/
 *.log
 *.bak
+*.pem
+*.key
 .DS_Store
 Thumbs.db

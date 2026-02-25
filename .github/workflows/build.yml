@@ -14,7 +14,7 @@ permissions:
 jobs:
   # ── Quality gate ─────────────────────────────────────
   quality:
-    name: TypeCheck & Test
+    name: Lint, TypeCheck & Test
     runs-on: ubuntu-latest
 
     steps:
@@ -30,17 +30,27 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Environment preflight
+        run: npx vitest run tests/environment/ --reporter=verbose
+
+      - name: Lint
+        run: npm run lint
+        continue-on-error: true
+
       - name: TypeCheck (main process)
         run: npx tsc --noEmit -p tsconfig.main.json
 
       - name: TypeCheck (renderer)
         run: npx tsc --noEmit
 
-      - name: Unit tests
-        run: npx vitest run --reporter=verbose
+      - name: Unit & integration tests
+        run: npx vitest run --reporter=verbose --coverage
 
       - name: Format check
         run: npm run format:check
+
+      - name: npm audit (production deps)
+        run: npm audit --omit=dev --audit-level=critical
         continue-on-error: true
 
   # ── Build & package (only on tags or manual) ─────────
