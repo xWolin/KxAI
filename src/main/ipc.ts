@@ -26,6 +26,8 @@ import { MeetingCoachService } from './services/meeting-coach';
 import { DashboardServer } from './services/dashboard-server';
 import { UpdaterService } from './services/updater-service';
 import { McpClientService } from './services/mcp-client-service';
+import { CalendarService } from './services/calendar-service';
+import { PrivacyService } from './services/privacy-service';
 
 const log = createLogger('IPC');
 
@@ -51,6 +53,8 @@ interface Services {
   dashboardServer?: DashboardServer;
   updaterService: UpdaterService;
   mcpClientService: McpClientService;
+  calendarService: CalendarService;
+  privacyService: PrivacyService;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
@@ -1125,5 +1129,97 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   validatedHandle(Ch.MCP_CALL_TOOL, async (_event, serverId: string, toolName: string, args: any) => {
     return mcpClient.callTool(serverId, toolName, args);
+  });
+
+  // ─── Calendar (CalDAV) ───
+
+  const calendar = services.calendarService;
+
+  // Push calendar status changes to renderer
+  calendar.onStatusChange((status) => {
+    safeSend(Ev.CALENDAR_STATUS, status);
+  });
+
+  ipcMain.handle(Ch.CALENDAR_GET_CONNECTIONS, () => {
+    return calendar.getStatus();
+  });
+
+  ipcMain.handle(Ch.CALENDAR_GET_STATUS, () => {
+    return calendar.getStatus();
+  });
+
+  validatedHandle(Ch.CALENDAR_ADD_CONNECTION, async (_event, config: any) => {
+    return calendar.addConnection(config);
+  });
+
+  validatedHandle(Ch.CALENDAR_REMOVE_CONNECTION, async (_event, id: string) => {
+    calendar.removeConnection(id);
+    return { success: true };
+  });
+
+  validatedHandle(Ch.CALENDAR_CONNECT, async (_event, id: string) => {
+    await calendar.connect(id);
+    return { success: true };
+  });
+
+  validatedHandle(Ch.CALENDAR_DISCONNECT, async (_event, id: string) => {
+    calendar.disconnect(id);
+    return { success: true };
+  });
+
+  validatedHandle(Ch.CALENDAR_GET_CALENDARS, async (_event, connectionId: string) => {
+    return calendar.getCalendars(connectionId);
+  });
+
+  validatedHandle(Ch.CALENDAR_STORE_CREDENTIAL, async (_event, connectionId: string, password: string) => {
+    calendar.storeCredential(connectionId, password);
+    return { success: true };
+  });
+
+  // ─── Privacy & GDPR ───
+
+  const privacyService = services.privacyService;
+
+  ipcMain.handle(Ch.PRIVACY_GET_SUMMARY, async () => {
+    return privacyService.getDataSummary();
+  });
+
+  validatedHandle(Ch.PRIVACY_EXPORT_DATA, async (_event, options?: any) => {
+    // Show confirmation dialog before export
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'info',
+      title: 'Eksport danych',
+      message: 'Eksportuj wszystkie swoje dane?',
+      detail: 'Zostanie utworzony folder z kopią Twoich danych w formacie JSON/MD. Klucze API nie będą eksportowane.',
+      buttons: ['Eksportuj', 'Anuluj'],
+      defaultId: 0,
+      cancelId: 1,
+    });
+
+    if (result.response === 1) {
+      return { success: false, error: 'Anulowano przez użytkownika', categories: [] };
+    }
+
+    return privacyService.exportData(options);
+  });
+
+  validatedHandle(Ch.PRIVACY_DELETE_DATA, async (_event, options?: any) => {
+    // Show strong confirmation dialog before deletion
+    const result = await dialog.showMessageBox(mainWindow, {
+      type: 'warning',
+      title: '⚠️ Usuwanie danych',
+      message: 'Czy na pewno chcesz usunąć swoje dane?',
+      detail:
+        'Ta operacja jest NIEODWRACALNA. Wszystkie wybrane dane zostaną trwale usunięte. Zalecamy wcześniejszy eksport danych.',
+      buttons: ['Usuń dane', 'Anuluj'],
+      defaultId: 1,
+      cancelId: 1,
+    });
+
+    if (result.response === 1) {
+      return { success: false, deletedCategories: [], failedCategories: [], requiresRestart: false };
+    }
+
+    return privacyService.deleteData(options);
   });
 }

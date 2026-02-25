@@ -1,29 +1,30 @@
 # KxAI — Service Dependency & Signal Flow Map
 
-> Wygenerowano: 2026-02-25
+> Wygenerowano: 2026-02-25 (rev.3 — updated 2026-02-26)
 > Cel: Unikanie cross-cutting bugów (race conditions, signal propagation gaps, API contract mismatches).
+> Rev.3: Naprawiono finding #2 (signal gap w legacy take-control), #3 (duplicate SecurityGuard/SystemMonitor). Dodano PrivacyService.
 
 ---
 
 ## 1. Service Construction Dependencies
 
-### ServiceContainer Init Phases (service-container.ts)
+### ServiceContainer Init Phases (service-container.ts, 472 LOC)
 
-#### Phase 1 — Core (no deps, L157–L163)
+#### Phase 1 — Core (no deps, L162–L170)
 | Service | Constructor Args |
 |---------|-----------------|
 | `ConfigService` | *(none)* |
 | `SecurityService` | *(none)* |
 | `DatabaseService` | *(none)* — `database.initialize()` called immediately |
 
-#### Phase 2 — Construct (L167–L186)
+#### Phase 2 — Construct (L175–L210)
 | Service | Constructor Args |
-|---------|-----------------|
+|---------|------------------|
 | `MemoryService` | `config`, `database` |
 | `AIService` | `config`, `security` |
 | `ScreenCaptureService` | *(none)* |
 | `CronService` | *(none)* |
-| `ToolsService` | *(none)* — creates own `SecurityGuard`, `SystemMonitor` internally (L30–L31 tools-service.ts) |
+| `ToolsService` | *(none)* — constructor creates fallback `SecurityGuard`/`SystemMonitor`, overridden by container instances in Phase 5 |
 | `WorkflowService` | *(none)* |
 | `EmbeddingService` | `security`, `config`, `database` |
 | `AutomationService` | *(none)* |
@@ -36,21 +37,24 @@
 | `TranscriptionService` | `security` |
 | `UpdaterService` | *(none)* |
 | `McpClientService` | *(none)* |
+| `FileIntelligenceService` | *(none)* |
+| `CalendarService` | `config` |
+| `PrivacyService` | `database` |
 
 #### Phase 3 — Async Init (L209–L211)
 - `memory.initialize()` ‖ `embedding.initialize()` — **parallel, no cross-deps**
 
-#### Phase 4 — RAG + Plugins (L214–L217)
+#### Phase 4 — RAG + Plugins (L218–L222)
 | Service | Constructor Args |
 |---------|-----------------|
 | `RAGService` | `embedding`, `config`, `database` |
 - `rag.initialize()` ‖ `plugins.initialize()` — **parallel**
 
-#### Phase 5 — Cross-service Wiring (L220–L256, post-construction setters)
+#### Phase 5 — Cross-service Wiring (L225–L265, post-construction setters)
 | Setter Call | Target Service | Injected Dependency |
 |-------------|---------------|-------------------|
 | `ai.setMemoryService(memory)` | AIService | MemoryService |
-| `tools.setServices({automation, browser, rag, plugins, cron})` | ToolsService | 5 services |
+| `tools.setServices({automation, browser, rag, plugins, cron, privacy, securityGuard, systemMonitor})` | ToolsService | 8 services (incl. container-level SecurityGuard/SystemMonitor) |
 | `mcpClient.setDependencies({toolsService, configService})` | McpClientService | ToolsService, ConfigService |
 | `agentLoop.setRAGService(rag)` | AgentLoop | RAGService |
 | `agentLoop.setAutomationService(automation)` | AgentLoop | AutomationService |
@@ -64,16 +68,16 @@
 - Creates internally: `SystemMonitor`, `PromptService`, `IntentDetector`, `SubAgentManager`
 - Creates sub-modules: `ToolExecutor(tools, ai)`, `ResponseProcessor(memory, cron)`, `ContextBuilder({memory, workflow, config, cron, tools, ai, systemMonitor, promptService, subAgentManager})`, `HeartbeatEngine({ai, memory, workflow, cron, tools, promptService, responseProcessor})`, `TakeControlEngine(ai, tools, memory, promptService, intentDetector)`, `CronExecutor(workflow, processWithTools)`
 
-**MeetingCoachService** (L250, service-container.ts):
+**MeetingCoachService** (L258, service-container.ts):
 - Constructor: `transcription`, `ai`, `config`, `security`, `rag`, `screenCapture`
 
-#### Deferred Init (initDeferred, L266–L350)
+#### Deferred Init (initDeferred, L275–L372)
 | Service | Dependencies |
 |---------|-------------|
 | `DashboardServer` | `meetingCoach`, port, `{tools, cron, rag, workflow, systemMonitor, mcpClient}` |
 | `DiagnosticService` | `{ai, memory, config, cron, workflow, tools, systemMonitor, rag, browser, screenMonitor, screenCapture, tts}` |
 
-⚠️ **Duplicate instances**: `ToolsService` creates its **own** `SecurityGuard` and `SystemMonitor` internally (L30–31 tools-service.ts), separate from the container-level instances. This means security audit logs from tool executions go to a different `SecurityGuard` than the one used by IPC handlers.
+✅ **Resolved (rev.3)**: `ToolsService` constructor creates fallback `SecurityGuard`/`SystemMonitor`, but Phase 5 `setServices()` now injects container-level instances, ensuring audit logs go to the same `SecurityGuard` used by IPC handlers.
 
 ---
 
@@ -181,8 +185,8 @@ TakeControlEngine.abortController.signal
 | Shared Object | Services Holding Reference | Mutation Risk |
 |--------------|--------------------------|---------------|
 | `MemoryService` instance | AIService (via setter), AgentLoop, ContextBuilder, ResponseProcessor, HeartbeatEngine, TakeControlEngine, MeetingCoachService | **HIGH** — concurrent `addMessage()` from AgentLoop (user chat) + HeartbeatEngine (background) + CronExecutor (scheduled). No mutex. |
-| `ConfigService` instance | AIService, AgentLoop (via ContextBuilder), EmbeddingService, RAGService, McpClientService, MeetingCoachService | **MEDIUM** — reads are frequent, writes are debounced (200ms) and serialized internally |
-| `ToolsService.toolRegistry` (Map) | AgentLoop (via tools), McpClientService (register/unregister), PluginService (register), DiagnosticService (self_test tool) | **HIGH** — MCP connects/disconnects modify the registry dynamically while tool loops may be iterating `getDefinitions()` |
+| `ConfigService` instance | AIService, AgentLoop (via ContextBuilder), EmbeddingService, RAGService, McpClientService, MeetingCoachService, CalendarService | **MEDIUM** — reads are frequent, writes are debounced (200ms) and serialized internally |
+| `ToolsService.toolRegistry` (Map) | AgentLoop (via tools), McpClientService (register/unregister), PluginService (register), DiagnosticService (self_test tool), CalendarService (via calendar tools), FileIntelligenceService (via file tools) | **HIGH** — MCP connects/disconnects modify the registry dynamically while tool loops may be iterating `getDefinitions()` |
 | `CronService.jobs` (array) | AgentLoop (via cron), CronExecutor, ResponseProcessor (addJob), DashboardServer (read) | **MEDIUM** — cron jobs can be added by AI during tool loop while `getJobs()` is called by heartbeat |
 | `AgentLoop.abortController` | AgentLoop, IPC handlers (via stopProcessing) | **HIGH** — see §2 for dual-AC problem |
 | `AgentLoop.isProcessing` (boolean) | AgentLoop (set in streamWithTools), HeartbeatEngine (read via callback) | **LOW** — single writer, but no memory barrier (JS is single-threaded, so OK) |
@@ -282,15 +286,18 @@ If `AUTOMATION_STOP_CONTROL` arrives while `AUTOMATION_TAKE_CONTROL` is awaiting
 | `MeetingCoachService` | ✅ (meeting-coach.ts:L194) | `meeting:state`, `meeting:started`, `meeting:stopped`, `meeting:transcript`, `meeting:coaching`, `meeting:coaching-chunk`, `meeting:coaching-done`, `meeting:error`, `meeting:tick`, `meeting:stop-capture`, `meeting:detected`, `meeting:briefing-updated`, `meeting:speaker-identified` |
 | `TranscriptionService` | ✅ (transcription-service.ts:L44) | *(events consumed by MeetingCoachService)* |
 
+| `CalendarService` | ❌ (callback-based) | `onStatusChange` callback — pushed via IPC `Ev.CALENDAR_STATUS` |
+
 ### Callback-based Event Chains (non-EventEmitter)
 
 | Source | Callback Field | Consumers |
-|--------|---------------|-----------|
+|--------|---------------|----------|
 | `AgentLoop.onAgentStatus` | `(status: AgentStatus) => void` | ipc.ts:L103 → `safeSend(Ev.AGENT_STATUS)` + `dashboard.pushAgentStatus()` |
 | `AgentLoop.onHeartbeatResult` | `(message: string) => void` | *(set by ipc.ts or main.ts — sends proactive notification)* |
 | `AgentLoop.onSubAgentResult` | `(result: SubAgentResult) => void` | *(set by ipc.ts)* |
 | `HeartbeatEngine.onAgentStatus` | `(status: AgentStatus) => void` | AgentLoop constructor (L161) → delegates to `this.emitStatus()` |
 | `TakeControlEngine.onAgentStatus` | `(status: AgentStatus) => void` | AgentLoop constructor (L166) → delegates to `this.emitStatus()` |
+| `CalendarService.onStatusChange` | `(status: CalendarStatus) => void` | ipc.ts → `safeSend(Ev.CALENDAR_STATUS)` |
 
 ### Full Event Chains
 
@@ -298,14 +305,14 @@ If `AUTOMATION_STOP_CONTROL` arrives while `AUTOMATION_TAKE_CONTROL` is awaiting
 
 ```
 MeetingCoachService.emit('meeting:*')
-  ├→ [service-container.ts:L296–L300] dashboard.pushEvent(event, data)
+  ├→ [service-container.ts:L310–L315] dashboard.pushEvent(event, data)
   │    └→ WebSocket broadcast to dashboard SPA
   └→ [ipc.ts:L904–L908] meetingCoach.on(event) → safeSend(event, data)
        └→ mainWindow.webContents.send(event, data) → renderer
 ```
 
 ⚠️ **Duplicate listeners**: Meeting events are forwarded to the dashboard in **TWO** places:
-1. `service-container.ts:L296` (initDeferred) — for dashboard WebSocket
+1. `service-container.ts:L310` (initDeferred) — for dashboard WebSocket
 2. `ipc.ts:L904` — for renderer IPC
 
 This is intentional (different destinations) but means **every meeting event fires 2 listeners**.
@@ -329,11 +336,20 @@ AgentLoop.emitStatus(status)  (agent-loop.ts:L113)
             └→ dashboard.pushAgentStatus(status) → WebSocket
 ```
 
+#### Calendar Status → Renderer
+
+```
+CalendarService.onStatusChange(callback)
+  └→ [ipc.ts] calendarService.onStatusChange(status)
+       └→ safeSend(Ev.CALENDAR_STATUS, status) → renderer
+            └→ SettingsPanel listens → updates calendar UI state
+```
+
 ---
 
 ## 6. Lifecycle Dependencies — Shutdown Order
 
-### Current Shutdown (service-container.ts:L362–L409)
+### Current Shutdown (service-container.ts:L381–L425)
 
 ```
 Phase 1 — Stop active processing (prevent new work):
@@ -343,6 +359,7 @@ Phase 1 — Stop active processing (prevent new work):
   updater.destroy()              ← removes update check timer
 
 Phase 2 — Close network connections:
+  calendar.shutdown()            ← clears sync interval, disconnects CalDAV
   mcpClient.shutdown()           ← disconnects all MCP servers (async)
   meetingCoach.stopMeeting()     ← stops transcription + coaching (async)
   transcription.stopAll()        ← closes Deepgram WebSockets (async)
@@ -373,6 +390,7 @@ Phase 6 — Close database (must be last):
 | `agentLoop` | `ai`, `memory`, `tools` | Active tool loops call AI and write to memory |
 | `screenMonitor` | `screenCapture` | Monitor uses capture service |
 | `cron` | `agentLoop` | Cron executor delegates to agentLoop.processWithTools |
+| `calendar` | `config`, `database` | Calendar reads config for connections, caches in memory |
 | `mcpClient` | `tools` | MCP unregisters tools during shutdown |
 | `meetingCoach` | `transcription`, `ai`, `rag` | Coach uses transcription + AI + RAG |
 | `rag` | `embedding`, `database` | RAG reads embeddings and chunks from SQLite |
@@ -397,10 +415,10 @@ Phase 6 — Close database (must be last):
 | # | Finding | Severity | Location |
 |---|---------|----------|----------|
 | 1 | **Dual AbortController** — AgentLoop and TakeControlEngine both create ACs for take-control, `stopProcessing()` only aborts AgentLoop's | 🟡 Medium | agent-loop.ts:L1585, take-control-engine.ts:L162 |
-| 2 | **TakeControlEngine doesn't forward signal to AI calls** — cancellation is loop-check only, in-flight API calls run to completion | 🟡 Medium | take-control-engine.ts:L252, L510 |
-| 3 | **Duplicate SecurityGuard/SystemMonitor** — ToolsService creates own instances vs container instances | 🟢 Low | tools-service.ts:L30–31 |
+| 2 | ~~**TakeControlEngine doesn't forward signal to AI calls**~~ ✅ FIXED (rev.3) — signal now passed to `ai.computerUseStep()` in legacy `takeControlNativeAnthropic()` | ✅ Fixed | agent-loop.ts:L1670 |
+| 3 | ~~**Duplicate SecurityGuard/SystemMonitor**~~ ✅ FIXED (rev.3) — `setServices()` now accepts container instances | ✅ Fixed | tools-service.ts + service-container.ts Phase 5 |
 | 4 | **HeartbeatEngine timer not explicitly cleared on shutdown** — relies on process exit | 🟢 Low | service-container.ts Phase 1 |
 | 5 | **TOCTOU race on isProcessing** — heartbeat check passes, then streamWithTools starts | 🟢 Low | agent-loop.ts:L504, heartbeat-engine.ts:L188 |
-| 6 | **Shutdown Phase 1 is fire-and-forget** — services used by in-flight operations may close before operations complete | 🟡 Medium | service-container.ts:L370 |
+| 6 | **Shutdown Phase 1 is fire-and-forget** — services used by in-flight operations may close before operations complete | 🟡 Medium | service-container.ts:L385 |
 | 7 | **ToolsService registry mutation during MCP disconnect** — could affect active tool loops | 🟢 Low | mcp-client-service.ts shutdown, tools-service.ts |
 | 8 | **Duplicate take-control code paths** — AgentLoop has its own `takeControlNativeAnthropic` (L1611) AND delegates to `TakeControlEngine` | 🟡 Medium | agent-loop.ts:L1590–1592 vs take-control-engine.ts |

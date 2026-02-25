@@ -337,4 +337,27 @@ contextBridge.exposeInMainWorld('kxai', {
       ipcRenderer.removeListener(Ev.MCP_STATUS, handler);
     };
   },
+
+  // Calendar (CalDAV)
+  calendarGetConnections: () => ipcRenderer.invoke(Ch.CALENDAR_GET_CONNECTIONS),
+  calendarAddConnection: (config: any) => ipcRenderer.invoke(Ch.CALENDAR_ADD_CONNECTION, config),
+  calendarRemoveConnection: (id: string) => ipcRenderer.invoke(Ch.CALENDAR_REMOVE_CONNECTION, id),
+  calendarConnect: (id: string) => ipcRenderer.invoke(Ch.CALENDAR_CONNECT, id),
+  calendarDisconnect: (id: string) => ipcRenderer.invoke(Ch.CALENDAR_DISCONNECT, id),
+  calendarGetCalendars: (connectionId: string) => ipcRenderer.invoke(Ch.CALENDAR_GET_CALENDARS, connectionId),
+  calendarGetStatus: () => ipcRenderer.invoke(Ch.CALENDAR_GET_STATUS),
+  calendarStoreCredential: (connectionId: string, password: string) =>
+    ipcRenderer.invoke(Ch.CALENDAR_STORE_CREDENTIAL, connectionId, password),
+  onCalendarStatus: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(Ev.CALENDAR_STATUS, handler);
+    return () => {
+      ipcRenderer.removeListener(Ev.CALENDAR_STATUS, handler);
+    };
+  },
+
+  // Privacy & GDPR
+  privacyGetSummary: () => ipcRenderer.invoke(Ch.PRIVACY_GET_SUMMARY),
+  privacyExportData: (options?: any) => ipcRenderer.invoke(Ch.PRIVACY_EXPORT_DATA, options),
+  privacyDeleteData: (options?: any) => ipcRenderer.invoke(Ch.PRIVACY_DELETE_DATA, options),
 });

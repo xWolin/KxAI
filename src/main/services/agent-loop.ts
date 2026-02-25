@@ -1670,7 +1670,9 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       // Call Computer Use API
       let steps: ComputerUseStep[];
       try {
-        steps = await this.ai.computerUseStep(systemPrompt, messages, initialCapture.width, initialCapture.height);
+        steps = await this.ai.computerUseStep(systemPrompt, messages, initialCapture.width, initialCapture.height, {
+          signal: this.abortController?.signal,
+        });
       } catch (error: any) {
         const errMsg = `API error: ${error.message}`;
         log.push(`[${totalActions}] ${errMsg}`);

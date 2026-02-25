@@ -5,6 +5,7 @@ import { EmbeddingService } from './embedding-service';
 import { ConfigService } from './config';
 import { DatabaseService } from './database-service';
 import type { HybridSearchResult } from './database-service';
+import { FileIntelligenceService } from './file-intelligence';
 import { createLogger } from './logger';
 import { PDFParse } from 'pdf-parse';
 
@@ -145,6 +146,7 @@ export class RAGService {
   private embeddingService: EmbeddingService;
   private config: ConfigService;
   private dbService: DatabaseService;
+  private fileIntelligence?: FileIntelligenceService;
   private workspacePath: string;
   private legacyIndexPath: string; // for migration
   private indexed = false;
@@ -158,10 +160,16 @@ export class RAGService {
   /** Progress callback — set from outside (e.g. IPC handler) */
   onProgress?: (progress: IndexProgress) => void;
 
-  constructor(embeddingService: EmbeddingService, config: ConfigService, dbService: DatabaseService) {
+  constructor(
+    embeddingService: EmbeddingService,
+    config: ConfigService,
+    dbService: DatabaseService,
+    fileIntelligence?: FileIntelligenceService,
+  ) {
     this.embeddingService = embeddingService;
     this.config = config;
     this.dbService = dbService;
+    this.fileIntelligence = fileIntelligence;
     const userDataPath = app.getPath('userData');
     this.workspacePath = path.join(userDataPath, 'workspace');
     this.legacyIndexPath = path.join(userDataPath, 'workspace', 'rag', 'index.json');
@@ -996,64 +1004,39 @@ export class RAGService {
     return result.text;
   }
 
-  /** Extract text from DOCX (ZIP with XML inside) */
+  /** Extract text from DOCX via mammoth (cross-platform, replaces PowerShell approach) */
   private async extractDOCXText(filePath: string): Promise<string> {
-    // DOCX is a ZIP archive — word/document.xml contains the text
-    const { execSync } = await import('child_process');
+    if (this.fileIntelligence) {
+      try {
+        const result = await this.fileIntelligence.extractText(filePath);
+        return result.text;
+      } catch (err) {
+        log.warn(`FileIntelligence DOCX extraction failed for ${filePath}:`, err);
+        return '';
+      }
+    }
+    // Fallback: mammoth bezpośrednio
     try {
-      // Use PowerShell to extract text from DOCX (no extra deps needed)
-      const script = `
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $zip = [System.IO.Compression.ZipFile]::OpenRead('${filePath.replace(/'/g, "''")}')
-        $entry = $zip.Entries | Where-Object { $_.FullName -eq 'word/document.xml' }
-        if ($entry) {
-          $reader = New-Object System.IO.StreamReader($entry.Open())
-          $xml = $reader.ReadToEnd()
-          $reader.Close()
-          # Strip XML tags, keep text
-          $xml -replace '<[^>]+>', ' ' -replace '\\s+', ' '
-        }
-        $zip.Dispose()
-      `;
-      const result = execSync(`powershell -NoProfile -Command "${script.replace(/"/g, '\\"')}"`, {
-        encoding: 'utf8',
-        maxBuffer: 50 * 1024 * 1024,
-        timeout: 60000,
-      });
-      return result.trim();
+      const mammoth = await import('mammoth');
+      const result = await mammoth.extractRawText({ path: filePath });
+      return result.value;
     } catch {
       return '';
     }
   }
 
-  /** Extract text from EPUB (ZIP with XHTML inside) */
+  /** Extract text from EPUB via FileIntelligenceService */
   private async extractEPUBText(filePath: string): Promise<string> {
-    const { execSync } = await import('child_process');
-    try {
-      const script = `
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        $zip = [System.IO.Compression.ZipFile]::OpenRead('${filePath.replace(/'/g, "''")}')
-        $text = ''
-        foreach ($entry in $zip.Entries) {
-          if ($entry.FullName -match '\\.(xhtml|html|htm)$') {
-            $reader = New-Object System.IO.StreamReader($entry.Open())
-            $content = $reader.ReadToEnd()
-            $reader.Close()
-            $text += ($content -replace '<[^>]+>', ' ' -replace '\\s+', ' ') + \" \"
-          }
-        }
-        $zip.Dispose()
-        $text
-      `;
-      const result = execSync(`powershell -NoProfile -Command "${script.replace(/"/g, '\\"')}"`, {
-        encoding: 'utf8',
-        maxBuffer: 50 * 1024 * 1024,
-        timeout: 60000,
-      });
-      return result.trim();
-    } catch {
-      return '';
+    if (this.fileIntelligence) {
+      try {
+        const result = await this.fileIntelligence.extractText(filePath);
+        return result.text;
+      } catch (err) {
+        log.warn(`FileIntelligence EPUB extraction failed for ${filePath}:`, err);
+        return '';
+      }
     }
+    return '';
   }
 
   // --- Chunking Strategies ---

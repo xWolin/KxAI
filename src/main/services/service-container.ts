@@ -38,6 +38,9 @@ import { DashboardServer } from './dashboard-server';
 import { DiagnosticService } from './diagnostic-service';
 import { UpdaterService } from './updater-service';
 import { McpClientService } from './mcp-client-service';
+import { FileIntelligenceService } from './file-intelligence';
+import { CalendarService } from './calendar-service';
+import { PrivacyService } from './privacy-service';
 
 const log = createLogger('Container');
 
@@ -69,6 +72,9 @@ export interface ServiceMap {
   diagnostic: DiagnosticService;
   updater: UpdaterService;
   mcpClient: McpClientService;
+  fileIntelligence: FileIntelligenceService;
+  calendar: CalendarService;
+  privacy: PrivacyService;
 }
 
 export type ServiceKey = keyof ServiceMap;
@@ -99,6 +105,8 @@ export interface IPCServices {
   dashboardServer?: DashboardServer;
   updaterService: UpdaterService;
   mcpClientService: McpClientService;
+  calendarService: CalendarService;
+  privacyService: PrivacyService;
 }
 
 export class ServiceContainer {
@@ -181,6 +189,9 @@ export class ServiceContainer {
     const transcription = new TranscriptionService(security);
     const updater = new UpdaterService();
     const mcpClient = new McpClientService();
+    const fileIntelligence = new FileIntelligenceService();
+    const calendar = new CalendarService(config);
+    const privacy = new PrivacyService(database);
 
     this.set('memory', memory);
     this.set('ai', ai);
@@ -199,6 +210,9 @@ export class ServiceContainer {
     this.set('transcription', transcription);
     this.set('updater', updater);
     this.set('mcpClient', mcpClient);
+    this.set('fileIntelligence', fileIntelligence);
+    this.set('calendar', calendar);
+    this.set('privacy', privacy);
     p();
 
     // ── Phase 3: Async initialization (parallelized — no cross-deps) ──
@@ -208,7 +222,7 @@ export class ServiceContainer {
 
     // ── Phase 4: Services depending on async-initialized services (parallelized) ──
     p = phase('Phase 4 — RAG ‖ plugins');
-    const rag = new RAGService(embedding, config, database);
+    const rag = new RAGService(embedding, config, database, fileIntelligence);
     this.set('rag', rag);
     await Promise.all([rag.initialize(), plugins.initialize()]);
     p();
@@ -223,6 +237,11 @@ export class ServiceContainer {
       rag,
       plugins,
       cron,
+      fileIntelligence,
+      calendar,
+      privacy,
+      securityGuard,
+      systemMonitor,
     });
 
     // MCP Client wiring (dependencies only, no network I/O)
@@ -245,6 +264,9 @@ export class ServiceContainer {
 
     // Start cron jobs (non-blocking, no I/O)
     cron.startAll();
+
+    // Calendar initialization (loads connections from config, auto-connects in background)
+    void calendar.initialize();
     p();
 
     this.initialized = true;
@@ -370,6 +392,7 @@ export class ServiceContainer {
     this.trySync('updater', (s) => s.destroy());
 
     // ── Phase 2: Close network connections ──
+    await this.tryAsync('calendar', (s) => s.shutdown());
     await this.tryAsync('mcpClient', (s) => s.shutdown());
     await this.tryAsync('meetingCoach', (s) => s.stopMeeting());
     await this.tryAsync('transcription', (s) => s.stopAll());
@@ -424,6 +447,8 @@ export class ServiceContainer {
       dashboardServer: this.has('dashboard') ? this.get('dashboard') : undefined,
       updaterService: this.get('updater'),
       mcpClientService: this.get('mcpClient'),
+      calendarService: this.get('calendar'),
+      privacyService: this.get('privacy'),
     };
   }
 

@@ -3,8 +3,8 @@
 ## Projekt
 
 **KxAI** to personalny AI desktop agent (Electron 33 + React 19 + TypeScript 5.7 + Vite 6).
-Agent działa jako floating widget na pulpicie, posiada czat z AI (OpenAI / Anthropic), system pamięci (SQLite + markdown files), proaktywne notyfikacje, screen capture z vision, cron jobs, framework narzędzi (tools), workflow learning i time awareness.
-RAG pipeline z SQLite-vec (hybrid search: vector + FTS5), native function calling, natywny CDP do automatyzacji przeglądarki.
+Agent działa jako floating widget na pulpicie, posiada czat z AI (OpenAI / Anthropic), system pamięci (SQLite + markdown files), proaktywne notyfikacje, screen capture z vision, cron jobs, framework narzędzi (tools), workflow learning, time awareness i integrację z kalendarzem (CalDAV).
+RAG pipeline z SQLite-vec (hybrid search: vector + FTS5), native function calling, natywny CDP do automatyzacji przeglądarki, file intelligence (PDF/DOCX/XLSX/EPUB).
 
 ## Architektura
 
@@ -26,19 +26,24 @@ src/
 │   │   ├── plugins.ts      # PluginInfo
 │   │   ├── automation.ts   # AutomationStatus
 │   │   ├── mcp.ts          # McpServerConfig, McpHubStatus, McpRegistryEntry
-│   │   └── index.ts        # Barrel re-export
+│   │   ├── file-intelligence.ts # FileMetadata, FileExtractionResult, FolderAnalysis (Faza 6.6 ✅)
+│   │   ├── ai-provider.ts  # AIProvider interface (Faza 2.5 ✅)
+│   │   ├── calendar.ts     # CalendarConfig, CalendarEvent, CalendarStatus (Faza 8.2 ✅)
+│   │   ├── privacy.ts      # PrivacyDataSummary, PrivacyExportResult, PrivacyDeleteResult (Faza 7.5 ✅)
+│   │   ├── errors.ts       # KxAIError class, ErrorCode enum, ErrorSeverity (Faza 3.5 ✅)
+│   │   └── index.ts        # Barrel re-export (~85+ eksportowanych typów z 16 modułów)
 │   └── constants.ts        # Stałe (limity, domyślne wartości)
-│   └── ipc-schema.ts        # IPC channel/event constants (Ch, Ev, ChSend) (Faza 3.1 ✅)
+│   └── ipc-schema.ts        # IPC channel/event constants: 109 Ch + 24 Ev + 2 ChSend = 135 kanały (Faza 3.1 ✅)
 │   └── schemas/
 │       ├── ai-responses.ts  # Zod schemas: ScreenAnalysis, CronSuggestion, MemoryUpdate, TakeControl (Faza 2.2 ✅)
 │       ├── config-schema.ts  # Zod schema for KxAIConfig — single source of truth (Faza 3.6 ✅)
-│       └── ipc-params.ts    # Zod schemas for 47 IPC channel params + validatedHandle (Faza 3.1 ✅)
+│       └── ipc-params.ts    # Zod schemas for 54 IPC channel params + validatedHandle (Faza 3.1 ✅)
 ├── main/                   # Electron main process
 │   ├── main.ts             # Entry point, okno, tray, ServiceContainer init (Faza 3.2 ✅)
 │   ├── ipc.ts              # IPC handlers with zod validation (validatedHandle) (Faza 3.1 ✅)
 │   ├── preload.ts          # Context bridge (window.kxai API)
 │   └── services/
-│       ├── service-container.ts # DI container: typed ServiceMap, 6-phase init/shutdown (Faza 3.2 ✅)
+│       ├── service-container.ts # DI container: typed ServiceMap (28 kluczy), 6-phase init/shutdown (Faza 3.2 ✅)
 │       ├── ai-service.ts       # Multi-provider AI facade, streaming, vision, native FC (Faza 2.5 ✅)
 │       ├── providers/
 │       │   ├── openai-provider.ts   # OpenAI AIProvider implementation (Faza 2.5 ✅)
@@ -48,7 +53,7 @@ src/
 │       ├── memory.ts           # Markdown-based pamięć (~userData/workspace/memory/)
 │       ├── screen-capture.ts   # Screenshot capture (desktopCapturer)
 │       ├── cron-service.ts     # Cron jobs CRUD, scheduling, persistence
-│       ├── tools-service.ts    # Extensible tools framework (30+ built-in)
+│       ├── tools-service.ts    # Extensible tools framework (45+ tools, 8 grup, 2500 LOC)
 │       ├── workflow-service.ts # Activity logging, pattern detection, time awareness
 │       ├── agent-loop.ts       # Orchestrator: delegates to extracted modules (Faza 2.6 ✅)
 │       ├── tool-executor.ts    # Tool calling + parallel execution (Faza 2.6 ✅)
@@ -80,6 +85,9 @@ src/
 │       ├── diagnostic-service.ts # System diagnostics
 │       ├── updater-service.ts  # Auto-updater via electron-updater + GitHub Releases (Faza 7.1 ✅)
 │       ├── mcp-client-service.ts # MCP Client — connects to external MCP servers (Faza 8.1 ✅)
+│       ├── file-intelligence.ts # File analysis: PDF/DOCX/XLSX/EPUB extraction, search, folder analysis (718 LOC, Faza 6.6 ✅)
+│       ├── calendar-service.ts  # CalDAV calendar integration: tsdav + node-ical (852 LOC, Faza 8.2 ✅)
+│       ├── privacy-service.ts   # GDPR compliance: data summary, export, deletion (Faza 7.5 ✅)
 │       └── config.ts          # Configuration v2: Zod-validated, typed, reactive, debounced (Faza 3.6 ✅)
 ├── renderer/               # React frontend
 │   ├── App.tsx             # Routing z zustand stores (Faza 4.3 ✅)
@@ -117,8 +125,8 @@ src/
 - **Język**: Komunikaty UI i komentarze w kodzie po polsku tam gdzie to naturalne (UX), nazwy zmiennych/typów po angielsku
 - **Typy**: Używaj TypeScript strict mode; współdzielone typy w `src/shared/types/` (canonical source), re-exportowane w serwisach dla backward compat
 - **Path aliases**: `@shared/*` → `src/shared/*`, `@main/*` → `src/main/*`, `@renderer/*` → `src/renderer/*`
-- **IPC**: Kanały IPC definiowane jako stałe w `src/shared/ipc-schema.ts` (Ch/Ev/ChSend). Każdy nowy handler dodaj w `ipc.ts` używając stałych, expose w `preload.ts`, typuj w `types.ts`. Parametry walidowane runtime z zod w `src/shared/schemas/ipc-params.ts` via `validatedHandle()`
-- **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
+- **IPC**: Kanały IPC definiowane jako stałe w `src/shared/ipc-schema.ts` (109 Ch + 24 Ev + 2 ChSend = 135 kanały). Każdy nowy handler dodaj w `ipc.ts` (1177 LOC) używając stałych, expose w `preload.ts`, typuj w `types.ts`. Parametry walidowane runtime z zod w `src/shared/schemas/ipc-params.ts` via `validatedHandle()` (54 schematy)
+- **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). ServiceMap ma 28 kluczy. Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
 - **State management**: Zustand stores w `src/renderer/stores/`. 4 stores: `useNavigationStore`, `useConfigStore`, `useAgentStore`, `useChatStore`. IPC event subscriptions scentralizowane w `useStoreInit`. Import: `import { useAgentStore } from '../stores'`
 - **Styling**: CSS Modules per-component (`*.module.css`), `cn()` utility, design tokens w `global.css` `:root`. Import: `import s from './Comp.module.css'`
 - **UI components**: Reusable atomic components w `src/renderer/components/ui/`. Import: `import { Button, Input, Badge } from '../ui'`. Nie duplikuj styli — użyj istniejących komponentów
@@ -168,7 +176,7 @@ Coverage thresholds: lines 30%, functions 25%, branches 20%, statements 30%. Rep
 
 ## Podsumowanie audytu — Co już mamy (mocne strony)
 
-1. **Solidna architektura serwisów** — wyraźny podział odpowiedzialności (29 serwisów)
+1. **Solidna architektura serwisów** — wyraźny podział odpowiedzialności (31 serwisów w 27-klucz. ServiceMap + 4 deferred)
 2. **Inteligentny system promptów** — markdown-based z overrides i variable substitution
 3. **Tiered screen monitoring** — T0/T1/T2 minimalizuje koszty API (95% free)
 4. **ContextManager** — token budgeting, importance scoring, summarization
@@ -194,7 +202,7 @@ Coverage thresholds: lines 30%, functions 25%, branches 20%, statements 30%. Rep
 ### P3: Monolityczny ipc.ts (970 linii) i preload.ts (292 linie) ✅ ROZWIĄZANO
 - **Problem**: Każda nowa funkcja to zmiany w 3 plikach (ipc + preload + types)
 - **Problem**: Brak walidacji parametrów IPC, brak typesafe bridge
-- **Rozwiązanie**: Faza 3.1 ✅ — `ipc-schema.ts` z 95 stałymi kanałów (Ch, Ev, ChSend). Zero string literals w ipc.ts/preload.ts/main.ts. Faza 3.2 ✅ — ServiceContainer eliminuje manual wiring.
+- **Rozwiązanie**: Faza 3.1 ✅ — `ipc-schema.ts` z 132 stałymi kanałów (106 Ch, 24 Ev, 2 ChSend). Zero string literals w ipc.ts/preload.ts/main.ts. Faza 3.2 ✅ — ServiceContainer eliminuje manual wiring.
 
 ### P4: Brak testów ✅ W DUŻEJ MIERZE ROZWIĄZANO
 - **Problem**: Zero testów — unit, integration, e2e
@@ -254,6 +262,10 @@ src/
 - [x] Dodaj `better-sqlite3` + `@types/better-sqlite3` dla lokalnego storage ✅
 - [x] Dodaj `zod` do runtime validation schemas (IPC params, config, tool params) ✅
 - [x] Stworzono tagged logger (`logger.ts`) zamiast raw console.log ✅ (electron-log opcjonalnie później)
+- [x] Dodaj `mammoth` (cross-platform DOCX parsing) ✅
+- [x] Dodaj `xlsx` / SheetJS (XLSX/XLS parsing) ✅
+- [x] Dodaj `tsdav` (CalDAV client, TypeScript native) ✅
+- [x] Dodaj `node-ical` (ICS/iCalendar parser) ✅
 
 ---
 
@@ -356,19 +368,19 @@ src/
 ## Faza 3: Architektura & Stabilność (Tydzień 5-7)
 
 ### Krok 3.1 — IPC v2 — Typesafe channel constants ✅
-> **Zaimplementowano**: `src/shared/ipc-schema.ts` z 95 stałymi kanałów w 3 grupach: `Ch` (74 handle channels), `Ev` (19 event channels), `ChSend` (2 send channels). Wszystkie string literals w `ipc.ts`, `preload.ts` i `main.ts` zamienione na stałe. Zero magic strings.
+> **Zaimplementowano**: `src/shared/ipc-schema.ts` z 132 stałymi kanałów w 3 grupach: `Ch` (106 handle channels), `Ev` (24 event channels), `ChSend` (2 send channels). Wszystkie string literals w `ipc.ts`, `preload.ts` i `main.ts` zamienione na stałe. Zero magic strings.
 
 - [x] Stałe IPC kanałów w `ipc-schema.ts` (Ch, Ev, ChSend) ✅
-- [x] Migracja `ipc.ts` — 74 handlery na stałe Ch.* ✅
-- [x] Migracja `preload.ts` — 74+ wywołań na stałe Ch.*/Ev.*/ChSend.* ✅
+- [x] Migracja `ipc.ts` — 106 handlerów na stałe Ch.* ✅
+- [x] Migracja `preload.ts` — 106+ wywołań na stałe Ch.*/Ev.*/ChSend.* ✅
 - [x] Migracja `main.ts` — eventy na stałe Ev.* ✅
-- [x] Runtime validation parametrów IPC via zod schemas ✅ (`src/shared/schemas/ipc-params.ts`, 47 kanałów, `validatedHandle()` wrapper)
+- [x] Runtime validation parametrów IPC via zod schemas ✅ (`src/shared/schemas/ipc-params.ts`, 54 kanały, `validatedHandle()` wrapper)
 - [ ] Pełny codegen bridge z typami (przyszła iteracja)
 
 ### Krok 3.2 — Service Container / Dependency Injection ✅
-> **Zaimplementowano**: `service-container.ts` z typowanym `ServiceMap` (22 serwisy). `get<K>(key)` z pełnym TS inference. 6-fazowa `init()` (dependency order) zastępuje ~100 linii ręcznego wiring. 6-fazowa `shutdown()` centralizuje graceful cleanup. `getIPCServices()` mapuje na interfejs kompatybilny z `setupIPC()`. `main.ts` zredukowany z ~685 do ~460 linii.
+> **Zaimplementowano**: `service-container.ts` z typowanym `ServiceMap` (27 kluczy). `get<K>(key)` z pełnym TS inference. 5-fazowa `init()` (dependency order) + `initDeferred()` zastepują ~100 linii ręcznego wiring. 6-fazowa `shutdown()` centralizuje graceful cleanup. `getIPCServices()` mapuje na interfejs kompatybilny z `setupIPC()`. `main.ts` zredukowany z ~685 do ~460 linii.
 
-- [x] Typowany `ServiceContainer` z `ServiceMap` interface (22 klucze) ✅
+- [x] Typowany `ServiceContainer` z `ServiceMap` interface (27 kluczy) ✅
 - [x] `get<K>(key)` — generyczny accessor z TypeScript inference ✅
 - [x] 6-fazowa `init()` w kolejności zależności ✅
 - [x] 6-fazowa `shutdown()` — centralizacja graceful cleanup ✅
@@ -385,11 +397,11 @@ src/
 - [ ] `electron-log` z async file rotation
 
 ### Krok 3.4 — Graceful shutdown ✅
-> **Zaimplementowano**: 6-fazowy sequential shutdown w `app.on('will-quit')` z 5s timeout wrapper. Fazy: 1) Stop processing (agentLoop, screenMonitor, cron), 2) Close network (meetingCoach, transcription, browser, dashboard), 3) Stop watchers (RAG, plugins), 4) Cleanup temp (TTS), 5) Flush caches (embedding), 6) Close DB (memory/SQLite). Promise.race z timeout.
+> **Zaimplementowano**: 6-fazowy sequential shutdown w `app.on('will-quit')` z 5s timeout wrapper. Fazy: 1) Stop processing (agentLoop, screenMonitor, cron, updater), 2) Close network (calendar, mcpClient, meetingCoach, transcription, browser, dashboard), 3) Stop watchers (RAG, plugins), 4) Cleanup temp (TTS), 5) Flush caches (embedding, config), 6) Close DB (memory/SQLite). Promise.race z timeout.
 
 - [x] Sequential cleanup z 6 fazami ✅
 - [x] 5s timeout wrapper (prevent hanging) ✅
-- [x] 11 serwisów zamykanych (było 4) ✅
+- [x] 13 serwisów zamykanych (było 4) ✅
 - [x] Logging każdego kroku ✅
 
 ### Krok 3.5 — Error handling & crash reporting ✅
@@ -471,7 +483,7 @@ src/
   3. `ContextManager` — token budgeting, importance scoring ✅ (28)
   4. `IntentDetector` — intent recognition accuracy ✅ (67)
   5. `PromptService` — template rendering, variable substitution ✅ (19)
-  6. `IPC Validation` — zod schema validation for 47 channels ✅ (63)
+  6. `IPC Validation` — zod schema validation for 54 channels ✅ (63)
   7. `ConfigService` — Zod schema, typed API, reactive, debounce, migrations ✅ (38)
 
 ### Krok 5.2 — Integration tests ✅
@@ -558,14 +570,17 @@ src/
 ### ~~Krok 6.5 — Local LLM Support (Ollama)~~ ❌ USUNIĘTY
 > **Decyzja**: Usunięty z planu. Lokalne modele LLM wymagają GPU z min. 8-16 GB VRAM — większość użytkowników nie ma takiego sprzętu. Koszt implementacji nie uzasadnia wąskiej grupy odbiorców. Cloud-only (OpenAI + Anthropic) to właściwa strategia dla desktop agenta.
 
-### Krok 6.6 — File Intelligence
-- [ ] Agent "rozumie" pliki na komputerze:
-  - PDF extraction z poprawnym layoutem (pdf-parse jest, ale usprawnij)
-  - DOCX/XLSX parsing (dodaj `mammoth`, `xlsx`)
-  - Image analysis (local CLIP lub cloud vision)
-  - Audio transcription (Whisper local lub API)
-- [ ] "Przeanalizuj ten folder" → deep analysis z raportem
-- [ ] "Znajdź wszystkie dokumenty o umowie z X" → RAG search + file opening
+### Krok 6.6 — File Intelligence ✅
+> **Zaimplementowano**: `file-intelligence.ts` (718 LOC) — serwis do inteligentnej analizy plików. Parsery: PDF (pdf-parse), DOCX (mammoth — cross-platform, zastępuje PowerShell), XLSX/XLS (SheetJS — CSV output per arkusz), EPUB (PowerShell/unzip fallback), tekst/kod (fs.readFile). 4 nowe narzędzia AI: `analyze_file` (ekstrakcja tekstu + metadane z dowolnego pliku), `file_info` (metadane bez czytania treści), `search_files` (glob + grep rekurencyjnie), `analyze_folder` (dystrybucja typów, największe pliki, drzewo). SecurityGuard path validation na każdym narzędziu. RAG service DOCX/EPUB extraction przeniesione na mammoth (cross-platform). Typy w `shared/types/file-intelligence.ts`. Wire w ServiceContainer Phase 2/5. TOOLS.md z Decision Matrix i workflow.
+
+- [x] Agent "rozumie" pliki na komputerze ✅:
+  - PDF extraction via pdf-parse ✅
+  - DOCX via mammoth (cross-platform, zastępuje PowerShell) ✅
+  - XLSX/XLS via SheetJS (arkusze → CSV) ✅
+  - EPUB via PowerShell/unzip ✅
+  - Image/Audio → metadane (analiza via existing vision/transcription) ✅
+- [x] "Przeanalizuj ten folder" → `analyze_folder` z raportem ✅
+- [x] "Znajdź wszystkie dokumenty o umowie z X" → `search_files` z content grep ✅
 
 ---
 
@@ -600,11 +615,13 @@ src/
 - [ ] Support: PL (primary), EN (secondary)
 - [ ] Język agenta = język UI (konfigurowalny)
 
-### Krok 7.5 — Privacy & compliance
-- [ ] "Data stays local" guarantee — wszystko w userData, nic na serwerze
+### Krok 7.5 — Privacy & compliance ✅
+> **Zaimplementowano**: `privacy-service.ts` z pełną obsługą GDPR. `PrivacyDataSummary` — przegląd 12 kategorii danych (konwersacje, pamięć, aktywność, spotkania, cron, RAG, audit, config, prompty, przeglądarka, sekrety, temp). `exportData()` — eksport do folderu z JSON/Markdown + manifest, bez kluczy API. `deleteData()` — selektywne usuwanie z opcjami `keepConfig`/`keepPersona`. 3 narzędzia AI: `data_summary`, `data_export`, `data_delete`. 3 kanały IPC: Ch.PRIVACY_*. Dialogi potwierdzenia przed eksportem/usuwaniem. Typy w `shared/types/privacy.ts`. Wired w ServiceContainer Phase 2.
+
+- [x] "Data stays local" guarantee — wszystko w userData, nic na serwerze ✅
+- [x] Data export (GDPR compliance) — "Eksportuj wszystkie moje dane" ✅
+- [x] Data deletion — "Usuń wszystko o mnie" ✅
 - [ ] Opcjonalny telemetry z explicit opt-in
-- [ ] Data export (GDPR compliance) — "Eksportuj wszystkie moje dane"
-- [ ] Data deletion — "Usuń wszystko o mnie"
 - [ ] Privacy policy generator na onboardingu
 
 ### Krok 7.6 — Packaging & distribution
@@ -637,11 +654,14 @@ src/
 - [ ] Auto-reconnect z exponential backoff
 - [ ] MCP server health monitoring (ping interval)
 
-### Krok 8.2 — Google Calendar via CalDAV MCP
-- [ ] Integracja z `caldav-mcp` — CRUD eventów, recurrence, reminders
-- [ ] UI w Settings do konfiguracji CalDAV URL + credentials
-- [ ] Agent może: tworzyć eventy, sprawdzać kalendarz, przypominać o spotkaniach
-- [ ] Proaktywne: "Za 15 min masz spotkanie z Jackiem"
+### Krok 8.2 — Google Calendar via CalDAV ✅
+> **Zaimplementowano**: `calendar-service.ts` (852 LOC) z `tsdav` + `node-ical`. Multi-connection CalDAV client. Credential management via `safeStorage`. Auto-sync co 15 min. 4 narzędzia AI: `calendar_list_events`, `calendar_create_event`, `calendar_delete_event`, `calendar_upcoming`. UI w Settings (zakładka 📅 Kalendarz). IPC: 8 kanałów Ch.CALENDAR_* + Ev.CALENDAR_STATUS. Zod validation parametrów. Obsługa providerów: Google (OAuth placeholder), iCloud (Basic + App Password), Nextcloud, generic CalDAV.
+
+- [x] Integracja z tsdav — CRUD eventów, ICS building/parsing ✅
+- [x] UI w Settings do konfiguracji CalDAV URL + credentials ✅
+- [x] Agent może: tworzyć eventy, sprawdzać kalendarz, przypominać o spotkaniach ✅
+- [ ] Proaktywne: "Za 15 min masz spotkanie z Jackiem" (wymaga heartbeat integration)
+- [ ] Google OAuth 2.0 flow (BrowserWindow popup)
 
 ### Krok 8.3 — Gmail / Email via MCP
 - [ ] Integracja z MCP server do email (IMAP lub Gmail API)
@@ -669,59 +689,63 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-| # | Zadanie | Faza | Impact | Effort | Priorytet | Status |
-|---|---------|------|--------|--------|-----------|--------|
-| 1 | Native Function Calling | 2.1 | 🔴 Critical | 1 sesja | P0 | ✅ Done |
-| 2 | Browser CDP Bypass | 1.1-1.3 | 🔴 Critical | 2 sesje | P0 | ✅ Done |
-| 3 | Shared types + path aliases | 0.1 | 🟡 High | 1 sesja | P0 | ✅ Done |
-| 4 | SQLite memory + RAG | 2.3-2.4 | 🟡 High | 2 sesje | P1 | ✅ Done |
-| 5 | Agent Loop modularization | 2.6 | 🟡 High | 2 sesje | P1 | ✅ Done |
-| 6 | Unit tests (safety-critical) | 5.1 | 🟡 High | 1 sesja | P1 | ✅ Done (172) |
-| 7 | Async file operations | 3.3 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
-| 8 | Error boundaries | 3.5 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
-| 9 | Graceful shutdown | 3.4 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
-| 10 | IPC typesafe bridge | 3.1 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
-| 11 | Service container | 3.2 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
-| 12 | Frontend CSS Modules | 4.1 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
-| 13 | Structured Outputs | 2.2 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
-| 14 | Auto-updater | 7.1 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
-| 15 | MCP Client Service | 8.1 | 🟡 High | 1 sesja | P2 | ✅ Done |
-| 16 | Reminder Engine | 8.4 | 🟡 High | 1 sesja | P3 | ✅ Done |
-| 17 | OpenClaw 2.0 context upgrade | — | 🟡 High | 1 sesja | P1 | ✅ Done |
-| 18 | CI quality gate | 5.4 | 🟢 Medium | 1 sesja | P2 | ✅ Done (partial) |
-| — | — **REMAINING** — | — | — | — | — | — |
-| 19 | Multi-provider AI abstraction | 2.5 | 🟡 High | 1-2 sesje | P2 | ✅ Done |
-| 20 | Configuration v2 (Zod + reactive + typed) | 3.6 | 🟡 High | 1 sesja | P2 | ✅ Done |
-| 21 | AbortController cancellation | 2.6 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
-| 22 | IPC runtime validation (zod) | 3.1 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
-| 23 | ToolLoopDetector tests | 5.1 | 🟡 High | 1 sesja | P2 | ✅ Done (43) |
-| 24 | Integration tests | 5.2 | 🟡 High | 2 sesje | P3 | ✅ Done (45) |
-| 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 | ⬜ |
-| 26 | CI coverage gate + env tests | 5.4+5.5 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
-| 48 | Advanced tests (race, contracts, timing) | 5.5 | 🟡 High | 2 sesje | P2 | ✅ Done |
-| 27 | lint-staged + husky | 0.2 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
-| 28 | Component library (ui/) | 4.2 | 🟡 High | 2 sesje | P3 | ✅ Done |
-| 29 | State management (zustand) | 4.3 | 🟡 High | 1 sesja | P3 | ✅ Done |
-| 30 | Dashboard SPA refactor | 4.4 | 🟢 Medium | 1-2 sesje | P4 | ⬜ |
-| 31 | Rich interactions (D&D, highlight, shortcuts) | 4.5 | 🟢 Medium | 2 sesje | P4 | ⬜ |
-| 32 | Smart Clipboard Pipeline | 6.1 | 🟢 Medium | 1-2 sesje | P4 | ⬜ |
-| 33 | Workflow Automator (Macro Recorder) | 6.2 | 🟡 High | 3-4 sesje | P4 | ⬜ |
-| 34 | Knowledge Graph | 6.3 | 🟡 High | 3-4 sesje | P4 | ⬜ |
-| 35 | Proactive Intelligence Engine | 6.4 | 🟡 High | 3-4 sesje | P4 | ⬜ |
-| 36 | File Intelligence (PDF, DOCX, audio) | 6.6 | 🟢 Medium | 1-2 sesje | P3 | ⬜ |
-| 37 | Google Calendar (CalDAV MCP) | 8.2 | 🟡 High | 1 sesja | P3 | ⬜ |
-| 38 | Gmail / Email via MCP | 8.3 | 🟢 Medium | 1 sesja | P3 | ⬜ |
-| 39 | MCP Server Discovery | 8.5 | 🟢 Medium | 1 sesja | P4 | ⬜ |
-| 40 | Performance (lazy load, workers) | 7.2 | 🟢 Medium | 1-2 sesje | P3 | ✅ Done |
-| 41 | Accessibility | 7.3 | 🟢 Medium | 1 sesja | P4 | ⬜ |
-| 42 | i18n (PL + EN) | 7.4 | 🟢 Medium | 1 sesja | P4 | ⬜ |
-| 43 | Privacy & compliance (GDPR) | 7.5 | 🟢 Medium | 1 sesja | P3 | ⬜ |
-| 44 | Code signing + distribution | 7.6 | 🟢 Medium | 1 sesja | P4 | ⬜ |
-| 45 | CDP anti-detection | 1.4 | 🟢 Medium | 1 sesja | P4 | ⬜ |
-| 46 | CDP streaming observation | 1.5 | 🟢 Medium | 1 sesja | P4 | ⬜ |
-| 47 | CDP network interception | 1.2 | 🟢 Medium | 1 sesja | P4 | ⬜ |
+### ✅ Ukończone (34/47)
 
-**Effort legend**: 1 sesja = 1 konwersacja z AI agentem (~1-3h). Historycznie: ~1 major feature/refactor per sesja.
+| # | Zadanie | Faza | Status |
+|---|---------|------|--------|
+| 1 | Native Function Calling | 2.1 | ✅ |
+| 2 | Browser CDP Bypass | 1.1-1.3 | ✅ |
+| 3 | Shared types + path aliases | 0.1 | ✅ |
+| 4 | SQLite memory + RAG | 2.3-2.4 | ✅ |
+| 5 | Agent Loop modularization | 2.6 | ✅ |
+| 6 | Unit tests (507 w 13 plikach) | 5.1 | ✅ |
+| 7 | Async file operations | 3.3 | ✅ |
+| 8 | Error boundaries | 3.5 | ✅ |
+| 9 | Graceful shutdown | 3.4 | ✅ |
+| 10 | IPC typesafe bridge + zod validation | 3.1 | ✅ |
+| 11 | Service container (DI) | 3.2 | ✅ |
+| 12 | Frontend CSS Modules | 4.1 | ✅ |
+| 13 | Structured Outputs (Zod) | 2.2 | ✅ |
+| 14 | Auto-updater | 7.1 | ✅ |
+| 15 | MCP Client Service | 8.1 | ✅ |
+| 16 | Reminder Engine | 8.4 | ✅ |
+| 17 | OpenClaw 2.0 context upgrade | — | ✅ |
+| 18 | CI quality gate | 5.4 | ✅ |
+| 19 | Multi-provider AI abstraction | 2.5 | ✅ |
+| 20 | Configuration v2 (Zod + reactive) | 3.6 | ✅ |
+| 21 | AbortController cancellation | 2.6 | ✅ |
+| 22 | IPC runtime validation (zod) | 3.1 | ✅ |
+| 23 | ToolLoopDetector tests (43) | 5.1 | ✅ |
+| 24 | Integration tests (45) | 5.2 | ✅ |
+| 26 | CI coverage gate + env tests | 5.4+5.5 | ✅ |
+| 27 | lint-staged + husky | 0.2 | ✅ |
+| 28 | Component library (ui/) | 4.2 | ✅ |
+| 29 | State management (zustand) | 4.3 | ✅ |
+| 36 | File Intelligence (PDF/DOCX/XLSX/EPUB) | 6.6 | ✅ |
+| 40 | Performance (lazy load, workers) | 7.2 | ✅ |
+| 48 | Advanced tests (race, contracts) | 5.5 | ✅ |
+| 37 | Google Calendar (CalDAV) | 8.2 | ✅ |
+| 43 | Privacy & compliance (GDPR) | 7.5 | ✅ |
+
+### ⬜ Remaining (13 tasks) — posortowane wg priorytetu
+
+| # | Zadanie | Faza | Impact | Effort | Priorytet |
+|---|---------|------|--------|--------|-----------|
+| 38 | Gmail / Email via MCP | 8.3 | 🟢 Medium | 1 sesja | P3 |
+| 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 |
+| 30 | Dashboard SPA refactor | 4.4 | 🟢 Medium | 1-2 sesje | P4 |
+| 31 | Rich interactions (D&D, highlight) | 4.5 | 🟢 Medium | 2 sesje | P4 |
+| 32 | Smart Clipboard Pipeline | 6.1 | 🟢 Medium | 1-2 sesje | P4 |
+| 33 | Workflow Automator (Macro Recorder) | 6.2 | 🟡 High | 3-4 sesje | P4 |
+| 34 | Knowledge Graph | 6.3 | 🟡 High | 3-4 sesje | P4 |
+| 35 | Proactive Intelligence Engine | 6.4 | 🟡 High | 3-4 sesje | P4 |
+| 39 | MCP Server Discovery | 8.5 | 🟢 Medium | 1 sesja | P4 |
+| 41 | Accessibility (a11y) | 7.3 | 🟢 Medium | 1 sesja | P4 |
+| 42 | i18n (PL + EN) | 7.4 | 🟢 Medium | 1 sesja | P4 |
+| 44 | Code signing + distribution | 7.6 | 🟢 Medium | 1 sesja | P4 |
+| 45-47 | CDP anti-detection, streaming, network | 1.4-1.5 | 🟢 Medium | 3 sesje | P4 |
+
+**Effort legend**: 1 sesja = 1 konwersacja z AI agentem (~1-3h).
 
 ---
 

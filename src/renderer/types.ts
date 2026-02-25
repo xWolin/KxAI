@@ -208,6 +208,28 @@ export interface KxAIBridge {
   mcpGetRegistry: () => Promise<import('@shared/types').McpRegistryEntry[]>;
   mcpCallTool: (serverId: string, toolName: string, args: any) => Promise<import('@shared/types').ToolResult>;
   onMcpStatus: (callback: (status: import('@shared/types').McpHubStatus) => void) => () => void;
+
+  // Calendar (CalDAV)
+  calendarGetConnections: () => Promise<import('@shared/types').CalendarStatus>;
+  calendarAddConnection: (
+    config: Omit<import('@shared/types').CalendarConfig, 'id'>,
+  ) => Promise<import('@shared/types').CalendarOperationResult>;
+  calendarRemoveConnection: (id: string) => Promise<{ success: boolean }>;
+  calendarConnect: (id: string) => Promise<{ success: boolean }>;
+  calendarDisconnect: (id: string) => Promise<{ success: boolean }>;
+  calendarGetCalendars: (connectionId: string) => Promise<import('@shared/types').CalendarInfo[]>;
+  calendarGetStatus: () => Promise<import('@shared/types').CalendarStatus>;
+  calendarStoreCredential: (connectionId: string, password: string) => Promise<{ success: boolean }>;
+  onCalendarStatus: (callback: (status: import('@shared/types').CalendarStatus) => void) => () => void;
+
+  // Privacy & GDPR
+  privacyGetSummary: () => Promise<import('@shared/types').PrivacyDataSummary>;
+  privacyExportData: (
+    options?: import('@shared/types').PrivacyExportOptions,
+  ) => Promise<import('@shared/types').PrivacyExportResult>;
+  privacyDeleteData: (
+    options?: import('@shared/types').PrivacyDeleteOptions,
+  ) => Promise<import('@shared/types').PrivacyDeleteResult>;
 }
 
 // ──────────────── Updates ────────────────
