@@ -126,7 +126,7 @@ src/
 - **Tool calling**: Native function calling (OpenAI tools API / Anthropic tool_use) domyślnie włączone (`config.useNativeFunctionCalling`). Fallback na ```tool bloki gdy wyłączone.
 - **Cron suggestions**: AI outputuje ```cron\n{JSON}\n``` bloki, agent-loop parsuje i proponuje użytkownikowi
 - **Logging**: Używaj `createLogger('Tag')` z `src/main/services/logger.ts` zamiast `console.log/warn/error`
-- **Testing**: Vitest z mockami electron/fs. Testy w `tests/`. Konwencja: `tests/<service-name>.test.ts`. Testy środowiskowe w `tests/environment/`. 473 testów w 12 plikach. Coverage thresholds (30/25/20% lines/functions/branches). Nowe testy uruchamiaj `npm run test:env` do preflight
+- **Testing**: Vitest z mockami electron/fs. Testy w `tests/`. Konwencja: `tests/<service-name>.test.ts`. Testy środowiskowe w `tests/environment/`. 507 testów w 13 plikach. Coverage thresholds (30/25/20% lines/functions/branches). Nowe testy uruchamiaj `npm run test:env` do preflight
 - **Persistence**: SQLite (better-sqlite3, WAL) jako primary storage (sesje, RAG chunks, embeddings, cache). Markdown files dla pamięci agenta (SOUL.md, USER.md, MEMORY.md). Dane w `app.getPath('userData')/workspace/` (memory/, cron/, workflow/)
 
 ## Komendy
@@ -198,7 +198,7 @@ Coverage thresholds: lines 30%, functions 25%, branches 20%, statements 30%. Rep
 
 ### P4: Brak testów ✅ W DUŻEJ MIERZE ROZWIĄZANO
 - **Problem**: Zero testów — unit, integration, e2e
-- **Rozwiązanie**: Vitest setup, 473 testów w 12 plikach: unit (IntentDetector, SecurityGuard, ContextManager, PromptService, ToolLoopDetector, ConfigService), integration (45 testów — ToolExecutor, ResponseProcessor, ContextBuilder), environment preflight (112 testów — Node.js, deps, toolchain, security audit). CI z coverage thresholds + lcov.
+- **Rozwiązanie**: Vitest setup, 507 testów w 13 plikach: unit (IntentDetector, SecurityGuard, ContextManager, PromptService, ToolLoopDetector, ConfigService), integration (45 testów — ToolExecutor, ResponseProcessor, ContextBuilder), advanced (34 testy — SDK contract, signal propagation, concurrent access, shutdown ordering, dependency map conformance), environment preflight (112 testów — Node.js, deps, toolchain, security audit). CI z coverage thresholds + lcov.
 
 ### P5: Frontend — jeden plik CSS (global.css), brak component library ✅ CZĘŚCIOWO ROZWIĄZANO
 - **Problem**: Skalowanie UI jest trudne, brak design system
@@ -488,15 +488,14 @@ src/
 - [ ] Scenariusze: onboarding → chat → tool use → settings
 - [ ] Screenshot regression testing
 
-### Krok 5.5 — Advanced tests (race conditions, contracts, timing)
-> **Cel**: Łapanie bugów jakich nie łapią unit testy z mockami — cross-cutting concerns,
-> race conditions, API contract violations. Dopełnienie code review.
+### Krok 5.5 — Advanced tests (race conditions, contracts, timing) ✅
+> **Zaimplementowano**: `tests/advanced.test.ts` (34 testów w 5 grupach). SDK contract tests (9) — max_completion_tokens, developer role, signal placement w OpenAI i Anthropic providerach. Signal propagation (7) — AIService forwarding do SDK, AbortController lifecycle. Concurrent access (11) — ToolsService registry mutation safety, HeartbeatEngine timer race, TakeControlEngine start/stop. Shutdown ordering (2) — phase sequence, worker cleanup. Dependency map conformance (5) — API surface validation. Bug fix: AnthropicProvider.computerUseStep() signal forwarding.
 
-- [ ] **Concurrent access tests**: Symulacja równoczesnych wywołań (streamWithTools + heartbeat, start + stop take-control, MCP disconnect during tool loop). Weryfikacja, że shared state (MemoryService, ToolsService registry, AbortControllers) nie prowadzi do data corruption.
-- [ ] **Signal propagation tests**: End-to-end test AbortSignal flow: IPC AGENT_STOP → AgentLoop.stopProcessing → abortController.abort → AIService → provider SDK. Weryfikacja, że signal dociera do wszystkich aktywnych ścieżek (streamWithTools, processWithTools, startTakeControl, heartbeat).
-- [ ] **SDK contract tests**: Testy shape'u parametrów przekazywanych do OpenAI/Anthropic SDK — weryfikacja, że `signal` jest w poprawnym miejscu (`create({...}, {signal})` vs `create({..., signal})`), `max_completion_tokens` zamiast `max_tokens`, `developer` role dla GPT-5+.
-- [ ] **Shutdown ordering tests**: Weryfikacja, że in-flight operacje kończą się przed destrukcją zależnych serwisów. Test: start tool loop → trigger shutdown → verify no "service not found" errors.
-- [ ] **Dependency map conformance**: Automated check, że `docs/SERVICE-DEPENDENCY-MAP.md` jest spójny z kodem — nowe serwisy dodane do mapy, signal flow nadal zgodny.
+- [x] **Concurrent access tests**: ToolsService register/unregister/unregisterByPrefix consistency, snapshot isolation, concurrent 50-tool register+unregister. HeartbeatEngine timer start/stop idempotency. TakeControlEngine concurrent start rejection, abort propagation. ✅
+- [x] **Signal propagation tests**: sendMessageWithVision, computerUseStep, sendMessage → SDK signal forwarding for OpenAI and Anthropic. AbortController lifecycle. ✅
+- [x] **SDK contract tests**: max_completion_tokens (not max_tokens), developer role for GPT-5+, signal in second arg (not request body) for OpenAI chat/streamChat/chatWithVision and Anthropic chat/computerUseStep. Prompt caching verification. ✅
+- [x] **Shutdown ordering tests**: Phase sequence contract (agentLoop stops before memory shuts down). Worker thread terminateWorker() idempotency. ✅
+- [x] **Dependency map conformance**: API surface check for ToolsService, AIService, TakeControlEngine, HeartbeatEngine. ✅
 
 ### Krok 5.4 — CI pipeline update ✅
 > **Zaimplementowano**: Quality gate z 7 krokami: env preflight → lint → typecheck (main+renderer) → testy z coverage → format check → npm audit (prod). Coverage thresholds w vitest.config.ts (30/25/20%). lcov reporter. Husky v9 + lint-staged (prettier pre-commit).
@@ -699,7 +698,7 @@ src/
 | 24 | Integration tests | 5.2 | 🟡 High | 2 sesje | P3 | ✅ Done (45) |
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 | ⬜ |
 | 26 | CI coverage gate + env tests | 5.4+5.5 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
-| 48 | Advanced tests (race, contracts, timing) | 5.5 | 🟡 High | 2 sesje | P2 | ⬜ |
+| 48 | Advanced tests (race, contracts, timing) | 5.5 | 🟡 High | 2 sesje | P2 | ✅ Done |
 | 27 | lint-staged + husky | 0.2 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
 | 28 | Component library (ui/) | 4.2 | 🟡 High | 2 sesje | P3 | ✅ Done |
 | 29 | State management (zustand) | 4.3 | 🟡 High | 1 sesja | P3 | ✅ Done |
