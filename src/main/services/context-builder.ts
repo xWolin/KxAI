@@ -28,6 +28,7 @@ import { SystemMonitor } from './system-monitor';
 import { PromptService } from './prompt-service';
 import { SubAgentManager } from './sub-agent';
 import { ContextManager } from './context-manager';
+import { KnowledgeGraphService } from './knowledge-graph-service';
 import { createLogger } from './logger';
 import type { IntentType } from './intent-detector';
 
@@ -105,6 +106,9 @@ export class ContextBuilder {
   private automationEnabled = false;
   private screenMonitor?: ContextBuildDeps['screenMonitor'];
 
+  /** Knowledge Graph — optional, set via setKnowledgeGraphService() */
+  private knowledgeGraph?: KnowledgeGraphService;
+
   /** Track if memory flush was done this compaction cycle */
   private memoryFlushDone = false;
 
@@ -137,6 +141,10 @@ export class ContextBuilder {
   }
 
   // ─── Setters for optional/late-bound dependencies ───
+
+  setKnowledgeGraphService(kg: KnowledgeGraphService): void {
+    this.knowledgeGraph = kg;
+  }
 
   setRAGService(rag: RAGService): void {
     this.rag = rag;
@@ -588,6 +596,16 @@ export class ContextBuilder {
       dailyMemory = await this.memory.get(todayKey) || '';
     }
 
+    // Knowledge Graph context — key entities and relations
+    let kgContext = '';
+    if (this.knowledgeGraph) {
+      try {
+        kgContext = this.knowledgeGraph.getContextSummary(15);
+      } catch (err) {
+        log.warn('Failed to build KG context:', err);
+      }
+    }
+
     return [
       '# KxAI System Context',
       '',
@@ -601,6 +619,7 @@ export class ContextBuilder {
       memoryContent,
       '',
       dailyMemory ? `## Today's Notes\n${dailyMemory}` : '',
+      kgContext ? `## Knowledge Graph (key entities)\n${kgContext}` : '',
     ].filter(Boolean).join('\n');
   }
 

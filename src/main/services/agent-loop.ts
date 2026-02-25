@@ -279,6 +279,10 @@ export class AgentLoop {
     this.heartbeatEngine.setScreenMonitor(monitor);
   }
 
+  setKnowledgeGraphService(kg: import('./knowledge-graph-service').KnowledgeGraphService): void {
+    this.contextBuilder.setKnowledgeGraphService(kg);
+  }
+
   /**
    * Set callback for heartbeat/AFK results (so they can be sent to UI).
    */

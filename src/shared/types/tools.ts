@@ -16,7 +16,8 @@ export type ToolCategory =
   | 'observation'
   | 'mcp'
   | 'calendar'
-  | 'privacy';
+  | 'privacy'
+  | 'knowledge';
 
 export interface ToolDefinition {
   name: string;

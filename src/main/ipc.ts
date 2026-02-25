@@ -29,6 +29,7 @@ import { McpClientService } from './services/mcp-client-service';
 import { CalendarService } from './services/calendar-service';
 import { PrivacyService } from './services/privacy-service';
 import { ClipboardService } from './services/clipboard-service';
+import { KnowledgeGraphService } from './services/knowledge-graph-service';
 
 const log = createLogger('IPC');
 
@@ -57,6 +58,7 @@ interface Services {
   calendarService: CalendarService;
   privacyService: PrivacyService;
   clipboardService: ClipboardService;
+  knowledgeGraphService: KnowledgeGraphService;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
@@ -1269,5 +1271,41 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   ipcMain.handle(Ch.CLIPBOARD_CLEAR_HISTORY, async () => {
     return clipboardService.clearHistory();
+  });
+
+  // ─── Knowledge Graph ───
+
+  const knowledgeGraphService = services.knowledgeGraphService;
+
+  validatedHandle(Ch.KG_SEARCH, async (_event, options: any) => {
+    return knowledgeGraphService.search(options ?? {});
+  });
+
+  validatedHandle(Ch.KG_ADD_ENTITY, async (_event, data: any) => {
+    return knowledgeGraphService.addEntity(data);
+  });
+
+  validatedHandle(Ch.KG_UPDATE_ENTITY, async (_event, id: string, updates: any) => {
+    return knowledgeGraphService.updateEntity(id, updates);
+  });
+
+  ipcMain.handle(Ch.KG_DELETE_ENTITY, async (_event, id: string) => {
+    return knowledgeGraphService.deleteEntity(id);
+  });
+
+  validatedHandle(Ch.KG_ADD_RELATION, async (_event, data: any) => {
+    return knowledgeGraphService.addRelation(data);
+  });
+
+  ipcMain.handle(Ch.KG_DELETE_RELATION, async (_event, id: string) => {
+    return knowledgeGraphService.deleteRelation(id);
+  });
+
+  ipcMain.handle(Ch.KG_GET_GRAPH, async (_event, entityId?: string, depth?: number) => {
+    return knowledgeGraphService.getGraph(entityId, depth);
+  });
+
+  ipcMain.handle(Ch.KG_GET_STATS, async () => {
+    return knowledgeGraphService.getStats();
   });
 }

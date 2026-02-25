@@ -42,6 +42,7 @@ import { FileIntelligenceService } from './file-intelligence';
 import { CalendarService } from './calendar-service';
 import { PrivacyService } from './privacy-service';
 import { ClipboardService } from './clipboard-service';
+import { KnowledgeGraphService } from './knowledge-graph-service';
 
 const log = createLogger('Container');
 
@@ -77,6 +78,7 @@ export interface ServiceMap {
   calendar: CalendarService;
   privacy: PrivacyService;
   clipboard: ClipboardService;
+  knowledgeGraph: KnowledgeGraphService;
 }
 
 export type ServiceKey = keyof ServiceMap;
@@ -110,6 +112,7 @@ export interface IPCServices {
   calendarService: CalendarService;
   privacyService: PrivacyService;
   clipboardService: ClipboardService;
+  knowledgeGraphService: KnowledgeGraphService;
 }
 
 export class ServiceContainer {
@@ -196,6 +199,7 @@ export class ServiceContainer {
     const calendar = new CalendarService(config);
     const privacy = new PrivacyService(database);
     const clipboardSvc = new ClipboardService();
+    const knowledgeGraph = new KnowledgeGraphService();
 
     this.set('memory', memory);
     this.set('ai', ai);
@@ -218,6 +222,7 @@ export class ServiceContainer {
     this.set('calendar', calendar);
     this.set('privacy', privacy);
     this.set('clipboard', clipboardSvc);
+    this.set('knowledgeGraph', knowledgeGraph);
     p();
 
     // ── Phase 3: Async initialization (parallelized — no cross-deps) ──
@@ -255,11 +260,15 @@ export class ServiceContainer {
     // Clipboard wiring
     clipboardSvc.setDependencies({ database, toolsService: tools, configService: config });
 
+    // Knowledge Graph wiring
+    knowledgeGraph.setDependencies({ database, toolsService: tools });
+
     // Agent loop — central orchestrator
     const agentLoop = new AgentLoop(ai, tools, cron, workflow, memory, config);
     agentLoop.setRAGService(rag);
     agentLoop.setAutomationService(automation);
     agentLoop.setScreenCaptureService(screenCapture);
+    agentLoop.setKnowledgeGraphService(knowledgeGraph);
     this.set('agentLoop', agentLoop);
 
     // Screen monitor ↔ screen capture
@@ -384,6 +393,10 @@ export class ServiceContainer {
     const clipboardSvc = this.get('clipboard');
     await clipboardSvc.initialize();
 
+    // Initialize Knowledge Graph
+    const knowledgeGraphSvc = this.get('knowledgeGraph');
+    await knowledgeGraphSvc.initialize();
+
     log.info(`Deferred services initialized in ${Date.now() - t0}ms`);
   }
 
@@ -403,6 +416,7 @@ export class ServiceContainer {
     this.trySync('cron', (s) => s.stopAll());
     this.trySync('updater', (s) => s.destroy());
     this.trySync('clipboard', (s) => s.shutdown());
+    this.trySync('knowledgeGraph', (s) => s.shutdown());
 
     // ── Phase 2: Close network connections ──
     await this.tryAsync('calendar', (s) => s.shutdown());
@@ -463,6 +477,7 @@ export class ServiceContainer {
       calendarService: this.get('calendar'),
       privacyService: this.get('privacy'),
       clipboardService: this.get('clipboard'),
+      knowledgeGraphService: this.get('knowledgeGraph'),
     };
   }
 

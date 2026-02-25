@@ -136,3 +136,16 @@ export type {
   PrivacyExportOptions,
   PrivacyDeleteOptions,
 } from './privacy';
+
+// Knowledge Graph
+export type {
+  KGEntityType,
+  KGSource,
+  KGEntity,
+  KGRelationType,
+  KGRelation,
+  KGSearchOptions,
+  KGSearchResult,
+  KGGraphResult,
+  KGStats,
+} from './knowledge-graph';

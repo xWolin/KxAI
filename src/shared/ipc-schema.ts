@@ -200,6 +200,16 @@ export const Ch = {
   CLIPBOARD_TOGGLE_PIN: 'clipboard:toggle-pin',
   CLIPBOARD_DELETE_ENTRY: 'clipboard:delete-entry',
   CLIPBOARD_CLEAR_HISTORY: 'clipboard:clear-history',
+
+  // Knowledge Graph
+  KG_SEARCH: 'kg:search',
+  KG_ADD_ENTITY: 'kg:add-entity',
+  KG_UPDATE_ENTITY: 'kg:update-entity',
+  KG_DELETE_ENTITY: 'kg:delete-entity',
+  KG_ADD_RELATION: 'kg:add-relation',
+  KG_DELETE_RELATION: 'kg:delete-relation',
+  KG_GET_GRAPH: 'kg:get-graph',
+  KG_GET_STATS: 'kg:get-stats',
 } as const;
 
 // ─── Send Channels (renderer → main, fire-and-forget) ───

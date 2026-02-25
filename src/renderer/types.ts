@@ -247,6 +247,33 @@ export interface KxAIBridge {
   clipboardTogglePin: (entryId: string) => Promise<boolean>;
   clipboardDeleteEntry: (entryId: string) => Promise<boolean>;
   clipboardClearHistory: () => Promise<number>;
+
+  // Knowledge Graph
+  kgSearch: (options: import('@shared/types').KGSearchOptions) => Promise<import('@shared/types').KGSearchResult>;
+  kgAddEntity: (data: {
+    name: string;
+    type: import('@shared/types').KGEntityType;
+    properties?: Record<string, any>;
+    confidence?: number;
+    source?: import('@shared/types').KGSource;
+  }) => Promise<import('@shared/types').KGEntity>;
+  kgUpdateEntity: (id: string, updates: {
+    name?: string;
+    properties?: Record<string, any>;
+    confidence?: number;
+    active?: boolean;
+  }) => Promise<import('@shared/types').KGEntity | null>;
+  kgDeleteEntity: (id: string) => Promise<boolean>;
+  kgAddRelation: (data: {
+    sourceId: string;
+    targetId: string;
+    relation: import('@shared/types').KGRelationType;
+    properties?: Record<string, any>;
+    strength?: number;
+  }) => Promise<import('@shared/types').KGRelation>;
+  kgDeleteRelation: (id: string) => Promise<boolean>;
+  kgGetGraph: (entityId?: string, depth?: number) => Promise<import('@shared/types').KGGraphResult>;
+  kgGetStats: () => Promise<import('@shared/types').KGStats>;
 }
 
 // ──────────────── Updates ────────────────

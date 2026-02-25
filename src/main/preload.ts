@@ -373,4 +373,14 @@ contextBridge.exposeInMainWorld('kxai', {
   clipboardTogglePin: (entryId: string) => ipcRenderer.invoke(Ch.CLIPBOARD_TOGGLE_PIN, entryId),
   clipboardDeleteEntry: (entryId: string) => ipcRenderer.invoke(Ch.CLIPBOARD_DELETE_ENTRY, entryId),
   clipboardClearHistory: () => ipcRenderer.invoke(Ch.CLIPBOARD_CLEAR_HISTORY),
+
+  // Knowledge Graph
+  kgSearch: (options: any) => ipcRenderer.invoke(Ch.KG_SEARCH, options),
+  kgAddEntity: (data: any) => ipcRenderer.invoke(Ch.KG_ADD_ENTITY, data),
+  kgUpdateEntity: (id: string, updates: any) => ipcRenderer.invoke(Ch.KG_UPDATE_ENTITY, id, updates),
+  kgDeleteEntity: (id: string) => ipcRenderer.invoke(Ch.KG_DELETE_ENTITY, id),
+  kgAddRelation: (data: any) => ipcRenderer.invoke(Ch.KG_ADD_RELATION, data),
+  kgDeleteRelation: (id: string) => ipcRenderer.invoke(Ch.KG_DELETE_RELATION, id),
+  kgGetGraph: (entityId?: string, depth?: number) => ipcRenderer.invoke(Ch.KG_GET_GRAPH, entityId, depth),
+  kgGetStats: () => ipcRenderer.invoke(Ch.KG_GET_STATS),
 });
