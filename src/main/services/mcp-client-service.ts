@@ -175,6 +175,32 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     transport: 'stdio',
     docsUrl: 'https://github.com/QuantGeekDev/docker-mcp',
   },
+  {
+    id: 'gmail',
+    name: 'Gmail',
+    description:
+      'Pełna integracja z Gmail — wysyłanie, czytanie, wyszukiwanie emaili, załączniki, etykiety, filtry, operacje batch. OAuth2 auto-auth.',
+    command: 'npx',
+    args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],
+    category: 'Komunikacja',
+    icon: '📧',
+    transport: 'stdio',
+    requiresSetup: true,
+    docsUrl: 'https://github.com/gongrzhe/server-gmail-autoauth-mcp',
+  },
+  {
+    id: 'outlook',
+    name: 'Microsoft Outlook',
+    description:
+      'Email, kalendarz, kontakty, zadania i Teams via Microsoft Graph API — pełna integracja z ekosystemem Microsoft 365.',
+    command: 'npx',
+    args: ['-y', 'outlook-mcp'],
+    category: 'Komunikacja',
+    icon: '📬',
+    transport: 'stdio',
+    requiresSetup: true,
+    docsUrl: 'https://github.com/asanstefanski/outlook-mcp',
+  },
 ];
 
 /** Active connection state for one MCP server */

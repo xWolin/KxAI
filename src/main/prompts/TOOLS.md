@@ -136,6 +136,32 @@ Kalendarz działa TYLKO gdy użytkownik skonfigurował połączenie CalDAV w Ust
 Jeśli nie ma połączenia, poinformuj użytkownika jak je dodać.
 </important>
 
+## 📧 Email (Gmail / Outlook via MCP)
+
+Agent może obsługiwać email przez MCP serwery — Gmail i Microsoft Outlook.
+
+<workflow>
+**"Sprawdź moje emaile"**
+Jeśli użytkownik nie ma podłączonego serwera email:
+`mcp_browse_registry` → pokaż opcje Gmail/Outlook → `mcp_add_and_connect` → gotowe
+
+Jeśli serwer email już podłączony (np. `mcp_gmail_*` narzędzia dostępne):
+`mcp_gmail_search_emails(query="is:unread")` → podsumuj nowe emaile
+
+**"Wyślij email do Jacka"**
+`mcp_gmail_send_email(to=["jack@example.com"], subject="...", body="...")`
+
+**"Znajdź emaile o fakturze z zeszłego miesiąca"**
+`mcp_gmail_search_emails(query="faktura after:2025/01/01 before:2025/02/01")`
+</workflow>
+
+<important>
+Email wymaga OAuth2 — użytkownik musi jednorazowo autoryzować dostęp.
+Dla Gmail: `npx @gongrzhe/server-gmail-autoauth-mcp auth` (otwiera przeglądarkę).
+Dla Outlook: wymaga Microsoft Graph API token (Azure AD).
+Poinformuj użytkownika o krokach konfiguracji gdy pierwszy raz pyta o email.
+</important>
+
 ## 🧠 Aktualizacja pamięci (Self-Learning)
 
 ```update_memory

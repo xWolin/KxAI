@@ -639,7 +639,7 @@ src/
 > Jedna implementacja daje dostęp do 2000+ istniejących serwerów — kalendarze, Gmail, Slack, Notion, GitHub, bazy danych, i więcej.
 
 ### Krok 8.1 — MCP Client Service ✅
-> **Zaimplementowano**: `mcp-client-service.ts` (~350 LOC) z `@modelcontextprotocol/sdk`. 3 typy transportu (Streamable HTTP, SSE, stdio). Auto-discover tools via `client.listTools()`. Auto-register w ToolsService z prefiksem `mcp_{server}_{tool}`. Curated registry 12 popularnych serwerów. Dashboard MCP Hub z grafem + rejestrem serwerów.
+> **Zaimplementowano**: `mcp-client-service.ts` (~350 LOC) z `@modelcontextprotocol/sdk`. 3 typy transportu (Streamable HTTP, SSE, stdio). Auto-discover tools via `client.listTools()`. Auto-register w ToolsService z prefiksem `mcp_{server}_{tool}`. Curated registry 14 popularnych serwerów (w tym Gmail i Outlook). Dashboard MCP Hub z grafem + rejestrem serwerów.
 
 - [x] `@modelcontextprotocol/sdk` zainstalowany ✅
 - [x] Shared types (`McpServerConfig`, `McpServerStatus`, `McpHubStatus`, `McpRegistryEntry`) ✅
@@ -649,7 +649,7 @@ src/
 - [x] IPC: 9 kanałów Ch.MCP_* + 1 event Ev.MCP_STATUS ✅
 - [x] ServiceContainer wiring (init Phase 5, shutdown Phase 2) ✅
 - [x] Dashboard: MCP Hub page + serwery w grafie agenta (`.graph-node--mcp`) ✅
-- [x] Curated registry: 12 serwerów (CalDAV, GitHub, Slack, Notion, Brave Search, etc.) ✅
+- [x] Curated registry: 14 serwerów (CalDAV, GitHub, Slack, Notion, Brave Search, Gmail, Outlook, etc.) ✅
 - [x] Env vars UI — konfiguracja API keys/env per serwer (Settings panel → zakładka 🔌 MCP) ✅
 - [ ] Auto-reconnect z exponential backoff
 - [ ] MCP server health monitoring (ping interval)
@@ -663,10 +663,14 @@ src/
 - [ ] Proaktywne: "Za 15 min masz spotkanie z Jackiem" (wymaga heartbeat integration)
 - [ ] Google OAuth 2.0 flow (BrowserWindow popup)
 
-### Krok 8.3 — Gmail / Email via MCP
-- [ ] Integracja z MCP server do email (IMAP lub Gmail API)
-- [ ] Agent może: czytać emaile, wysyłać odpowiedzi, szukać w skrzynce
-- [ ] Proaktywne: "Masz 3 nowe emaile od klienta X"
+### Krok 8.3 — Gmail / Email via MCP ✅
+> **Zaimplementowano**: Gmail (`@gongrzhe/server-gmail-autoauth-mcp`, 63K+ pobrań, 18 narzędzi) i Microsoft Outlook (`outlook-mcp`, Graph API) dodane do curated registry MCP. Agent prompt (TOOLS.md) zaktualizowany z workflow emailowym. Auto-rejestracja narzędzi `mcp_gmail_*` / `mcp_outlook_*` przez istniejący MCP framework. OAuth2 auto-auth dla Gmail, Microsoft Graph dla Outlook.
+
+- [x] Gmail MCP server w curated registry ✅ (`@gongrzhe/server-gmail-autoauth-mcp`)
+- [x] Outlook MCP server w curated registry ✅ (`outlook-mcp`)
+- [x] Agent może: czytać emaile, wysyłać, szukać, etykiety, filtry, batch ops ✅ (18 narzędzi Gmail)
+- [x] TOOLS.md zaktualizowany z email workflow i instrukcją konfiguracji ✅
+- [ ] Proaktywne: "Masz 3 nowe emaile od klienta X" (wymaga heartbeat integration)
 
 ### Krok 8.4 — Reminder Engine ✅
 > **Zaimplementowano**: 3 narzędzia AI: `set_reminder`, `list_reminders`, `cancel_reminder`. Naturalny język PL/EN do cron: "jutro o 9:00", "za 2 godziny", "w piątek o 15:30", "codziennie o 8:00", "2025-03-15 10:00". One-shot scheduling z auto-disable (`CronJob.oneShot` + `runAt`). Prompte zaktualizowane (RESOURCEFUL.md + TOOLS.md). CronService rozszerzony o `runAt`-based scheduling.
@@ -726,12 +730,12 @@ src/
 | 48 | Advanced tests (race, contracts) | 5.5 | ✅ |
 | 37 | Google Calendar (CalDAV) | 8.2 | ✅ |
 | 43 | Privacy & compliance (GDPR) | 7.5 | ✅ |
+| 38 | Gmail / Email via MCP | 8.3 | ✅ |
 
-### ⬜ Remaining (13 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (12 tasks) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
-| 38 | Gmail / Email via MCP | 8.3 | 🟢 Medium | 1 sesja | P3 |
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 |
 | 30 | Dashboard SPA refactor | 4.4 | 🟢 Medium | 1-2 sesje | P4 |
 | 31 | Rich interactions (D&D, highlight) | 4.5 | 🟢 Medium | 2 sesje | P4 |
