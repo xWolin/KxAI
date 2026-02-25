@@ -31,8 +31,9 @@ src/
 │   │   ├── calendar.ts     # CalendarConfig, CalendarEvent, CalendarStatus (Faza 8.2 ✅)
 │   │   ├── privacy.ts      # PrivacyDataSummary, PrivacyExportResult, PrivacyDeleteResult (Faza 7.5 ✅)
 │   │   ├── clipboard.ts    # ClipboardEntry, ClipboardContentType, ClipboardConfig, ClipboardStatus (Faza 6.1 ✅)
+│   │   ├── knowledge-graph.ts # KGEntity, KGRelation, KGSearchOptions, KGStats (Faza 6.3 ✅)
 │   │   ├── errors.ts       # KxAIError class, ErrorCode enum, ErrorSeverity (Faza 3.5 ✅)
-│   │   └── index.ts        # Barrel re-export (~90+ eksportowanych typów z 17 modułów)
+│   │   └── index.ts        # Barrel re-export (~95+ eksportowanych typów z 18 modułów)
 │   └── constants.ts        # Stałe (limity, domyślne wartości)
 │   └── ipc-schema.ts        # IPC channel/event constants: 119 Ch + 24 Ev + 2 ChSend = 145 kanały (Faza 3.1 ✅)
 │   └── schemas/
@@ -44,7 +45,7 @@ src/
 │   ├── ipc.ts              # IPC handlers with zod validation (validatedHandle) (Faza 3.1 ✅)
 │   ├── preload.ts          # Context bridge (window.kxai API)
 │   └── services/
-│       ├── service-container.ts # DI container: typed ServiceMap (28 kluczy), 6-phase init/shutdown (Faza 3.2 ✅)
+│       ├── service-container.ts # DI container: typed ServiceMap (31 kluczy), 6-phase init/shutdown (Faza 3.2 ✅)
 │       ├── ai-service.ts       # Multi-provider AI facade, streaming, vision, native FC (Faza 2.5 ✅)
 │       ├── providers/
 │       │   ├── openai-provider.ts   # OpenAI AIProvider implementation (Faza 2.5 ✅)
@@ -90,6 +91,7 @@ src/
 │       ├── calendar-service.ts  # CalDAV calendar integration: tsdav + node-ical (852 LOC, Faza 8.2 ✅)
 │       ├── privacy-service.ts   # GDPR compliance: data summary, export, deletion (Faza 7.5 ✅)
 │       ├── clipboard-service.ts # Smart Clipboard Pipeline: monitoring, history, content detection, AI tools (860 LOC, Faza 6.1 ✅)
+│       ├── knowledge-graph-service.ts # Knowledge Graph: SQLite entity-relation store, FTS5, BFS traversal, 6 AI tools (794 LOC, Faza 6.3 ✅)
 │       └── config.ts          # Configuration v2: Zod-validated, typed, reactive, debounced (Faza 3.6 ✅)
 ├── renderer/               # React frontend
 │   ├── App.tsx             # Routing z zustand stores (Faza 4.3 ✅)
@@ -132,7 +134,7 @@ src/
 - **Typy**: Używaj TypeScript strict mode; współdzielone typy w `src/shared/types/` (canonical source), re-exportowane w serwisach dla backward compat
 - **Path aliases**: `@shared/*` → `src/shared/*`, `@main/*` → `src/main/*`, `@renderer/*` → `src/renderer/*`
 - **IPC**: Kanały IPC definiowane jako stałe w `src/shared/ipc-schema.ts` (109 Ch + 24 Ev + 2 ChSend = 135 kanały). Każdy nowy handler dodaj w `ipc.ts` (1177 LOC) używając stałych, expose w `preload.ts`, typuj w `types.ts`. Parametry walidowane runtime z zod w `src/shared/schemas/ipc-params.ts` via `validatedHandle()` (54 schematy)
-- **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). ServiceMap ma 30 kluczy. Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
+- **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). ServiceMap ma 31 kluczy. Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
 - **State management**: Zustand stores w `src/renderer/stores/`. 4 stores: `useNavigationStore`, `useConfigStore`, `useAgentStore`, `useChatStore`. IPC event subscriptions scentralizowane w `useStoreInit`. Import: `import { useAgentStore } from '../stores'`
 - **Styling**: CSS Modules per-component (`*.module.css`), `cn()` utility, design tokens w `global.css` `:root`. Import: `import s from './Comp.module.css'`
 - **UI components**: Reusable atomic components w `src/renderer/components/ui/`. Import: `import { Button, Input, Badge } from '../ui'`. Nie duplikuj styli — użyj istniejących komponentów
@@ -555,14 +557,12 @@ src/
   Agent: [replay recorded workflow z podmienionymi parametrami]
   ```
 
-### Krok 6.3 — Knowledge Graph
-- [ ] Buduj graf wiedzy o użytkowniku:
-  - Osoby (kontakty, relacje, firmy)
-  - Projekty (technologie, deadlines, status)
-  - Preferencje (narzędzia, godziny pracy, style komunikacji)
-  - Nawyki (co robi o której, ile czasu na co)
-- [ ] SQLite + JSON-LD format
-- [ ] Agent "zna" użytkownika coraz lepiej z każdym dniem
+### Krok 6.3 — Knowledge Graph ✅
+> **Zaimplementowano**: `knowledge-graph-service.ts` (794 LOC) z SQLite storage. Tabele: `kg_entities` (id, name, type, properties JSON, confidence, source, first_seen, last_seen, mention_count, active) z FTS5 + triggers + indexes, `kg_relations` (id, source_id, target_id, relation, properties JSON, strength). 9 typów encji (person, project, technology, company, topic, place, event, habit, preference), 14 typów relacji. Upsert merge (addEntity merges properties + bumps mention_count). BFS graph traversal z depth limit. `getContextSummary()` — markdown context injection do ContextBuilder. 6 narzędzi AI: `kg_add_entity`, `kg_add_relation`, `kg_query`, `kg_get_connections`, `kg_update_entity`, `kg_delete_entity`. 8 kanałów IPC (KG_*). Typy w `shared/types/knowledge-graph.ts`. ServiceContainer wired (Phase 2 construct, Phase 5 deps, initDeferred).
+
+- [x] Buduj graf wiedzy o użytkowniku ✅ (SQLite entity-relation store)
+- [x] SQLite z FTS5 search + BFS graph traversal ✅
+- [x] Agent "zna" użytkownika coraz lepiej z każdym dniem ✅ (context injection via getContextSummary)
 
 ### Krok 6.4 — Proactive Intelligence Engine
 > Upgrade obecnego heartbeat do prawdziwego proaktywnego AI.
@@ -712,7 +712,7 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-### ✅ Ukończone (41/47)
+### ✅ Ukończone (42/47)
 
 | # | Zadanie | Faza | Status |
 |---|---------|------|--------|
@@ -756,14 +756,14 @@ src/
 | 39 | MCP Server Discovery | 8.5 | ✅ |
 | 31 | Rich interactions (D&D, highlight) | 4.5 | ✅ |
 | 30 | Dashboard SPA refactor | 4.4 | ✅ |
+| 34 | Knowledge Graph | 6.3 | ✅ |
 
-### ⬜ Remaining (6 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (5 tasks) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 |
 | 33 | Workflow Automator (Macro Recorder) | 6.2 | 🟡 High | 3-4 sesje | P4 |
-| 34 | Knowledge Graph | 6.3 | 🟡 High | 3-4 sesje | P4 |
 | 35 | Proactive Intelligence Engine | 6.4 | 🟡 High | 3-4 sesje | P4 |
 | 44 | Code signing + distribution | 7.6 | 🟢 Medium | 1 sesja | P4 |
 | 45-47 | CDP anti-detection, streaming, network | 1.4-1.5 | 🟢 Medium | 3 sesje | P4 |
