@@ -4,6 +4,7 @@ import { ChatPanel } from './components/ChatPanel';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { SettingsPanel } from './components/SettingsPanel';
 import { CronPanel } from './components/CronPanel';
+import { DashboardPanel } from './components/DashboardPanel';
 import { ProactiveNotification } from './components/ProactiveNotification';
 import { CoachingOverlay } from './components/CoachingOverlay';
 import { ErrorBoundary } from './components/ErrorBoundary';
@@ -93,6 +94,7 @@ export default function App() {
               onOpenSettings={() => navigateTo('settings')}
               onOpenCron={() => navigateTo('cron')}
               onOpenMeeting={() => navigateTo('meeting')}
+              onOpenDashboard={() => navigateTo('dashboard')}
               refreshTrigger={chatRefreshTrigger}
             />
           </ErrorBoundary>
@@ -110,6 +112,12 @@ export default function App() {
             <div style={{ display: view === 'meeting' ? 'contents' : 'none' }}>
               <CoachingOverlay config={config} onBack={() => navigateTo('chat')} />
             </div>
+          </ErrorBoundary>
+        )}
+
+        {view === 'dashboard' && (
+          <ErrorBoundary label="Dashboard">
+            <DashboardPanel onBack={() => navigateTo('chat')} />
           </ErrorBoundary>
         )}
 

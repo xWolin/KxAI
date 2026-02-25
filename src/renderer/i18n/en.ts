@@ -346,6 +346,43 @@ export const en: TranslationDict = {
   'meeting.idle.openDashboard': '📊 Open dashboard',
 
   // ═══════════════════════════════════════
+  // Dashboard
+  // ═══════════════════════════════════════
+  'dashboard.title': 'Dashboard',
+  'dashboard.overview.tools': 'Tools',
+  'dashboard.overview.cronActive': 'Active cron',
+  'dashboard.overview.ragFiles': 'RAG files',
+  'dashboard.overview.ragChunks': 'RAG chunks',
+  'dashboard.overview.agentState': 'Agent state',
+  'dashboard.overview.embedding': 'Embedding',
+  'dashboard.overview.battery': 'Battery',
+  'dashboard.tools.search': 'Search tool…',
+  'dashboard.tools.total': 'tools',
+  'dashboard.tools.params': 'params',
+  'dashboard.cron.empty': 'No cron jobs.',
+  'dashboard.cron.name': 'Name',
+  'dashboard.cron.schedule': 'Schedule',
+  'dashboard.cron.category': 'Category',
+  'dashboard.cron.status': 'Status',
+  'dashboard.cron.runs': 'Runs',
+  'dashboard.cron.enabled': 'Enabled',
+  'dashboard.cron.disabled': 'Disabled',
+  'dashboard.system.unavailable': 'System data unavailable.',
+  'dashboard.system.battery': 'Battery',
+  'dashboard.system.hostname': 'Host',
+  'dashboard.system.os': 'OS',
+  'dashboard.system.uptime': 'Uptime',
+  'dashboard.system.cores': 'cores',
+  'dashboard.system.disk': 'Disk',
+  'dashboard.mcp.connected': 'Connected',
+  'dashboard.mcp.total': 'Total',
+  'dashboard.mcp.tools': 'Tools',
+  'dashboard.mcp.empty': 'No MCP servers.',
+  'dashboard.mcp.disconnect': 'Disconnect',
+  'dashboard.mcp.connect': 'Connect',
+  'dashboard.activity.empty': 'No activity.',
+
+  // ═══════════════════════════════════════
   // ErrorBoundary
   // ═══════════════════════════════════════
   'error.title': 'Something went wrong',

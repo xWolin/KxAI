@@ -346,6 +346,43 @@ export const pl: TranslationDict = {
   'meeting.idle.openDashboard': '📊 Otwórz dashboard',
 
   // ═══════════════════════════════════════
+  // Dashboard
+  // ═══════════════════════════════════════
+  'dashboard.title': 'Dashboard',
+  'dashboard.overview.tools': 'Narzędzia',
+  'dashboard.overview.cronActive': 'Aktywne cron',
+  'dashboard.overview.ragFiles': 'Pliki RAG',
+  'dashboard.overview.ragChunks': 'Chunki RAG',
+  'dashboard.overview.agentState': 'Stan agenta',
+  'dashboard.overview.embedding': 'Embedding',
+  'dashboard.overview.battery': 'Bateria',
+  'dashboard.tools.search': 'Szukaj narzędzia…',
+  'dashboard.tools.total': 'narzędzi',
+  'dashboard.tools.params': 'param.',
+  'dashboard.cron.empty': 'Brak cron jobów.',
+  'dashboard.cron.name': 'Nazwa',
+  'dashboard.cron.schedule': 'Harmonogram',
+  'dashboard.cron.category': 'Kategoria',
+  'dashboard.cron.status': 'Status',
+  'dashboard.cron.runs': 'Uruchomienia',
+  'dashboard.cron.enabled': 'Aktywny',
+  'dashboard.cron.disabled': 'Wyłączony',
+  'dashboard.system.unavailable': 'Dane systemowe niedostępne.',
+  'dashboard.system.battery': 'Bateria',
+  'dashboard.system.hostname': 'Host',
+  'dashboard.system.os': 'System',
+  'dashboard.system.uptime': 'Uptime',
+  'dashboard.system.cores': 'rdzeni',
+  'dashboard.system.disk': 'Dysk',
+  'dashboard.mcp.connected': 'Połączonych',
+  'dashboard.mcp.total': 'Łącznie',
+  'dashboard.mcp.tools': 'Narzędzia',
+  'dashboard.mcp.empty': 'Brak serwerów MCP.',
+  'dashboard.mcp.disconnect': 'Rozłącz',
+  'dashboard.mcp.connect': 'Połącz',
+  'dashboard.activity.empty': 'Brak aktywności.',
+
+  // ═══════════════════════════════════════
   // ErrorBoundary
   // ═══════════════════════════════════════
   'error.title': 'Coś poszło nie tak',

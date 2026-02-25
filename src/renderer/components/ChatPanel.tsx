@@ -115,6 +115,7 @@ interface ChatPanelProps {
   onOpenSettings: () => void;
   onOpenCron: () => void;
   onOpenMeeting: () => void;
+  onOpenDashboard: () => void;
   refreshTrigger?: number;
 }
 
@@ -124,6 +125,7 @@ export function ChatPanel({
   onOpenSettings,
   onOpenCron,
   onOpenMeeting,
+  onOpenDashboard,
   refreshTrigger,
 }: ChatPanelProps) {
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
@@ -567,15 +569,8 @@ export function ChatPanel({
     setIsRecording(false);
   }
 
-  async function openDashboard() {
-    try {
-      const url = await window.kxai.getDashboardUrl();
-      if (url) {
-        window.open(url, '_blank');
-      }
-    } catch (err) {
-      console.error('[ChatPanel] Nie udało się otworzyć dashboardu:', err);
-    }
+  function openDashboard() {
+    onOpenDashboard();
   }
 
   function formatTime(timestamp: number): string {

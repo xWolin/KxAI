@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-export type View = 'widget' | 'chat' | 'settings' | 'onboarding' | 'cron' | 'meeting';
+export type View = 'widget' | 'chat' | 'settings' | 'onboarding' | 'cron' | 'meeting' | 'dashboard';
 
 interface NavigationState {
   view: View;
@@ -34,7 +34,9 @@ export const useNavigationStore = create<NavigationState>((set) => ({
       window.kxai.setClickThrough(true);
     } else {
       window.kxai.setClickThrough(false);
-      window.kxai.setWindowSize(420, 600);
+      // Dashboard needs wider window for grids/tables
+      const width = view === 'dashboard' ? 560 : 420;
+      window.kxai.setWindowSize(width, 600);
     }
     set({ view });
   },
