@@ -30,14 +30,18 @@ src/
 │   └── constants.ts        # Stałe (limity, domyślne wartości)
 │   └── ipc-schema.ts        # IPC channel/event constants (Ch, Ev, ChSend) (Faza 3.1 ✅)
 │   └── schemas/
-│       └── ai-responses.ts  # Zod schemas: ScreenAnalysis, CronSuggestion, MemoryUpdate, TakeControl (Faza 2.2 ✅)
+│       ├── ai-responses.ts  # Zod schemas: ScreenAnalysis, CronSuggestion, MemoryUpdate, TakeControl (Faza 2.2 ✅)
+│       └── ipc-params.ts    # Zod schemas for 47 IPC channel params + validatedHandle (Faza 3.1 ✅)
 ├── main/                   # Electron main process
 │   ├── main.ts             # Entry point, okno, tray, ServiceContainer init (Faza 3.2 ✅)
-│   ├── ipc.ts              # IPC handlers (bridge main ↔ renderer)
+│   ├── ipc.ts              # IPC handlers with zod validation (validatedHandle) (Faza 3.1 ✅)
 │   ├── preload.ts          # Context bridge (window.kxai API)
 │   └── services/
 │       ├── service-container.ts # DI container: typed ServiceMap, 6-phase init/shutdown (Faza 3.2 ✅)
-│       ├── ai-service.ts       # OpenAI + Anthropic SDK, streaming, vision, native FC
+│       ├── ai-service.ts       # Multi-provider AI facade, streaming, vision, native FC (Faza 2.5 ✅)
+│       ├── providers/
+│       │   ├── openai-provider.ts   # OpenAI AIProvider implementation (Faza 2.5 ✅)
+│       │   └── anthropic-provider.ts # Anthropic AIProvider implementation (Faza 2.5 ✅)
 │       ├── tool-schema-converter.ts # ToolDefinition[] → OpenAI/Anthropic format (Faza 2.1 ✅)
 │       ├── logger.ts           # Tagged logger: createLogger('Tag') (Quick Win ✅)
 │       ├── memory.ts           # Markdown-based pamięć (~userData/workspace/memory/)
@@ -76,8 +80,15 @@ src/
 │       ├── mcp-client-service.ts # MCP Client — connects to external MCP servers (Faza 8.1 ✅)
 │       └── config.ts          # Configuration persistence (async save — Faza 3.3 ✅)
 ├── renderer/               # React frontend
-│   ├── App.tsx             # Routing (widget/chat/settings/cron/onboarding/meeting)
+│   ├── App.tsx             # Routing z zustand stores (Faza 4.3 ✅)
 │   ├── types.ts            # KxAIBridge interface + renderer-only types
+│   ├── stores/              # Zustand state management (Faza 4.3 ✅)
+│   │   ├── useNavigationStore.ts  # View routing + window resize side-effects
+│   │   ├── useConfigStore.ts      # Config, proactive msgs, API key flags
+│   │   ├── useAgentStore.ts       # Agent status, control, companion, RAG progress
+│   │   ├── useChatStore.ts        # Messages, streaming, input state
+│   │   ├── useStoreInit.ts        # Centralized IPC event subscriptions
+│   │   └── index.ts               # Barrel export
 │   ├── components/
 │   │   ├── FloatingWidget.tsx      # Draggable widget z manual drag detection
 │   │   ├── ChatPanel.tsx           # Czat z AI, streaming, screenshot
@@ -86,9 +97,17 @@ src/
 │   │   ├── OnboardingWizard.tsx    # Onboarding flow
 │   │   ├── ProactiveNotification.tsx # Proactive message popup
 │   │   ├── CoachingOverlay.tsx     # Meeting coach overlay
-│   │   └── ErrorBoundary.tsx       # React error boundary per-view (Faza 3.5 ✅)
+│   │   ├── ErrorBoundary.tsx       # React error boundary per-view (Faza 3.5 ✅)
+│   │   └── ui/                     # Atomic component library (Faza 4.2 ✅)
+│   │       ├── ui.module.css       # Shared CSS module for all UI components
+│   │       ├── Button.tsx          # Variants: primary/secondary/danger/ghost/icon
+│   │       ├── Input.tsx, Select.tsx, Textarea.tsx, Toggle.tsx
+│   │       ├── Label.tsx, Badge.tsx, Spinner.tsx, ProgressBar.tsx
+│   │       ├── Section.tsx, PanelHeader.tsx, Tabs.tsx, EmojiPicker.tsx
+│   │       ├── EmptyState.tsx      # Placeholder with icon/title/subtitle
+│   │       └── index.ts            # Barrel export
 │   └── styles/
-│       └── global.css      # Wszystkie style (futuristic dark theme)
+│       └── global.css      # Design tokens + animations (futuristic dark theme)
 ```
 
 ## Konwencje
@@ -96,9 +115,11 @@ src/
 - **Język**: Komunikaty UI i komentarze w kodzie po polsku tam gdzie to naturalne (UX), nazwy zmiennych/typów po angielsku
 - **Typy**: Używaj TypeScript strict mode; współdzielone typy w `src/shared/types/` (canonical source), re-exportowane w serwisach dla backward compat
 - **Path aliases**: `@shared/*` → `src/shared/*`, `@main/*` → `src/main/*`, `@renderer/*` → `src/renderer/*`
-- **IPC**: Kanały IPC definiowane jako stałe w `src/shared/ipc-schema.ts` (Ch/Ev/ChSend). Każdy nowy handler dodaj w `ipc.ts` używając stałych, expose w `preload.ts`, typuj w `types.ts`
+- **IPC**: Kanały IPC definiowane jako stałe w `src/shared/ipc-schema.ts` (Ch/Ev/ChSend). Każdy nowy handler dodaj w `ipc.ts` używając stałych, expose w `preload.ts`, typuj w `types.ts`. Parametry walidowane runtime z zod w `src/shared/schemas/ipc-params.ts` via `validatedHandle()`
 - **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
+- **State management**: Zustand stores w `src/renderer/stores/`. 4 stores: `useNavigationStore`, `useConfigStore`, `useAgentStore`, `useChatStore`. IPC event subscriptions scentralizowane w `useStoreInit`. Import: `import { useAgentStore } from '../stores'`
 - **Styling**: CSS Modules per-component (`*.module.css`), `cn()` utility, design tokens w `global.css` `:root`. Import: `import s from './Comp.module.css'`
+- **UI components**: Reusable atomic components w `src/renderer/components/ui/`. Import: `import { Button, Input, Badge } from '../ui'`. Nie duplikuj styli — użyj istniejących komponentów
 - **AI models**: OpenAI używa `max_completion_tokens` (nie `max_tokens`); GPT-5+ używa roli `developer` zamiast `system`
 - **Tool calling**: Native function calling (OpenAI tools API / Anthropic tool_use) domyślnie włączone (`config.useNativeFunctionCalling`). Fallback na ```tool bloki gdy wyłączone.
 - **Cron suggestions**: AI outputuje ```cron\n{JSON}\n``` bloki, agent-loop parsuje i proponuje użytkownikowi
@@ -170,7 +191,7 @@ GitHub Actions workflow (`.github/workflows/build.yml`) buduje na 3 platformach:
 
 ### P5: Frontend — jeden plik CSS (global.css), brak component library ✅ CZĘŚCIOWO ROZWIĄZANO
 - **Problem**: Skalowanie UI jest trudne, brak design system
-- **Rozwiązanie**: Faza 4.1 ✅ — CSS Modules per-component (8 plików `*.module.css`), `cn()` utility, design tokens w `:root`. Monolityczny `global.css` (2846→181 linii). Component library (4.2) i state management (4.3) do zrobienia.
+- **Rozwiązanie**: Faza 4.1 ✅ — CSS Modules per-component (8 plików `*.module.css`), `cn()` utility, design tokens w `:root`. Monolityczny `global.css` (2846→181 linii). Component library (4.2) ✅ i state management (4.3) ✅.
 
 ### P6: Brak error boundaries i crash reporting ✅ CZĘŚCIOWO ROZWIĄZANO
 - **Problem**: Uncaught error = biały ekran, brak telemetrii
@@ -302,26 +323,21 @@ src/
 - [x] Incremental indexing z `mtime` tracking persystowany w SQLite ✅ (rag_folders table)
 - [ ] Streaming chunking — nie ładuj całego pliku do RAM, streamuj i chunkuj (przyszła iteracja)
 
-### Krok 2.5 — Multi-provider AI abstraction
-- [ ] Stwórz `AIProvider` interface:
-  ```typescript
-  interface AIProvider {
-    chat(messages: Message[], options: ChatOptions): AsyncGenerator<ChatChunk>;
-    embed(texts: string[]): Promise<number[][]>;
-    vision(message: string, image: string): Promise<string>;
-    supportedFeatures: Set<'function-calling' | 'vision' | 'streaming' | 'structured-output'>;
-  }
-  ```
-- [ ] Implementacje: `OpenAIProvider`, `AnthropicProvider`
-- [ ] Hot-swap providerów bez restartu
-- [ ] Cost tracking per provider per session
+### Krok 2.5 — Multi-provider AI abstraction ✅
+> **Zaimplementowano**: `AIProvider` interface w `src/shared/types/ai-provider.ts`. Implementacje: `OpenAIProvider` (GPT-5 developer role, max_completion_tokens, tool call delta accumulation) i `AnthropicProvider` (system message extraction, prompt caching, Computer Use beta). `ai-service.ts` z `providers: Map<string, AIProvider>`, `activeProvider`, hot-swap bez restartu. Cost tracking per provider per session. Backward compatible — all 10 consumers unchanged.
+
+- [x] `AIProvider` interface z chat, streamChat, chatWithVision, streamWithTools, continueWithToolResults ✅
+- [x] `OpenAIProvider` implementation ✅
+- [x] `AnthropicProvider` implementation ✅
+- [x] Hot-swap providerów bez restartu ✅
+- [x] Cost tracking per provider per session ✅
 
 ### Krok 2.6 — Agent Loop v2 — Modularization ✅
 > **Zaimplementowano**: Agent loop rozbity na 6 wyodrębnionych modułów w `src/main/services/`. Orchestrator (`agent-loop.ts`) deleguje do: `tool-executor.ts`, `response-processor.ts`, `context-builder.ts`, `heartbeat-engine.ts`, `take-control-engine.ts`, `cron-executor.ts`. Moduły mają własne odpowiedzialności, łatwo testowalne.
 
 - [x] Rozbij na modularną architekturę ✅ (6 modułów wyodrębnionych)
 - [ ] EventEmitter-based communication między modułami (przyszła iteracja)
-- [ ] Cancellation via `AbortController` (zamiast custom `cancelProcessing` flag)
+- [ ] Cancellation via `AbortController` (zamiast custom `cancelProcessing` flag) ✅ częściowo (AbortController dodany, refaktor w toku)
 - [x] Parallel tool execution gdy AI requestuje multiple tools ✅ (via native FC)
 
 ---
@@ -335,7 +351,7 @@ src/
 - [x] Migracja `ipc.ts` — 74 handlery na stałe Ch.* ✅
 - [x] Migracja `preload.ts` — 74+ wywołań na stałe Ch.*/Ev.*/ChSend.* ✅
 - [x] Migracja `main.ts` — eventy na stałe Ev.* ✅
-- [ ] Runtime validation parametrów IPC via zod schemas (przyszła iteracja)
+- [x] Runtime validation parametrów IPC via zod schemas ✅ (`src/shared/schemas/ipc-params.ts`, 47 kanałów, `validatedHandle()` wrapper)
 - [ ] Pełny codegen bridge z typami (przyszła iteracja)
 
 ### Krok 3.2 — Service Container / Dependency Injection ✅
@@ -397,45 +413,22 @@ src/
 - [x] Design tokens (CSS custom properties) zachowane w global.css `:root` ✅
 - [ ] Dark/Light theme via CSS custom properties (przyszła iteracja)
 
-### Krok 4.2 — Component library
-- [ ] Wyodrębnij reusable components:
-  ```
-  renderer/components/
-  ├── ui/                    # Atomic components
-  │   ├── Button.tsx
-  │   ├── Input.tsx
-  │   ├── Modal.tsx
-  │   ├── Toast.tsx
-  │   ├── Tooltip.tsx
-  │   ├── Badge.tsx
-  │   ├── Spinner.tsx
-  │   └── Card.tsx
-  ├── chat/                  # Chat-specific
-  │   ├── ChatPanel.tsx
-  │   ├── MessageBubble.tsx
-  │   ├── StreamingIndicator.tsx
-  │   ├── ToolCallDisplay.tsx
-  │   └── InputBar.tsx
-  ├── dashboard/             # Dashboard widgets
-  │   ├── AgentStatusBar.tsx
-  │   ├── CronPanel.tsx
-  │   ├── RAGPanel.tsx
-  │   └── SystemMonitor.tsx
-  └── layout/                # Layout components
-      ├── FloatingWidget.tsx
-      ├── PanelHeader.tsx
-      └── NavigationTabs.tsx
-  ```
+### Krok 4.2 — Component library ✅
+> **Zaimplementowano**: 15 plików w `src/renderer/components/ui/`. Shared CSS module (`ui.module.css`) z wszystkimi wariantami. Components: Button (5 variants, 3 sizes, loading/active/fullWidth), Input, Select, Textarea, Toggle, Label+Hint+FormGroup, Badge (5 variants), Spinner, ProgressBar, EmptyState, Section+Card+StatCard, PanelHeader (2 modes), Tabs, EmojiPicker. Barrel export via `index.ts`.
 
-### Krok 4.3 — State management
-- [ ] Wprowadź lekki state management (zamiast prop drilling):
-  - Opcja A: `zustand` (minimal, TS-friendly)
-  - Opcja B: React Context + useReducer (zero dependency)
-  - **Rekomendacja**: zustand — stores:
-    - `useChatStore` — messages, streaming state, input
-    - `useConfigStore` — config, reactive updates
-    - `useAgentStore` — agent status, sub-agents, tools
-    - `useMeetingStore` — meeting state, transcripts, coaching
+- [x] Wyodrębnij reusable atomic components ✅ (15 plików)
+- [x] Button variants: primary/secondary/danger/ghost/icon ✅
+- [x] Form components: Input, Select, Textarea, Toggle, Label ✅
+- [x] Display: Badge, Spinner, ProgressBar, EmptyState ✅
+- [x] Layout: Section, Card, StatCard, PanelHeader, Tabs ✅
+
+### Krok 4.3 — State management ✅
+> **Zaimplementowano**: Zustand z 4 stores + `useStoreInit` hook. `useNavigationStore` (view routing + window resize side-effects), `useConfigStore` (config, proactive msgs, API key flags), `useAgentStore` (agent status, control, companion, RAG progress, meeting), `useChatStore` (messages, streaming, input). Centralized IPC event subscriptions w `useStoreInit`. App.tsx zredukowany z 237→130 linii. ChatPanel zmigrated — agentStatus/ragProgress z global store.
+
+- [x] 4 zustand stores + useStoreInit ✅
+- [x] Refaktor App.tsx — 10 useState → store selectors ✅
+- [x] ChatPanel — agentStatus i ragProgress z global store ✅
+- [x] IPC event listeners scentralizowane w useStoreInit ✅
 
 ### Krok 4.4 — Dashboard SPA refactor
 > **Problem**: Dashboard to single HTML file (dashboard-spa.html) z inline JS.
@@ -665,17 +658,17 @@ src/
 | 17 | OpenClaw 2.0 context upgrade | — | 🟡 High | 1 sesja | P1 | ✅ Done |
 | 18 | CI quality gate | 5.4 | 🟢 Medium | 1 sesja | P2 | ✅ Done (partial) |
 | — | — **REMAINING** — | — | — | — | — | — |
-| 19 | Multi-provider AI abstraction | 2.5 | 🟡 High | 1-2 sesje | P2 | ⬜ |
+| 19 | Multi-provider AI abstraction | 2.5 | 🟡 High | 1-2 sesje | P2 | ✅ Done |
 | 20 | Configuration v2 (electron-store + reactive) | 3.6 | 🟡 High | 1 sesja | P2 | ⬜ |
 | 21 | AbortController cancellation | 2.6 | 🟢 Medium | 1 sesja | P2 | ⬜ |
-| 22 | IPC runtime validation (zod) | 3.1 | 🟢 Medium | 1 sesja | P3 | ⬜ |
+| 22 | IPC runtime validation (zod) | 3.1 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
 | 23 | ToolLoopDetector tests | 5.1 | 🟡 High | 1 sesja | P2 | ⬜ |
-| 24 | Integration tests | 5.2 | 🟡 High | 2 sesje | P3 | ⬜ |
+| 24 | Integration tests | 5.2 | 🟡 High | 2 sesje | P3 | ✅ Done (45) |
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 | ⬜ |
 | 26 | CI coverage gate + semantic release | 5.4 | 🟢 Medium | 1 sesja | P3 | ⬜ |
 | 27 | lint-staged + husky | 0.2 | 🟢 Medium | 1 sesja | P3 | ⬜ |
-| 28 | Component library (ui/) | 4.2 | 🟡 High | 2 sesje | P3 | ⬜ |
-| 29 | State management (zustand) | 4.3 | 🟡 High | 1 sesja | P3 | ⬜ |
+| 28 | Component library (ui/) | 4.2 | 🟡 High | 2 sesje | P3 | ✅ Done |
+| 29 | State management (zustand) | 4.3 | 🟡 High | 1 sesja | P3 | ✅ Done |
 | 30 | Dashboard SPA refactor | 4.4 | 🟢 Medium | 1-2 sesje | P4 | ⬜ |
 | 31 | Rich interactions (D&D, highlight, shortcuts) | 4.5 | 🟢 Medium | 2 sesje | P4 | ⬜ |
 | 32 | Smart Clipboard Pipeline | 6.1 | 🟢 Medium | 1-2 sesje | P4 | ⬜ |
