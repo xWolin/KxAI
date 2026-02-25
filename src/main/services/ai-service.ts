@@ -13,11 +13,14 @@ import {
   type NativeToolStreamResult,
 } from './tool-schema-converter';
 import type { ToolDefinition } from '../../shared/types/tools';
+import type { AIProvider, ProviderCostEntry } from '../../shared/types/ai-provider';
 import {
   ScreenAnalysisSchema,
   buildOpenAIJsonSchema,
   type ScreenAnalysisResult,
 } from '../../shared/schemas/ai-responses';
+import { OpenAIProvider } from './providers/openai-provider';
+import { AnthropicProvider } from './providers/anthropic-provider';
 import { createLogger } from './logger';
 import { v4 as uuidv4 } from 'uuid';
 
@@ -79,6 +82,10 @@ export class AIService {
   private retryHandler: RetryHandler;
   private promptService: PromptService;
 
+  // ─── Multi-provider support ───
+  private providers: Map<string, AIProvider> = new Map();
+  private activeProvider: AIProvider | null = null;
+
   constructor(config: ConfigService, security: SecurityService, memoryService?: MemoryService) {
     this.config = config;
     this.security = security;
@@ -86,6 +93,10 @@ export class AIService {
     this.contextManager = new ContextManager();
     this.retryHandler = createAIRetryHandler();
     this.promptService = new PromptService();
+
+    // Register providers
+    this.providers.set('openai', new OpenAIProvider());
+    this.providers.set('anthropic', new AnthropicProvider());
 
     // Auto-configure context window for the current model
     const model = this.config.get('aiModel') || 'gpt-5';
@@ -99,6 +110,11 @@ export class AIService {
   async reinitialize(): Promise<void> {
     this.openaiClient = null;
     this.anthropicClient = null;
+    // Reset all providers
+    for (const provider of this.providers.values()) {
+      provider.reset();
+    }
+    this.activeProvider = null;
     await this.initializeClient();
     // Reconfigure context window for potentially new model
     const model = this.config.get('aiModel') || 'gpt-5';
@@ -106,15 +122,26 @@ export class AIService {
   }
 
   private async initializeClient(): Promise<void> {
-    const provider = this.config.get('aiProvider') || 'openai';
+    const providerName = this.config.get('aiProvider') || 'openai';
 
-    if (provider === 'openai') {
+    // Initialize the active provider via AIProvider interface
+    const provider = this.providers.get(providerName);
+    if (provider) {
+      const apiKey = await this.security.getApiKey(providerName as 'openai' | 'anthropic');
+      if (apiKey) {
+        await provider.initialize(apiKey);
+        this.activeProvider = provider;
+      }
+    }
+
+    // Also keep legacy clients for backward compat during migration
+    if (providerName === 'openai') {
       const apiKey = await this.security.getApiKey('openai');
       if (apiKey) {
         const OpenAI = require('openai').default;
         this.openaiClient = new OpenAI({ apiKey });
       }
-    } else if (provider === 'anthropic') {
+    } else if (providerName === 'anthropic') {
       const apiKey = await this.security.getApiKey('anthropic');
       if (apiKey) {
         const Anthropic = require('@anthropic-ai/sdk').default;
@@ -131,6 +158,48 @@ export class AIService {
     if (provider === 'anthropic' && !this.anthropicClient) {
       await this.initializeClient();
     }
+  }
+
+  /**
+   * Get the active AI provider instance.
+   * Ensures initialization if needed.
+   */
+  async getProvider(): Promise<AIProvider> {
+    if (!this.activeProvider || !this.activeProvider.isReady()) {
+      await this.initializeClient();
+    }
+    if (!this.activeProvider) {
+      throw new Error('Brak skonfigurowanego providera AI. Sprawdź klucz API w ustawieniach.');
+    }
+    return this.activeProvider;
+  }
+
+  /**
+   * Get the current provider name.
+   */
+  getProviderName(): string {
+    return this.config.get('aiProvider') || 'openai';
+  }
+
+  /**
+   * Get cost tracking data from the active provider.
+   */
+  getCostLog(): ProviderCostEntry[] {
+    return this.activeProvider?.getCostLog() ?? [];
+  }
+
+  /**
+   * Get cost tracking from all providers.
+   */
+  getAllCostLogs(): Record<string, ProviderCostEntry[]> {
+    const logs: Record<string, ProviderCostEntry[]> = {};
+    for (const [name, provider] of this.providers) {
+      const log = provider.getCostLog();
+      if (log.length > 0) {
+        logs[name] = log;
+      }
+    }
+    return logs;
   }
 
   /**
@@ -166,14 +235,15 @@ export class AIService {
     userMessage: string,
     screenshotBase64: string,
     systemContextOverride?: string,
-    detail: 'low' | 'high' | 'auto' = 'auto'
+    detail: 'low' | 'high' | 'auto' = 'auto',
   ): Promise<string> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
     const model = this.config.get('aiModel') || 'gpt-5';
     const systemRole = this.getSystemRole(model);
-    const systemContext = systemContextOverride
-      ?? (this.memoryService
+    const systemContext =
+      systemContextOverride ??
+      (this.memoryService
         ? await this.memoryService.buildSystemContext()
         : 'You are KxAI, a helpful personal AI assistant.');
 
@@ -223,13 +293,15 @@ export class AIService {
         model,
         max_tokens: 2048,
         system: systemContext,
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'text', text: userMessage },
-            { type: 'image', source: { type: 'base64', media_type: `image/${mediaType}`, data } },
-          ],
-        }],
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'text', text: userMessage },
+              { type: 'image', source: { type: 'base64', media_type: `image/${mediaType}`, data } },
+            ],
+          },
+        ],
       });
       return response.content[0]?.type === 'text' ? response.content[0].text : '';
     }
@@ -240,7 +312,7 @@ export class AIService {
     userMessage: string,
     extraContext?: string,
     systemContextOverride?: string,
-    options?: { skipHistory?: boolean }
+    options?: { skipHistory?: boolean },
   ): Promise<string> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
@@ -248,22 +320,19 @@ export class AIService {
     const skipHistory = options?.skipHistory ?? false;
 
     // Build system context from memory (or use override from agent-loop)
-    const systemContext = systemContextOverride
-      ?? (this.memoryService
+    const systemContext =
+      systemContextOverride ??
+      (this.memoryService
         ? await this.memoryService.buildSystemContext()
         : 'You are KxAI, a helpful personal AI assistant.');
 
     // Build optimized conversation history via ContextManager
-    const fullHistory = this.memoryService
-      ? this.memoryService.getRecentContext(100)
-      : [];
+    const fullHistory = this.memoryService ? this.memoryService.getRecentContext(100) : [];
     const systemTokens = this.contextManager.estimateTokens(systemContext);
     const contextWindow = this.contextManager.buildContextWindow(fullHistory, systemTokens);
 
     const systemRole = this.getSystemRole(model);
-    const messages: AIMessage[] = [
-      { role: systemRole, content: systemContext },
-    ];
+    const messages: AIMessage[] = [{ role: systemRole, content: systemContext }];
 
     // Inject context summary if messages were dropped
     if (contextWindow.summary) {
@@ -279,9 +348,7 @@ export class AIService {
     }
 
     // Add current message with optional context
-    const fullMessage = extraContext
-      ? `${userMessage}\n\n--- Kontekst ---\n${extraContext}`
-      : userMessage;
+    const fullMessage = extraContext ? `${userMessage}\n\n--- Kontekst ---\n${extraContext}` : userMessage;
 
     messages.push({ role: 'user', content: fullMessage });
 
@@ -329,9 +396,7 @@ export class AIService {
         return response.content[0]?.type === 'text' ? response.content[0].text : '';
       });
     } else {
-      throw new Error(
-        'Brak skonfigurowanego klucza API. Przejdź do Ustawień i dodaj klucz API.'
-      );
+      throw new Error('Brak skonfigurowanego klucza API. Przejdź do Ustawień i dodaj klucz API.');
     }
 
     // Store response in history (skip for internal heartbeat/background calls)
@@ -367,7 +432,7 @@ export class AIService {
     if (provider === 'openai' && this.openaiClient) {
       const content: any[] = [
         { type: 'text', text: userMessage },
-        ...images.map(img => ({
+        ...images.map((img) => ({
           type: 'image_url',
           image_url: {
             url: img.base64Data.startsWith('data:')
@@ -389,13 +454,12 @@ export class AIService {
         temperature: 0.3,
       });
       return response.choices[0]?.message?.content || '';
-
     } else if (provider === 'anthropic' && this.anthropicClient) {
       const content: any[] = [
         { type: 'text', text: userMessage },
-        ...images.map(img => {
+        ...images.map((img) => {
           const validMediaTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const;
-          type AnthropicMediaType = typeof validMediaTypes[number];
+          type AnthropicMediaType = (typeof validMediaTypes)[number];
           const rawType = img.mediaType || 'image/png';
           const mediaType: AnthropicMediaType = validMediaTypes.includes(rawType as AnthropicMediaType)
             ? (rawType as AnthropicMediaType)
@@ -418,7 +482,6 @@ export class AIService {
         messages: [{ role: 'user', content }],
       });
       return response.content[0]?.type === 'text' ? response.content[0].text : '';
-
     } else {
       throw new Error('Brak klucza API dla vision.');
     }
@@ -429,22 +492,21 @@ export class AIService {
     extraContext?: string,
     onChunk?: (chunk: string) => void,
     systemContextOverride?: string,
-    options?: { skipHistory?: boolean }
+    options?: { skipHistory?: boolean },
   ): Promise<void> {
     const skipHistory = options?.skipHistory ?? false;
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
     const model = this.config.get('aiModel') || 'gpt-5';
 
-    const systemContext = systemContextOverride
-      ?? (this.memoryService
+    const systemContext =
+      systemContextOverride ??
+      (this.memoryService
         ? await this.memoryService.buildSystemContext()
         : 'You are KxAI, a helpful personal AI assistant.');
 
     // Build optimized history via ContextManager
-    const fullHistory = this.memoryService
-      ? this.memoryService.getRecentContext(100)
-      : [];
+    const fullHistory = this.memoryService ? this.memoryService.getRecentContext(100) : [];
     const systemTokens = this.contextManager.estimateTokens(systemContext);
     const contextWindow = this.contextManager.buildContextWindow(fullHistory, systemTokens);
 
@@ -462,9 +524,7 @@ export class AIService {
       });
     }
 
-    const fullMessage = extraContext
-      ? `${userMessage}\n\n--- Kontekst ---\n${extraContext}`
-      : userMessage;
+    const fullMessage = extraContext ? `${userMessage}\n\n--- Kontekst ---\n${extraContext}` : userMessage;
 
     messages.push({ role: 'user', content: fullMessage });
 
@@ -559,20 +619,19 @@ export class AIService {
     const model = this.config.get('aiModel') || 'gpt-5';
 
     // Resolve system context — accept both string and StructuredContext
-    const structuredCtx = typeof systemContextOverride === 'object' && systemContextOverride !== null
-      ? systemContextOverride as StructuredContext
-      : null;
+    const structuredCtx =
+      typeof systemContextOverride === 'object' && systemContextOverride !== null
+        ? (systemContextOverride as StructuredContext)
+        : null;
     const systemContext = structuredCtx
       ? structuredCtx.full
-      : (systemContextOverride as string | undefined)
-        ?? (this.memoryService
+      : ((systemContextOverride as string | undefined) ??
+        (this.memoryService
           ? await this.memoryService.buildSystemContext()
-          : 'You are KxAI, a helpful personal AI assistant.');
+          : 'You are KxAI, a helpful personal AI assistant.'));
 
     // Build optimized history via ContextManager
-    const fullHistory = this.memoryService
-      ? this.memoryService.getRecentContext(100)
-      : [];
+    const fullHistory = this.memoryService ? this.memoryService.getRecentContext(100) : [];
     const systemTokens = this.contextManager.estimateTokens(systemContext);
     const contextWindow = this.contextManager.buildContextWindow(fullHistory, systemTokens);
 
@@ -590,9 +649,7 @@ export class AIService {
       });
     }
 
-    const fullMessage = extraContext
-      ? `${userMessage}\n\n--- Kontekst ---\n${extraContext}`
-      : userMessage;
+    const fullMessage = extraContext ? `${userMessage}\n\n--- Kontekst ---\n${extraContext}` : userMessage;
 
     messages.push({ role: 'user', content: fullMessage });
 
@@ -728,7 +785,6 @@ export class AIService {
       } else if (text) {
         messages.push({ role: 'assistant', content: text });
       }
-
     } else if (provider === 'anthropic' && this.anthropicClient) {
       const anthropicTools = toAnthropicTools(tools);
 
@@ -780,7 +836,10 @@ export class AIService {
             try {
               args = JSON.parse(currentToolUse.inputJson || '{}');
             } catch {
-              console.warn(`[AIService] Failed to parse Anthropic tool input for ${currentToolUse.name}:`, currentToolUse.inputJson);
+              console.warn(
+                `[AIService] Failed to parse Anthropic tool input for ${currentToolUse.name}:`,
+                currentToolUse.inputJson,
+              );
             }
             toolCalls.push({ id: currentToolUse.id, name: currentToolUse.name, arguments: args });
             currentToolUse = null;
@@ -804,7 +863,6 @@ export class AIService {
       if (assistantContent.length > 0) {
         messages.push({ role: 'assistant', content: assistantContent });
       }
-
     } else {
       throw new Error(`Klient AI nie jest zainicjalizowany (provider: ${provider}). Sprawdź klucz API w ustawieniach.`);
     }
@@ -815,7 +873,7 @@ export class AIService {
   async streamMessageWithScreenshots(
     userMessage: string,
     screenshots: ScreenshotData[],
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
   ): Promise<void> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
@@ -851,10 +909,7 @@ export class AIService {
           { role: systemRole, content: systemContext },
           {
             role: 'user',
-            content: [
-              { type: 'text', text: userMessage },
-              ...imageContents,
-            ],
+            content: [{ type: 'text', text: userMessage }, ...imageContents],
           },
         ],
         ...this.openaiTokenParam(4096),
@@ -889,10 +944,7 @@ export class AIService {
         messages: [
           {
             role: 'user',
-            content: [
-              { type: 'text', text: userMessage },
-              ...imageContents,
-            ],
+            content: [{ type: 'text', text: userMessage }, ...imageContents],
           },
         ],
       });
@@ -926,9 +978,7 @@ export class AIService {
 
     if (!this.config.get('proactiveMode')) return null;
 
-    const systemContext = this.memoryService
-      ? await this.memoryService.buildSystemContext()
-      : '';
+    const systemContext = this.memoryService ? await this.memoryService.buildSystemContext() : '';
 
     const screenAnalysisPrompt = await this.promptService.load('SCREEN_ANALYSIS.md');
     const analysisPrompt = `${screenAnalysisPrompt}\n\n${systemContext}`;
@@ -947,10 +997,7 @@ export class AIService {
             { role: systemRole, content: analysisPrompt },
             {
               role: 'user',
-              content: [
-                { type: 'text', text: 'Przeanalizuj bieżące zrzuty ekranu:' },
-                ...imageContents,
-              ],
+              content: [{ type: 'text', text: 'Przeanalizuj bieżące zrzuty ekranu:' }, ...imageContents],
             },
           ],
           ...this.openaiTokenParam(1024),
@@ -986,16 +1033,12 @@ export class AIService {
           messages: [
             {
               role: 'user',
-              content: [
-                { type: 'text', text: 'Przeanalizuj bieżące zrzuty ekranu:' },
-                ...imageContents,
-              ],
+              content: [{ type: 'text', text: 'Przeanalizuj bieżące zrzuty ekranu:' }, ...imageContents],
             },
           ],
         });
 
-        const text =
-          response.content[0]?.type === 'text' ? response.content[0].text : '{}';
+        const text = response.content[0]?.type === 'text' ? response.content[0].text : '{}';
         // Use non-greedy regex to match the first JSON object (avoid greedy match across multiple braces)
         const jsonMatch = text.match(/\{[\s\S]*?\}/);
         if (!jsonMatch) {
@@ -1016,10 +1059,7 @@ export class AIService {
     return null;
   }
 
-  async organizeFiles(
-    directory: string,
-    rules?: any
-  ): Promise<{ moved: string[]; summary: string }> {
+  async organizeFiles(directory: string, rules?: any): Promise<{ moved: string[]; summary: string }> {
     // Basic file organization (can be enhanced)
     const fs = require('fs');
     const p = require('path');
@@ -1082,9 +1122,7 @@ export class AIService {
 
     return {
       moved,
-      summary: moved.length > 0
-        ? `Uporządkowano ${moved.length} plików.`
-        : 'Brak plików do uporządkowania.',
+      summary: moved.length > 0 ? `Uporządkowano ${moved.length} plików.` : 'Brak plików do uporządkowania.',
     };
   }
 
@@ -1117,7 +1155,7 @@ export class AIService {
   /**
    * Send a Computer Use API request and parse the response into structured steps.
    * Uses Anthropic's native beta.messages API with computer tool.
-   * 
+   *
    * @param systemPrompt - System context for the agent
    * @param messages - Conversation history (user/assistant turns)
    * @param displayWidth - Screenshot width in pixels (should be ≤1024)
@@ -1128,7 +1166,7 @@ export class AIService {
     systemPrompt: string,
     messages: ComputerUseMessage[],
     displayWidth: number,
-    displayHeight: number
+    displayHeight: number,
   ): Promise<ComputerUseStep[]> {
     await this.ensureClient();
     if (!this.anthropicClient) {
@@ -1251,7 +1289,7 @@ export class AIService {
         } else if (content.type === 'tool_result' && Array.isArray(content.content)) {
           // Replace images inside tool_result
           content.content = content.content.map((c: any) =>
-            c.type === 'image' ? { type: 'text', text: '[Screenshot removed]' } : c
+            c.type === 'image' ? { type: 'text', text: '[Screenshot removed]' } : c,
           );
         }
       }

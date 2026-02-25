@@ -7,6 +7,21 @@
 // AI & Conversations
 export type { ConversationMessage, ProactiveMessage } from './ai';
 
+// AI Provider abstraction
+export type {
+  AIProvider,
+  AIProviderFeature,
+  ChatMessage,
+  ChatOptions,
+  ChatResponse,
+  VisionImage,
+  ToolCallResult,
+  ToolResultEntry,
+  ComputerUseConfig,
+  ComputerUseStepResult,
+  ProviderCostEntry,
+} from './ai-provider';
+
 // Configuration
 export type { KxAIConfig, OnboardingData } from './config';
 
@@ -33,7 +48,16 @@ export type { AuditEntry, SecurityStats } from './security';
 export type { TTSConfig } from './tts';
 
 // System
-export type { SystemSnapshot, CpuInfo, MemoryInfo, DiskInfo, BatteryInfo, NetworkInfo, SystemInfo, ProcessInfo } from './system';
+export type {
+  SystemSnapshot,
+  CpuInfo,
+  MemoryInfo,
+  DiskInfo,
+  BatteryInfo,
+  NetworkInfo,
+  SystemInfo,
+  ProcessInfo,
+} from './system';
 
 // Meeting
 export type {
