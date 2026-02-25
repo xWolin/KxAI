@@ -92,6 +92,7 @@ src/
 │       ├── privacy-service.ts   # GDPR compliance: data summary, export, deletion (Faza 7.5 ✅)
 │       ├── clipboard-service.ts # Smart Clipboard Pipeline: monitoring, history, content detection, AI tools (860 LOC, Faza 6.1 ✅)
 │       ├── knowledge-graph-service.ts # Knowledge Graph: SQLite entity-relation store, FTS5, BFS traversal, 6 AI tools (794 LOC, Faza 6.3 ✅)
+│       ├── proactive-engine.ts  # Proactive Intelligence Engine: rule-based notifications, context fusion, learning loop (814 LOC, Faza 6.4 ✅)
 │       └── config.ts          # Configuration v2: Zod-validated, typed, reactive, debounced (Faza 3.6 ✅)
 ├── renderer/               # React frontend
 │   ├── App.tsx             # Routing z zustand stores (Faza 4.3 ✅)
@@ -134,7 +135,7 @@ src/
 - **Typy**: Używaj TypeScript strict mode; współdzielone typy w `src/shared/types/` (canonical source), re-exportowane w serwisach dla backward compat
 - **Path aliases**: `@shared/*` → `src/shared/*`, `@main/*` → `src/main/*`, `@renderer/*` → `src/renderer/*`
 - **IPC**: Kanały IPC definiowane jako stałe w `src/shared/ipc-schema.ts` (109 Ch + 24 Ev + 2 ChSend = 135 kanały). Każdy nowy handler dodaj w `ipc.ts` (1177 LOC) używając stałych, expose w `preload.ts`, typuj w `types.ts`. Parametry walidowane runtime z zod w `src/shared/schemas/ipc-params.ts` via `validatedHandle()` (54 schematy)
-- **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). ServiceMap ma 31 kluczy. Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
+- **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). ServiceMap ma 32 kluczy. Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
 - **State management**: Zustand stores w `src/renderer/stores/`. 4 stores: `useNavigationStore`, `useConfigStore`, `useAgentStore`, `useChatStore`. IPC event subscriptions scentralizowane w `useStoreInit`. Import: `import { useAgentStore } from '../stores'`
 - **Styling**: CSS Modules per-component (`*.module.css`), `cn()` utility, design tokens w `global.css` `:root`. Import: `import s from './Comp.module.css'`
 - **UI components**: Reusable atomic components w `src/renderer/components/ui/`. Import: `import { Button, Input, Badge } from '../ui'`. Nie duplikuj styli — użyj istniejących komponentów
@@ -564,20 +565,19 @@ src/
 - [x] SQLite z FTS5 search + BFS graph traversal ✅
 - [x] Agent "zna" użytkownika coraz lepiej z każdym dniem ✅ (context injection via getContextSummary)
 
-### Krok 6.4 — Proactive Intelligence Engine
-> Upgrade obecnego heartbeat do prawdziwego proaktywnego AI.
+### Krok 6.4 — Proactive Intelligence Engine ✅
+> **Zaimplementowano**: `proactive-engine.ts` (814 LOC) z rule-based notification engine. 10 wbudowanych reguł: meeting-reminder (P10), low-battery (P9), disk-full (P8), high-cpu (P7), no-network (P7), high-memory (P6), daily-briefing (P6), focus-break (P5), evening-summary (P4), weekend-chill (P2). Context fusion z 6+ źródeł: kalendarz (upcoming+today events), system health (snapshot+warnings), screen monitor (context+currentWindow), Knowledge Graph (summary), workflow (timeContext), pamięć (session duration). Per-rule cooldowns (5min do 22h). Learning loop: feedbackMap tracks fired/accepted/dismissed per rule, suppresses rules dismissed >85% po 5+ próbkach. Active hours enforcement + AFK awareness. Konfigurowalne via `config.proactiveIntervalMs` (default 60s). IPC: PROACTIVE_FEEDBACK, PROACTIVE_GET_STATS + zod validation. ProactiveNotification.tsx: feedback z ruleId na dismiss/reply.
 
-- [ ] **Context Fusion**: łączenie informacji z:
-  - Ekranu (T0/T1/T2 monitoring)
-  - Kalendarza (ICS import lub Google Calendar API)
-  - Emaila (IMAP/Gmail API — opt-in)
-  - Pogody/news (RSS/API)
-  - System state (battery, disk, processes)
-- [ ] **Predictive Actions**:
-  - "Za 15 minut masz spotkanie z Jackiem — przygotowałem briefing"
-  - "Twój dysk ma 5% wolnego miejsca — mam posprzątać temp files?"
-  - "Pracujesz nad bug #342 od 3h — może spojrzysz na problem z innej strony?"
-- [ ] **Learning Loop**: agent uczy się kiedy user appreciates sugestie vs. ignoruje
+- [x] **Context Fusion**: łączenie informacji z: ✅
+  - Ekranu (T0/T1/T2 monitoring) ✅
+  - Kalendarza (CalDAV) ✅
+  - System state (battery, disk, CPU, RAM, network) ✅
+  - Knowledge Graph (entity summary) ✅
+  - Workflow (time context, session duration) ✅
+- [x] **Predictive Actions**: 10 reguł z priorytetami + cooldowns ✅
+- [x] **Learning Loop**: accept/dismiss tracking per rule, auto-suppress ✅
+- [ ] Email/pogoda/news context fusion (przyszła iteracja)
+- [ ] AI-generated briefings (przyszła iteracja)
 
 ### ~~Krok 6.5 — Local LLM Support (Ollama)~~ ❌ USUNIĘTY
 > **Decyzja**: Usunięty z planu. Lokalne modele LLM wymagają GPU z min. 8-16 GB VRAM — większość użytkowników nie ma takiego sprzętu. Koszt implementacji nie uzasadnia wąskiej grupy odbiorców. Cloud-only (OpenAI + Anthropic) to właściwa strategia dla desktop agenta.
@@ -712,7 +712,7 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-### ✅ Ukończone (42/47)
+### ✅ Ukończone (43/47)
 
 | # | Zadanie | Faza | Status |
 |---|---------|------|--------|
@@ -757,14 +757,14 @@ src/
 | 31 | Rich interactions (D&D, highlight) | 4.5 | ✅ |
 | 30 | Dashboard SPA refactor | 4.4 | ✅ |
 | 34 | Knowledge Graph | 6.3 | ✅ |
+| 35 | Proactive Intelligence Engine | 6.4 | ✅ |
 
-### ⬜ Remaining (5 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (4 tasks) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 |
 | 33 | Workflow Automator (Macro Recorder) | 6.2 | 🟡 High | 3-4 sesje | P4 |
-| 35 | Proactive Intelligence Engine | 6.4 | 🟡 High | 3-4 sesje | P4 |
 | 44 | Code signing + distribution | 7.6 | 🟢 Medium | 1 sesja | P4 |
 | 45-47 | CDP anti-detection, streaming, network | 1.4-1.5 | 🟢 Medium | 3 sesje | P4 |
 
