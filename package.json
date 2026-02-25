@@ -31,6 +31,7 @@
     "test:coverage": "vitest run --coverage",
     "test:env": "vitest run tests/environment/ --reporter=verbose",
     "test:security": "vitest run tests/environment/security.test.ts --reporter=verbose",
+    "test:e2e": "npm run build && npx playwright test --config=e2e/playwright.config.ts",
     "preflight": "npm run test:env && npm run typecheck && npm run format:check",
     "audit:prod": "npm audit --omit=dev",
     "start": "electron .",
@@ -60,6 +61,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@playwright/test": "^1.58.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/dompurify": "^3.0.5",
     "@types/express": "^5.0.6",

@@ -18,6 +18,11 @@ import { createLogger } from './services/logger';
 
 const log = createLogger('Main');
 
+// ─── E2E Test Support: custom userData directory ───
+if (process.env.KXAI_USER_DATA) {
+  app.setPath('userData', process.env.KXAI_USER_DATA);
+}
+
 // ─── Global error handlers ───
 process.on('unhandledRejection', (reason, promise) => {
   log.error('Unhandled promise rejection:', { reason, promise });
