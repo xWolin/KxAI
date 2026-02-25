@@ -79,6 +79,16 @@ export interface KxAIBridge {
   getWorkflowPatterns: () => Promise<WorkflowPattern[]>;
   getTimeContext: () => Promise<string>;
 
+  // Workflow Automator (Macros)
+  listMacros: () => Promise<WorkflowMacro[]>;
+  getMacro: (macroId: string) => Promise<WorkflowMacro | null>;
+  deleteMacro: (macroId: string) => Promise<boolean>;
+  renameMacro: (macroId: string, newName: string) => Promise<boolean>;
+  getMacroRecordingState: () => Promise<WorkflowRecordingState>;
+  startMacroRecording: (name: string) => Promise<{ success: boolean; error?: string }>;
+  stopMacroRecording: (description?: string) => Promise<WorkflowMacro | null>;
+  replayMacro: (macroId: string, params?: string, stopOnError?: boolean) => Promise<WorkflowReplayResult>;
+
   // RAG / Semantic Search
   ragSearch: (query: string, topK?: number) => Promise<{ success: boolean; data?: RAGSearchResult[]; error?: string }>;
   ragReindex: () => Promise<{ success: boolean; data?: RAGStats; error?: string }>;
@@ -605,6 +615,55 @@ export interface BackgroundTaskInfo {
   id: string;
   task: string;
   elapsed: number;
+}
+
+// ──────────────── Workflow Automator (Macros) ────────────────
+export interface WorkflowStep {
+  index: number;
+  toolName: string;
+  params: Record<string, unknown>;
+  success: boolean;
+  resultSummary?: string;
+  durationMs: number;
+  timestamp: string;
+}
+
+export interface WorkflowMacroParam {
+  name: string;
+  description: string;
+  defaultValue: string;
+  references: Array<{ stepIndex: number; paramKey: string }>;
+}
+
+export interface WorkflowMacro {
+  id: string;
+  name: string;
+  description?: string;
+  source: 'recording' | 'import' | 'ai-generated';
+  steps: WorkflowStep[];
+  createdAt: string;
+  lastRunAt?: string;
+  runCount: number;
+  tags: string[];
+  parameters: WorkflowMacroParam[];
+}
+
+export interface WorkflowReplayResult {
+  macroId: string;
+  macroName: string;
+  success: boolean;
+  stepsExecuted: number;
+  stepsTotal: number;
+  results: Array<{ step: number; toolName: string; success: boolean; result?: string; error?: string }>;
+  totalDurationMs: number;
+  stoppedReason?: string;
+}
+
+export interface WorkflowRecordingState {
+  isRecording: boolean;
+  macroName?: string;
+  stepsRecorded: number;
+  startedAt?: string;
 }
 
 declare global {

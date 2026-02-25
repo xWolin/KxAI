@@ -134,6 +134,19 @@ const ToolsExecuteParams = z.tuple([nonEmptyString, z.record(z.string(), z.any()
 
 const WorkflowGetActivityParams = z.tuple([optionalPositiveInt]);
 
+// ─── Workflow Automator (Macros) ───
+
+const MacroGetParams = z.tuple([nonEmptyString]);
+const MacroDeleteParams = z.tuple([nonEmptyString]);
+const MacroRenameParams = z.tuple([nonEmptyString, nonEmptyString]);
+const MacroStartRecordingParams = z.tuple([nonEmptyString]);
+const MacroStopRecordingParams = z.tuple([optionalString]);
+const MacroReplayParams = z.tuple([
+  nonEmptyString,
+  optionalString,
+  z.boolean().optional(),
+]);
+
 // ─── RAG ───
 
 const RagSearchParams = z.tuple([nonEmptyString, optionalPositiveInt]);
@@ -306,6 +319,14 @@ export const IpcParamSchemas: Partial<Record<string, z.ZodType>> = {
 
   // Workflow
   [Ch.WORKFLOW_GET_ACTIVITY]: WorkflowGetActivityParams,
+
+  // Workflow Automator (Macros)
+  [Ch.MACRO_GET]: MacroGetParams,
+  [Ch.MACRO_DELETE]: MacroDeleteParams,
+  [Ch.MACRO_RENAME]: MacroRenameParams,
+  [Ch.MACRO_START_RECORDING]: MacroStartRecordingParams,
+  [Ch.MACRO_STOP_RECORDING]: MacroStopRecordingParams,
+  [Ch.MACRO_REPLAY]: MacroReplayParams,
 
   // RAG
   [Ch.RAG_SEARCH]: RagSearchParams,

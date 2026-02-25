@@ -44,6 +44,7 @@ import { PrivacyService } from './privacy-service';
 import { ClipboardService } from './clipboard-service';
 import { KnowledgeGraphService } from './knowledge-graph-service';
 import { ProactiveEngine } from './proactive-engine';
+import { WorkflowAutomator } from './workflow-automator';
 
 const log = createLogger('Container');
 
@@ -81,6 +82,7 @@ export interface ServiceMap {
   clipboard: ClipboardService;
   knowledgeGraph: KnowledgeGraphService;
   proactiveEngine: ProactiveEngine;
+  workflowAutomator: WorkflowAutomator;
 }
 
 export type ServiceKey = keyof ServiceMap;
@@ -116,6 +118,7 @@ export interface IPCServices {
   clipboardService: ClipboardService;
   knowledgeGraphService: KnowledgeGraphService;
   proactiveEngine: ProactiveEngine;
+  workflowAutomator: WorkflowAutomator;
 }
 
 export class ServiceContainer {
@@ -204,6 +207,7 @@ export class ServiceContainer {
     const clipboardSvc = new ClipboardService();
     const knowledgeGraph = new KnowledgeGraphService();
     const proactiveEngine = new ProactiveEngine({ workflow, memory, config });
+    const workflowAutomator = new WorkflowAutomator();
 
     this.set('memory', memory);
     this.set('ai', ai);
@@ -228,6 +232,7 @@ export class ServiceContainer {
     this.set('clipboard', clipboardSvc);
     this.set('knowledgeGraph', knowledgeGraph);
     this.set('proactiveEngine', proactiveEngine);
+    this.set('workflowAutomator', workflowAutomator);
     p();
 
     // ── Phase 3: Async initialization (parallelized — no cross-deps) ──
@@ -267,6 +272,11 @@ export class ServiceContainer {
 
     // Knowledge Graph wiring
     knowledgeGraph.setDependencies({ database, toolsService: tools });
+
+    // Workflow Automator wiring
+    workflowAutomator.setToolExecutor(tools.execute.bind(tools));
+    workflowAutomator.registerTools(tools.register.bind(tools));
+    tools.setToolExecutedCallback(workflowAutomator.getToolExecutedCallback());
 
     // Proactive Engine wiring (optional deps set here, started by IPC toggle)
     proactiveEngine.setCalendarService(calendar);
@@ -492,6 +502,7 @@ export class ServiceContainer {
       clipboardService: this.get('clipboard'),
       knowledgeGraphService: this.get('knowledgeGraph'),
       proactiveEngine: this.get('proactiveEngine'),
+      workflowAutomator: this.get('workflowAutomator'),
     };
   }
 

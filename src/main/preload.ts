@@ -109,6 +109,16 @@ contextBridge.exposeInMainWorld('kxai', {
   getWorkflowPatterns: () => ipcRenderer.invoke(Ch.WORKFLOW_GET_PATTERNS),
   getTimeContext: () => ipcRenderer.invoke(Ch.WORKFLOW_GET_TIME_CONTEXT),
 
+  // Workflow Automator (Macros)
+  listMacros: () => ipcRenderer.invoke(Ch.MACRO_LIST),
+  getMacro: (macroId: string) => ipcRenderer.invoke(Ch.MACRO_GET, macroId),
+  deleteMacro: (macroId: string) => ipcRenderer.invoke(Ch.MACRO_DELETE, macroId),
+  renameMacro: (macroId: string, newName: string) => ipcRenderer.invoke(Ch.MACRO_RENAME, macroId, newName),
+  getMacroRecordingState: () => ipcRenderer.invoke(Ch.MACRO_RECORDING_STATE),
+  startMacroRecording: (name: string) => ipcRenderer.invoke(Ch.MACRO_START_RECORDING, name),
+  stopMacroRecording: (description?: string) => ipcRenderer.invoke(Ch.MACRO_STOP_RECORDING, description),
+  replayMacro: (macroId: string, params?: string, stopOnError?: boolean) => ipcRenderer.invoke(Ch.MACRO_REPLAY, macroId, params, stopOnError),
+
   // RAG / Semantic Search
   ragSearch: (query: string, topK?: number) => ipcRenderer.invoke(Ch.RAG_SEARCH, query, topK),
   ragReindex: () => ipcRenderer.invoke(Ch.RAG_REINDEX),

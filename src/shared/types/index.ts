@@ -32,7 +32,15 @@ export type { ToolDefinition, ToolResult, ToolCategory } from './tools';
 export type { CronJob, CronExecution } from './cron';
 
 // Workflow
-export type { ActivityEntry, WorkflowPattern } from './workflow';
+export type {
+  ActivityEntry,
+  WorkflowPattern,
+  WorkflowStep,
+  WorkflowMacro,
+  WorkflowMacroParam,
+  WorkflowReplayResult,
+  WorkflowRecordingState,
+} from './workflow';
 
 // RAG
 export type { RAGChunk, RAGSearchResult, RAGSearchResultFlat, RAGFolderInfo, RAGStats, IndexProgress } from './rag';

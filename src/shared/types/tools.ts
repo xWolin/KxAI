@@ -17,7 +17,8 @@ export type ToolCategory =
   | 'mcp'
   | 'calendar'
   | 'privacy'
-  | 'knowledge';
+  | 'knowledge'
+  | 'workflow';
 
 export interface ToolDefinition {
   name: string;

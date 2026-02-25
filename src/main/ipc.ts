@@ -31,6 +31,7 @@ import { PrivacyService } from './services/privacy-service';
 import { ClipboardService } from './services/clipboard-service';
 import { KnowledgeGraphService } from './services/knowledge-graph-service';
 import { ProactiveEngine } from './services/proactive-engine';
+import { WorkflowAutomator } from './services/workflow-automator';
 
 const log = createLogger('IPC');
 
@@ -61,6 +62,7 @@ interface Services {
   clipboardService: ClipboardService;
   knowledgeGraphService: KnowledgeGraphService;
   proactiveEngine: ProactiveEngine;
+  workflowAutomator: WorkflowAutomator;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
@@ -634,6 +636,49 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   ipcMain.handle(Ch.WORKFLOW_GET_TIME_CONTEXT, async () => {
     return workflowService.buildTimeContext();
+  });
+
+  // ──────────────── Workflow Automator (Macros) ────────────────
+  const { workflowAutomator } = services;
+
+  ipcMain.handle(Ch.MACRO_LIST, async () => {
+    return workflowAutomator.listMacros();
+  });
+
+  validatedHandle(Ch.MACRO_GET, async (_event, macroId: string) => {
+    return workflowAutomator.getMacro(macroId);
+  });
+
+  validatedHandle(Ch.MACRO_DELETE, async (_event, macroId: string) => {
+    return workflowAutomator.deleteMacro(macroId);
+  });
+
+  validatedHandle(Ch.MACRO_RENAME, async (_event, macroId: string, newName: string) => {
+    return workflowAutomator.renameMacro(macroId, newName);
+  });
+
+  ipcMain.handle(Ch.MACRO_RECORDING_STATE, async () => {
+    return workflowAutomator.getRecordingState();
+  });
+
+  validatedHandle(Ch.MACRO_START_RECORDING, async (_event, name: string) => {
+    return workflowAutomator.startRecording(name);
+  });
+
+  validatedHandle(Ch.MACRO_STOP_RECORDING, async (_event, description?: string) => {
+    return workflowAutomator.stopRecording(description);
+  });
+
+  validatedHandle(Ch.MACRO_REPLAY, async (_event, macroId: string, params?: string, stopOnError?: boolean) => {
+    let overrides: Record<string, string> | undefined;
+    if (params) {
+      try {
+        overrides = typeof params === 'string' ? JSON.parse(params) : params;
+      } catch {
+        return { success: false, error: 'Nieprawidłowy JSON w parametrze "params"' };
+      }
+    }
+    return workflowAutomator.replay(macroId, overrides, stopOnError !== false);
   });
 
   // ──────────────── RAG ────────────────

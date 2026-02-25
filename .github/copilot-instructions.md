@@ -35,17 +35,17 @@ src/
 │   │   ├── errors.ts       # KxAIError class, ErrorCode enum, ErrorSeverity (Faza 3.5 ✅)
 │   │   └── index.ts        # Barrel re-export (~95+ eksportowanych typów z 18 modułów)
 │   └── constants.ts        # Stałe (limity, domyślne wartości)
-│   └── ipc-schema.ts        # IPC channel/event constants: 119 Ch + 24 Ev + 2 ChSend = 145 kanały (Faza 3.1 ✅)
+│   └── ipc-schema.ts        # IPC channel/event constants: 127 Ch + 24 Ev + 2 ChSend = 153 kanały (Faza 3.1 ✅)
 │   └── schemas/
 │       ├── ai-responses.ts  # Zod schemas: ScreenAnalysis, CronSuggestion, MemoryUpdate, TakeControl (Faza 2.2 ✅)
 │       ├── config-schema.ts  # Zod schema for KxAIConfig — single source of truth (Faza 3.6 ✅)
-│       └── ipc-params.ts    # Zod schemas for 54 IPC channel params + validatedHandle (Faza 3.1 ✅)
+│       └── ipc-params.ts    # Zod schemas for 60 IPC channel params + validatedHandle (Faza 3.1 ✅)
 ├── main/                   # Electron main process
 │   ├── main.ts             # Entry point, okno, tray, ServiceContainer init (Faza 3.2 ✅)
 │   ├── ipc.ts              # IPC handlers with zod validation (validatedHandle) (Faza 3.1 ✅)
 │   ├── preload.ts          # Context bridge (window.kxai API)
 │   └── services/
-│       ├── service-container.ts # DI container: typed ServiceMap (31 kluczy), 6-phase init/shutdown (Faza 3.2 ✅)
+│       ├── service-container.ts # DI container: typed ServiceMap (33 kluczy), 6-phase init/shutdown (Faza 3.2 ✅)
 │       ├── ai-service.ts       # Multi-provider AI facade, streaming, vision, native FC (Faza 2.5 ✅)
 │       ├── providers/
 │       │   ├── openai-provider.ts   # OpenAI AIProvider implementation (Faza 2.5 ✅)
@@ -93,6 +93,7 @@ src/
 │       ├── clipboard-service.ts # Smart Clipboard Pipeline: monitoring, history, content detection, AI tools (860 LOC, Faza 6.1 ✅)
 │       ├── knowledge-graph-service.ts # Knowledge Graph: SQLite entity-relation store, FTS5, BFS traversal, 6 AI tools (794 LOC, Faza 6.3 ✅)
 │       ├── proactive-engine.ts  # Proactive Intelligence Engine: rule-based notifications, context fusion, learning loop (814 LOC, Faza 6.4 ✅)
+│       ├── workflow-automator.ts # Workflow Automator: macro recording, replay with param substitution, 5 AI tools (~480 LOC, Faza 6.2 ✅)
 │       └── config.ts          # Configuration v2: Zod-validated, typed, reactive, debounced (Faza 3.6 ✅)
 ├── renderer/               # React frontend
 │   ├── App.tsx             # Routing z zustand stores (Faza 4.3 ✅)
@@ -135,7 +136,7 @@ src/
 - **Typy**: Używaj TypeScript strict mode; współdzielone typy w `src/shared/types/` (canonical source), re-exportowane w serwisach dla backward compat
 - **Path aliases**: `@shared/*` → `src/shared/*`, `@main/*` → `src/main/*`, `@renderer/*` → `src/renderer/*`
 - **IPC**: Kanały IPC definiowane jako stałe w `src/shared/ipc-schema.ts` (109 Ch + 24 Ev + 2 ChSend = 135 kanały). Każdy nowy handler dodaj w `ipc.ts` (1177 LOC) używając stałych, expose w `preload.ts`, typuj w `types.ts`. Parametry walidowane runtime z zod w `src/shared/schemas/ipc-params.ts` via `validatedHandle()` (54 schematy)
-- **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). ServiceMap ma 32 kluczy. Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
+- **DI**: Serwisy rejestrowane w `ServiceContainer` (`service-container.ts`). ServiceMap ma 33 kluczy. Dostęp: `container.get('nazwa')`. Nowe serwisy dodaj do `ServiceMap` + `init()` + `shutdown()`
 - **State management**: Zustand stores w `src/renderer/stores/`. 4 stores: `useNavigationStore`, `useConfigStore`, `useAgentStore`, `useChatStore`. IPC event subscriptions scentralizowane w `useStoreInit`. Import: `import { useAgentStore } from '../stores'`
 - **Styling**: CSS Modules per-component (`*.module.css`), `cn()` utility, design tokens w `global.css` `:root`. Import: `import s from './Comp.module.css'`
 - **UI components**: Reusable atomic components w `src/renderer/components/ui/`. Import: `import { Button, Input, Badge } from '../ui'`. Nie duplikuj styli — użyj istniejących komponentów
@@ -548,15 +549,16 @@ src/
 - [ ] AI enrichment: URL → auto-summary, code → explain (przyszła iteracja)
 - [ ] "Paste with AI" — Ctrl+Shift+V transformacja (przyszła iteracja)
 
-### Krok 6.2 — Workflow Automator (Macro Recorder)
-- [ ] Nagrywaj sekwencje akcji użytkownika:
-  - Kliknięcia, keyboard input, nawigacja, tool calls
-  - AI analizuje i generuje powtarzalny "workflow script"
-- [ ] Replay z parametryzacją:
-  ```
-  User: "Zrób to samo co wczoraj z raportem, ale dla Q2"
-  Agent: [replay recorded workflow z podmienionymi parametrami]
-  ```
+### Krok 6.2 — Workflow Automator (Macro Recorder) ✅
+> **Zaimplementowano**: `workflow-automator.ts` (~480 LOC) z nagrywaniem i odtwarzaniem makr narzędziowych. Recording via `onToolExecuted` callback hook w `ToolsService.execute()`. 5 narzędzi AI: `macro_start`, `macro_stop`, `macro_list`, `macro_replay`, `macro_delete`. Automatyczne wykrywanie parametrów (powtarzające się wartości, ścieżki plików, URL-e) → `WorkflowMacroParam` z referencjami do kroków. Replay z substytucją parametrów (`applyParamOverrides`). Persistence: JSON per makro w `userData/workspace/workflow/macros/`. EXCLUDED_TOOLS (macro_*, screenshot, sub-agent). Limity: 100 kroków/makro, 500 znaków/wynik. Sanityzacja: redakcja haseł/tokenów. 8 kanałów IPC (MACRO_*). Typy w `shared/types/workflow.ts` (WorkflowStep, WorkflowMacro, WorkflowMacroParam, WorkflowReplayResult, WorkflowRecordingState). ServiceContainer wired (Phase 2 construct, Phase 5 deps).
+
+- [x] Nagrywanie sekwencji tool calls via ToolsService callback hook ✅
+- [x] Auto-detect parametrów (repeated values, file paths, URLs) ✅
+- [x] Replay z parametryzacją (overrides per param name) ✅
+- [x] 5 AI tools (macro_start, macro_stop, macro_list, macro_replay, macro_delete) ✅
+- [x] Persistence (JSON files) + CRUD (list, get, delete, rename) ✅
+- [ ] UI panel do zarządzania makrami (przyszła iteracja)
+- [ ] Import/export makr (przyszła iteracja)
 
 ### Krok 6.3 — Knowledge Graph ✅
 > **Zaimplementowano**: `knowledge-graph-service.ts` (794 LOC) z SQLite storage. Tabele: `kg_entities` (id, name, type, properties JSON, confidence, source, first_seen, last_seen, mention_count, active) z FTS5 + triggers + indexes, `kg_relations` (id, source_id, target_id, relation, properties JSON, strength). 9 typów encji (person, project, technology, company, topic, place, event, habit, preference), 14 typów relacji. Upsert merge (addEntity merges properties + bumps mention_count). BFS graph traversal z depth limit. `getContextSummary()` — markdown context injection do ContextBuilder. 6 narzędzi AI: `kg_add_entity`, `kg_add_relation`, `kg_query`, `kg_get_connections`, `kg_update_entity`, `kg_delete_entity`. 8 kanałów IPC (KG_*). Typy w `shared/types/knowledge-graph.ts`. ServiceContainer wired (Phase 2 construct, Phase 5 deps, initDeferred).
@@ -712,7 +714,7 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-### ✅ Ukończone (43/47)
+### ✅ Ukończone (44/47)
 
 | # | Zadanie | Faza | Status |
 |---|---------|------|--------|
@@ -758,13 +760,13 @@ src/
 | 30 | Dashboard SPA refactor | 4.4 | ✅ |
 | 34 | Knowledge Graph | 6.3 | ✅ |
 | 35 | Proactive Intelligence Engine | 6.4 | ✅ |
+| 33 | Workflow Automator (Macro Recorder) | 6.2 | ✅ |
 
-### ⬜ Remaining (4 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (3 tasks) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 |
-| 33 | Workflow Automator (Macro Recorder) | 6.2 | 🟡 High | 3-4 sesje | P4 |
 | 44 | Code signing + distribution | 7.6 | 🟢 Medium | 1 sesja | P4 |
 | 45-47 | CDP anti-detection, streaming, network | 1.4-1.5 | 🟢 Medium | 3 sesje | P4 |
 

@@ -86,6 +86,16 @@ export const Ch = {
   WORKFLOW_GET_PATTERNS: 'workflow:get-patterns',
   WORKFLOW_GET_TIME_CONTEXT: 'workflow:get-time-context',
 
+  // Workflow Automator (Macros)
+  MACRO_LIST: 'macro:list',
+  MACRO_GET: 'macro:get',
+  MACRO_DELETE: 'macro:delete',
+  MACRO_RENAME: 'macro:rename',
+  MACRO_RECORDING_STATE: 'macro:recording-state',
+  MACRO_START_RECORDING: 'macro:start-recording',
+  MACRO_STOP_RECORDING: 'macro:stop-recording',
+  MACRO_REPLAY: 'macro:replay',
+
   // RAG
   RAG_SEARCH: 'rag:search',
   RAG_REINDEX: 'rag:reindex',

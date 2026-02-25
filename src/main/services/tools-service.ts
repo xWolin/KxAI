@@ -33,6 +33,9 @@ export class ToolsService {
   private securityGuard: SecurityGuard;
   private systemMonitor: SystemMonitor;
 
+  /** Callback for workflow recording — called after every tool execution */
+  private onToolExecuted?: (name: string, params: any, result: ToolResult, durationMs: number) => void;
+
   constructor() {
     this.securityGuard = new SecurityGuard();
     this.systemMonitor = new SystemMonitor();
@@ -176,6 +179,14 @@ export class ToolsService {
     this.registerFileIntelligenceTools();
     this.registerCalendarTools();
     this.registerPrivacyTools();
+  }
+
+  /**
+   * Set callback for workflow recording — called after every tool execution.
+   * Used by WorkflowAutomator to record macro steps.
+   */
+  setToolExecutedCallback(cb: (name: string, params: any, result: ToolResult, durationMs: number) => void): void {
+    this.onToolExecuted = cb;
   }
 
   private registerBuiltinTools(): void {
@@ -2115,7 +2126,15 @@ export class ToolsService {
       }
       return { success: false, error: `Nieznane narzędzie: ${name}` };
     }
-    return handler(params);
+    const startTime = Date.now();
+    const result = await handler(params);
+    // Notify workflow recorder (if active)
+    if (this.onToolExecuted) {
+      try {
+        this.onToolExecuted(name, params, result, Date.now() - startTime);
+      } catch { /* recording should never break tool execution */ }
+    }
+    return result;
   }
 
   getDefinitions(): ToolDefinition[] {
