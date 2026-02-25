@@ -170,7 +170,7 @@ function startCompanionMonitor(win: BrowserWindow): void {
 }
 
 function createMainWindow(): BrowserWindow {
-  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
+  const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
 
   const win = new BrowserWindow({
     width: 420,
@@ -400,7 +400,7 @@ app.whenReady().then(async () => {
       safeSend(Ev.AI_STREAM, { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie (Ctrl+Shift+K)...\n' });
 
       try {
-        const result = await agentLoop.startTakeControl(
+        await agentLoop.startTakeControl(
           'Użytkownik nacisnął Ctrl+Shift+K — przejmujesz sterowanie. Obserwuj ekran i kontynuuj pracę użytkownika. Gdy skończysz lub nie masz co robić, odpowiedz TASK_COMPLETE.',
           (status) => safeSend(Ev.AUTOMATION_STATUS_UPDATE, status),
           (chunk) => safeSend(Ev.AI_STREAM, { chunk }),
@@ -436,7 +436,7 @@ app.whenReady().then(async () => {
 
     try {
       // Force an OCR check to get fresh screen context
-      const ocrText = await screenMonitorService.forceOcrCheck();
+      await screenMonitorService.forceOcrCheck();
       const ctx = screenMonitorService.buildMonitorContext();
 
       // Ask AI for insight based on screen context

@@ -11,7 +11,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { KxAIConfig, MeetingBriefingParticipant, MeetingBriefingInfo } from '../types';
 import s from './CoachingOverlay.module.css';
-import { cn } from '../utils/cn';
 import { useTranslation } from '../i18n';
 
 interface TranscriptLine {
@@ -62,12 +61,19 @@ const COACHING_BAR_WIDTH = 420;
 const COACHING_BAR_HEIGHT = 140;
 const COACHING_BAR_EXPANDED_HEIGHT = 340;
 
-export function CoachingOverlay({ config, onBack }: Props) {
+export function CoachingOverlay({ config: _config, onBack }: Props) {
   const { t } = useTranslation();
   const [meetingState, setMeetingState] = useState<MeetingState>({
-    active: false, meetingId: null, startTime: null,
-    duration: 0, transcriptLineCount: 0, lastCoachingTip: null,
-    detectedApp: null, speakers: [], isCoaching: false, hasBriefing: false,
+    active: false,
+    meetingId: null,
+    startTime: null,
+    duration: 0,
+    transcriptLineCount: 0,
+    lastCoachingTip: null,
+    detectedApp: null,
+    speakers: [],
+    isCoaching: false,
+    hasBriefing: false,
   });
   const [coachingTips, setCoachingTips] = useState<CoachingTip[]>([]);
   const [activeCoaching, setActiveCoaching] = useState<CoachingTip | null>(null);
@@ -102,72 +108,95 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
   // Check API key on mount + load existing briefing
   useEffect(() => {
-    window.kxai.hasApiKey('deepgram').then(setHasDeepgramKey).catch(err => {
-      console.error('[CoachingOverlay] Failed to check Deepgram API key:', err);
-    });
-    window.kxai.meetingGetBriefing().then((b: MeetingBriefingInfo | null) => {
-      if (b) {
-        setBriefingTopic(b.topic || '');
-        setBriefingAgenda(b.agenda || '');
-        setBriefingNotes(b.notes || '');
-        setBriefingUrls(Array.isArray(b.urls) ? b.urls.join('\n') : '');
-        setBriefingProjectPaths(Array.isArray(b.projectPaths) ? b.projectPaths.join('\n') : '');
-        setBriefingParticipants(Array.isArray(b.participants) ? b.participants : []);
-        setBriefingSaved(true);
-      }
-    }).catch(err => {
-      console.error('[CoachingOverlay] Failed to load briefing:', err);
-    });
+    window.kxai
+      .hasApiKey('deepgram')
+      .then(setHasDeepgramKey)
+      .catch((err) => {
+        console.error('[CoachingOverlay] Failed to check Deepgram API key:', err);
+      });
+    window.kxai
+      .meetingGetBriefing()
+      .then((b: MeetingBriefingInfo | null) => {
+        if (b) {
+          setBriefingTopic(b.topic || '');
+          setBriefingAgenda(b.agenda || '');
+          setBriefingNotes(b.notes || '');
+          setBriefingUrls(Array.isArray(b.urls) ? b.urls.join('\n') : '');
+          setBriefingProjectPaths(Array.isArray(b.projectPaths) ? b.projectPaths.join('\n') : '');
+          setBriefingParticipants(Array.isArray(b.participants) ? b.participants : []);
+          setBriefingSaved(true);
+        }
+      })
+      .catch((err) => {
+        console.error('[CoachingOverlay] Failed to load briefing:', err);
+      });
   }, []);
 
   // Wire up IPC events
   useEffect(() => {
     const cleanups: (() => void)[] = [];
 
-    cleanups.push(window.kxai.onMeetingState((state: MeetingState) => {
-      setMeetingState(state);
-    }));
+    cleanups.push(
+      window.kxai.onMeetingState((state: MeetingState) => {
+        setMeetingState(state);
+      }),
+    );
 
-    cleanups.push(window.kxai.onMeetingTranscript((data: any) => {
-      if (!data.partial && data.line) {
-        setRecentLines(prev => [...prev.slice(-4), data.line]);
-      }
-    }));
+    cleanups.push(
+      window.kxai.onMeetingTranscript((data: any) => {
+        if (!data.partial && data.line) {
+          setRecentLines((prev) => [...prev.slice(-4), data.line]);
+        }
+      }),
+    );
 
-    cleanups.push(window.kxai.onMeetingCoaching((tip: CoachingTip) => {
-      setActiveCoaching({ ...tip, tip: '' });
-    }));
+    cleanups.push(
+      window.kxai.onMeetingCoaching((tip: CoachingTip) => {
+        setActiveCoaching({ ...tip, tip: '' });
+      }),
+    );
 
     if (window.kxai.onMeetingCoachingChunk) {
-      cleanups.push(window.kxai.onMeetingCoachingChunk((data: { id: string; chunk: string; fullText: string }) => {
-        setActiveCoaching(prev => {
-          if (!prev || prev.id !== data.id) return prev;
-          return { ...prev, tip: data.fullText };
-        });
-      }));
+      cleanups.push(
+        window.kxai.onMeetingCoachingChunk((data: { id: string; chunk: string; fullText: string }) => {
+          setActiveCoaching((prev) => {
+            if (!prev || prev.id !== data.id) return prev;
+            return { ...prev, tip: data.fullText };
+          });
+        }),
+      );
     }
 
     if (window.kxai.onMeetingCoachingDone) {
-      cleanups.push(window.kxai.onMeetingCoachingDone((data: { id: string; tip: string; category: string; questionText?: string }) => {
-        setCoachingTips(prev => [...prev, {
-          id: data.id,
-          timestamp: Date.now(),
-          tip: data.tip,
-          category: data.category,
-          questionText: data.questionText,
-        }]);
-        setActiveCoaching(null);
-      }));
+      cleanups.push(
+        window.kxai.onMeetingCoachingDone(
+          (data: { id: string; tip: string; category: string; questionText?: string }) => {
+            setCoachingTips((prev) => [
+              ...prev,
+              {
+                id: data.id,
+                timestamp: Date.now(),
+                tip: data.tip,
+                category: data.category,
+                questionText: data.questionText,
+              },
+            ]);
+            setActiveCoaching(null);
+          },
+        ),
+      );
     }
 
-    cleanups.push(window.kxai.onMeetingError((data: { error: string }) => {
-      setError(data.error);
-      setTimeout(() => setError(null), 8000);
-    }));
+    cleanups.push(
+      window.kxai.onMeetingError((data: { error: string }) => {
+        setError(data.error);
+        setTimeout(() => setError(null), 8000);
+      }),
+    );
 
     window.kxai.meetingGetState().then(setMeetingState);
 
-    return () => cleanups.forEach(fn => fn());
+    return () => cleanups.forEach((fn) => fn());
   }, []);
 
   // Window size management: compact bar when meeting active, normal for setup
@@ -239,7 +268,9 @@ export function CoachingOverlay({ config, onBack }: Props) {
           if (now - lastLogTime > 10000) {
             lastLogTime = now;
             const silentPct = Math.round((silentChunks / chunkCount) * 100);
-            console.log(`[CoachingOverlay] PCM ${label}: ${chunkCount} chunks, ${silentPct}% silent, maxAmplitude=${maxAbs.toFixed(4)}`);
+            console.log(
+              `[CoachingOverlay] PCM ${label}: ${chunkCount} chunks, ${silentPct}% silent, maxAmplitude=${maxAbs.toFixed(4)}`,
+            );
           }
 
           const int16 = float32ToInt16(float32);
@@ -272,17 +303,21 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
         const videoTracks = systemStream.getVideoTracks();
         const audioTracks = systemStream.getAudioTracks();
-        console.log(`[CoachingOverlay] getDisplayMedia: ${videoTracks.length} video tracks, ${audioTracks.length} audio tracks`);
+        console.log(
+          `[CoachingOverlay] getDisplayMedia: ${videoTracks.length} video tracks, ${audioTracks.length} audio tracks`,
+        );
 
         // Stop video tracks — we only need audio
         // NOTE: Don't remove them from stream, just stop to save resources
-        videoTracks.forEach(t => {
+        videoTracks.forEach((t) => {
           console.log(`[CoachingOverlay] Stopping video track: ${t.label} (state=${t.readyState})`);
           t.stop();
         });
 
         if (audioTracks.length > 0) {
-          console.log(`[CoachingOverlay] System audio track: ${audioTracks[0].label} (state=${audioTracks[0].readyState}, enabled=${audioTracks[0].enabled})`);
+          console.log(
+            `[CoachingOverlay] System audio track: ${audioTracks[0].label} (state=${audioTracks[0].readyState}, enabled=${audioTracks[0].enabled})`,
+          );
 
           // Monitor audio track state
           audioTracks[0].onended = () => {
@@ -310,8 +345,8 @@ export function CoachingOverlay({ config, onBack }: Props) {
   const stopAudioCapture = useCallback(() => {
     micWorkletRef.current?.disconnect();
     systemWorkletRef.current?.disconnect();
-    micStreamRef.current?.getTracks().forEach(t => t.stop());
-    systemStreamRef.current?.getTracks().forEach(t => t.stop());
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    systemStreamRef.current?.getTracks().forEach((t) => t.stop());
     audioContextRef.current?.close();
     micWorkletRef.current = null;
     systemWorkletRef.current = null;
@@ -370,10 +405,13 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
   const handleAddParticipant = () => {
     if (!newParticipantName.trim()) return;
-    setBriefingParticipants(prev => [...prev, {
-      name: newParticipantName.trim(),
-      role: newParticipantRole.trim() || undefined,
-    }]);
+    setBriefingParticipants((prev) => [
+      ...prev,
+      {
+        name: newParticipantName.trim(),
+        role: newParticipantRole.trim() || undefined,
+      },
+    ]);
     setNewParticipantName('');
     setNewParticipantRole('');
     setBriefingSaved(false);
@@ -384,7 +422,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
   };
 
   const handleRemoveParticipant = (index: number) => {
-    setBriefingParticipants(prev => prev.filter((_, i) => i !== index));
+    setBriefingParticipants((prev) => prev.filter((_, i) => i !== index));
     setBriefingSaved(false);
   };
 
@@ -397,8 +435,14 @@ export function CoachingOverlay({ config, onBack }: Props) {
         agenda: briefingAgenda.trim() || undefined,
         participants: briefingParticipants,
         notes: briefingNotes.trim(),
-        urls: briefingUrls.split('\n').map(u => u.trim()).filter(Boolean),
-        projectPaths: briefingProjectPaths.split('\n').map(p => p.trim()).filter(Boolean),
+        urls: briefingUrls
+          .split('\n')
+          .map((u) => u.trim())
+          .filter(Boolean),
+        projectPaths: briefingProjectPaths
+          .split('\n')
+          .map((p) => p.trim())
+          .filter(Boolean),
       };
       const result = await window.kxai.meetingSetBriefing(briefing);
       if (result.success) {
@@ -448,17 +492,33 @@ export function CoachingOverlay({ config, onBack }: Props) {
           <div className={s.barStatus}>
             <span className={s.barRecDot} />
             <span className={s.barTimer}>{formatDuration(meetingState.duration)}</span>
-            {meetingState.detectedApp && (
-              <span className={s.barApp}>{meetingState.detectedApp}</span>
-            )}
+            {meetingState.detectedApp && <span className={s.barApp}>{meetingState.detectedApp}</span>}
             <span className={s.barLines}>💬 {meetingState.transcriptLineCount}</span>
           </div>
           <div className={s.barActions}>
-            <button className={s.barBtnExpand} onClick={() => setExpanded(!expanded)} title={expanded ? t('meeting.bar.collapse') : t('meeting.bar.expand')} aria-expanded={expanded} aria-label={expanded ? t('meeting.bar.collapse') : t('meeting.bar.expand')}>
+            <button
+              className={s.barBtnExpand}
+              onClick={() => setExpanded(!expanded)}
+              title={expanded ? t('meeting.bar.collapse') : t('meeting.bar.expand')}
+              aria-expanded={expanded}
+              aria-label={expanded ? t('meeting.bar.collapse') : t('meeting.bar.expand')}
+            >
               {expanded ? '▲' : '▼'}
             </button>
-            <button className={s.barBtnDashboard} onClick={handleOpenDashboard} title={t('meeting.bar.dashboard')} aria-label={t('meeting.bar.dashboard')}>📊</button>
-            <button className={s.barBtnStop} onClick={handleStop} disabled={isStopping} aria-label={t('meeting.bar.stop')}>
+            <button
+              className={s.barBtnDashboard}
+              onClick={handleOpenDashboard}
+              title={t('meeting.bar.dashboard')}
+              aria-label={t('meeting.bar.dashboard')}
+            >
+              📊
+            </button>
+            <button
+              className={s.barBtnStop}
+              onClick={handleStop}
+              disabled={isStopping}
+              aria-label={t('meeting.bar.stop')}
+            >
               {isStopping ? '⏳' : '⏹'} {t('meeting.bar.stop')}
             </button>
           </div>
@@ -472,7 +532,14 @@ export function CoachingOverlay({ config, onBack }: Props) {
               <div className={s.barTipLabel}>
                 {t('meeting.bar.suggestion')}
                 {activeCoaching.questionText && (
-                <span className={s.barTipQuestion}> — „{activeCoaching.questionText.length > 50 ? activeCoaching.questionText.substring(0, 50) + '...' : activeCoaching.questionText}”</span>
+                  <span className={s.barTipQuestion}>
+                    {' '}
+                    — „
+                    {activeCoaching.questionText.length > 50
+                      ? activeCoaching.questionText.substring(0, 50) + '...'
+                      : activeCoaching.questionText}
+                    ”
+                  </span>
                 )}
               </div>
               <div className={s.barTipTextStreaming}>
@@ -488,7 +555,14 @@ export function CoachingOverlay({ config, onBack }: Props) {
               </div>
               <div className={s.barTipTextWrap}>
                 <div className={s.barTipText}>{coachingTips[coachingTips.length - 1].tip}</div>
-                <button className={s.barBtnCopy} onClick={() => handleCopyTip(coachingTips[coachingTips.length - 1].tip)} title={t('meeting.bar.copy')} aria-label={t('meeting.bar.copy')}>📋</button>
+                <button
+                  className={s.barBtnCopy}
+                  onClick={() => handleCopyTip(coachingTips[coachingTips.length - 1].tip)}
+                  title={t('meeting.bar.copy')}
+                  aria-label={t('meeting.bar.copy')}
+                >
+                  📋
+                </button>
               </div>
             </div>
           ) : meetingState.isCoaching ? (
@@ -498,8 +572,13 @@ export function CoachingOverlay({ config, onBack }: Props) {
               <span>{t('meeting.bar.listening')}</span>
               {recentLines.length > 0 && (
                 <span className={s.barLastUtterance}>
-                  <span className={recentLines[recentLines.length - 1].speaker === 'Ja' ? s.barSpeakerMe : s.barSpeaker}>{recentLines[recentLines.length - 1].speaker}:</span>
-                  {' '}{recentLines[recentLines.length - 1].text.substring(0, 60)}{recentLines[recentLines.length - 1].text.length > 60 ? '…' : ''}
+                  <span
+                    className={recentLines[recentLines.length - 1].speaker === 'Ja' ? s.barSpeakerMe : s.barSpeaker}
+                  >
+                    {recentLines[recentLines.length - 1].speaker}:
+                  </span>{' '}
+                  {recentLines[recentLines.length - 1].text.substring(0, 60)}
+                  {recentLines[recentLines.length - 1].text.length > 60 ? '…' : ''}
                 </span>
               )}
             </div>
@@ -509,8 +588,12 @@ export function CoachingOverlay({ config, onBack }: Props) {
         {/* P7: Speaker activity indicators */}
         {meetingState.speakers.length > 0 && !expanded && (
           <div className={s.barSpeakersStrip}>
-            {meetingState.speakers.map(spk => (
-              <span key={spk.id} className={Date.now() - spk.lastSeen < 3000 ? s.barSpeakerDotActive : s.barSpeakerDot} title={`${spk.name} (${spk.utteranceCount})`}>
+            {meetingState.speakers.map((spk) => (
+              <span
+                key={spk.id}
+                className={Date.now() - spk.lastSeen < 3000 ? s.barSpeakerDotActive : s.barSpeakerDot}
+                title={`${spk.name} (${spk.utteranceCount})`}
+              >
                 {spk.name.substring(0, 2).toUpperCase()}
               </span>
             ))}
@@ -532,13 +615,18 @@ export function CoachingOverlay({ config, onBack }: Props) {
             )}
             {coachingTips.length > 1 && (
               <div className={s.barHistory}>
-                <div className={s.barSectionLabel}>{t('meeting.bar.suggestionsHistory', { count: coachingTips.length })}</div>
-                {coachingTips.slice(-3).reverse().map(tip => (
-                  <div key={tip.id} className={s.barHistoryItem}>
-                    <span className={s.barHistoryTime}>{formatTime(tip.timestamp)}</span>
-                    <span className={s.barHistoryText}>{tip.tip.substring(0, 120)}...</span>
-                  </div>
-                ))}
+                <div className={s.barSectionLabel}>
+                  {t('meeting.bar.suggestionsHistory', { count: coachingTips.length })}
+                </div>
+                {coachingTips
+                  .slice(-3)
+                  .reverse()
+                  .map((tip) => (
+                    <div key={tip.id} className={s.barHistoryItem}>
+                      <span className={s.barHistoryTime}>{formatTime(tip.timestamp)}</span>
+                      <span className={s.barHistoryText}>{tip.tip.substring(0, 120)}...</span>
+                    </div>
+                  ))}
               </div>
             )}
           </div>
@@ -552,10 +640,24 @@ export function CoachingOverlay({ config, onBack }: Props) {
   return (
     <div className={s.overlay}>
       <div className={s.header}>
-        <button className={s.back} onClick={onBack} title={t('meeting.setup.back')} aria-label={t('meeting.setup.back')}>←</button>
+        <button
+          className={s.back}
+          onClick={onBack}
+          title={t('meeting.setup.back')}
+          aria-label={t('meeting.setup.back')}
+        >
+          ←
+        </button>
         <span className={s.title}>{t('meeting.setup.title')}</span>
         <div className={s.actions}>
-          <button className={s.btnDashboard} onClick={handleOpenDashboard} title={t('meeting.bar.dashboard')} aria-label={t('meeting.bar.dashboard')}>📊</button>
+          <button
+            className={s.btnDashboard}
+            onClick={handleOpenDashboard}
+            title={t('meeting.bar.dashboard')}
+            aria-label={t('meeting.bar.dashboard')}
+          >
+            📊
+          </button>
         </div>
       </div>
 
@@ -581,11 +683,28 @@ export function CoachingOverlay({ config, onBack }: Props) {
         <div className={s.briefingForm}>
           <div className={s.briefingField}>
             <label className={s.briefingLabel}>{t('meeting.briefing.topicLabel')}</label>
-            <input className={s.briefingInput} value={briefingTopic} onChange={e => { setBriefingTopic(e.target.value); setBriefingSaved(false); }} placeholder={t('meeting.briefing.topicPlaceholder')} />
+            <input
+              className={s.briefingInput}
+              value={briefingTopic}
+              onChange={(e) => {
+                setBriefingTopic(e.target.value);
+                setBriefingSaved(false);
+              }}
+              placeholder={t('meeting.briefing.topicPlaceholder')}
+            />
           </div>
           <div className={s.briefingField}>
             <label className={s.briefingLabel}>{t('meeting.briefing.agendaLabel')}</label>
-            <textarea className={s.briefingTextarea} value={briefingAgenda} onChange={e => { setBriefingAgenda(e.target.value); setBriefingSaved(false); }} placeholder={t('meeting.briefing.agendaPlaceholder')} rows={2} />
+            <textarea
+              className={s.briefingTextarea}
+              value={briefingAgenda}
+              onChange={(e) => {
+                setBriefingAgenda(e.target.value);
+                setBriefingSaved(false);
+              }}
+              placeholder={t('meeting.briefing.agendaPlaceholder')}
+              rows={2}
+            />
           </div>
           <div className={s.briefingField}>
             <label className={s.briefingLabel}>{t('meeting.briefing.participantsLabel')}</label>
@@ -594,41 +713,87 @@ export function CoachingOverlay({ config, onBack }: Props) {
                 {briefingParticipants.map((p, i) => (
                   <div key={i} className={s.briefingParticipant}>
                     <span className={s.briefingParticipantInfo}>
-                      <strong>{p.name}</strong>{p.role && ` — ${p.role}`}{p.company && ` (${p.company})`}
+                      <strong>{p.name}</strong>
+                      {p.role && ` — ${p.role}`}
+                      {p.company && ` (${p.company})`}
                     </span>
-                    <button className={s.briefingRemove} onClick={() => handleRemoveParticipant(i)} aria-label="Remove participant">✗</button>
+                    <button
+                      className={s.briefingRemove}
+                      onClick={() => handleRemoveParticipant(i)}
+                      aria-label="Remove participant"
+                    >
+                      ✗
+                    </button>
                   </div>
                 ))}
               </div>
             )}
             <div className={s.briefingAddParticipant}>
-              <input className={s.briefingInputSmall} value={newParticipantName} onChange={e => setNewParticipantName(e.target.value)} placeholder={t('meeting.briefing.namePlaceholder')} onKeyDown={e => e.key === 'Enter' && handleAddParticipant()} />
-              <input className={s.briefingInputSmall} value={newParticipantRole} onChange={e => setNewParticipantRole(e.target.value)} placeholder={t('meeting.briefing.rolePlaceholder')} onKeyDown={e => e.key === 'Enter' && handleAddParticipant()} />
-              <button className={s.btnAdd} onClick={handleAddParticipant}>{t('meeting.briefing.addParticipant')}</button>
+              <input
+                className={s.briefingInputSmall}
+                value={newParticipantName}
+                onChange={(e) => setNewParticipantName(e.target.value)}
+                placeholder={t('meeting.briefing.namePlaceholder')}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddParticipant()}
+              />
+              <input
+                className={s.briefingInputSmall}
+                value={newParticipantRole}
+                onChange={(e) => setNewParticipantRole(e.target.value)}
+                placeholder={t('meeting.briefing.rolePlaceholder')}
+                onKeyDown={(e) => e.key === 'Enter' && handleAddParticipant()}
+              />
+              <button className={s.btnAdd} onClick={handleAddParticipant}>
+                {t('meeting.briefing.addParticipant')}
+              </button>
             </div>
           </div>
           <div className={s.briefingField}>
             <label className={s.briefingLabel}>{t('meeting.briefing.notesLabel')}</label>
-            <textarea className={s.briefingTextarea} value={briefingNotes} onChange={e => { setBriefingNotes(e.target.value); setBriefingSaved(false); }} placeholder={t('meeting.briefing.notesPlaceholder')} rows={2} />
+            <textarea
+              className={s.briefingTextarea}
+              value={briefingNotes}
+              onChange={(e) => {
+                setBriefingNotes(e.target.value);
+                setBriefingSaved(false);
+              }}
+              placeholder={t('meeting.briefing.notesPlaceholder')}
+              rows={2}
+            />
           </div>
           <div className={s.briefingActions}>
             <button className={s.btnSave} onClick={handleSaveBriefing} disabled={briefingLoading}>
-              {briefingLoading ? t('meeting.briefing.processing') : briefingSaved ? t('meeting.briefing.saved') : t('meeting.briefing.save')}
+              {briefingLoading
+                ? t('meeting.briefing.processing')
+                : briefingSaved
+                  ? t('meeting.briefing.saved')
+                  : t('meeting.briefing.save')}
             </button>
-            {briefingSaved && <button className={s.btnClear} onClick={handleClearBriefing}>{t('meeting.briefing.clear')}</button>}
+            {briefingSaved && (
+              <button className={s.btnClear} onClick={handleClearBriefing}>
+                {t('meeting.briefing.clear')}
+              </button>
+            )}
           </div>
         </div>
       )}
 
       <div className={s.idleInfo}>
         <p>{t('meeting.idle.info')}</p>
-        {briefingSaved && <p style={{ fontSize: '0.75rem', color: 'var(--neon-green)', marginTop: '0.2rem' }}>{t('meeting.idle.briefingLoaded')}</p>}
+        {briefingSaved && (
+          <p style={{ fontSize: '0.75rem', color: 'var(--neon-green)', marginTop: '0.2rem' }}>
+            {t('meeting.idle.briefingLoaded')}
+          </p>
+        )}
         <p style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.3rem' }}>
-          {t('meeting.idle.hint1')}<br />
+          {t('meeting.idle.hint1')}
+          <br />
           {t('meeting.idle.hint2')}
         </p>
         <p style={{ marginTop: '0.5rem' }}>
-          <button className={s.btnLink} onClick={handleOpenDashboard}>{t('meeting.idle.openDashboard')}</button>
+          <button className={s.btnLink} onClick={handleOpenDashboard}>
+            {t('meeting.idle.openDashboard')}
+          </button>
         </p>
       </div>
     </div>
@@ -639,7 +804,7 @@ function float32ToInt16(float32: Float32Array): Int16Array {
   const int16 = new Int16Array(float32.length);
   for (let i = 0; i < float32.length; i++) {
     const val = Math.max(-1, Math.min(1, float32[i]));
-    int16[i] = val < 0 ? val * 0x8000 : val * 0x7FFF;
+    int16[i] = val < 0 ? val * 0x8000 : val * 0x7fff;
   }
   return int16;
 }

@@ -406,10 +406,14 @@ export class EmbeddingService {
           // Clean up legacy files
           try {
             fs.unlinkSync(this.legacyCachePath);
-          } catch {}
+          } catch {
+            /* intentionally empty — file may not exist */
+          }
           try {
             fs.unlinkSync(this.legacyCacheModelPath);
-          } catch {}
+          } catch {
+            /* intentionally empty — file may not exist */
+          }
           return;
         }
       }
@@ -420,15 +424,21 @@ export class EmbeddingService {
         // Remove legacy files after successful migration
         try {
           fs.unlinkSync(this.legacyCachePath);
-        } catch {}
+        } catch {
+          /* intentionally empty — file may not exist */
+        }
         try {
           fs.unlinkSync(this.legacyCacheModelPath);
-        } catch {}
+        } catch {
+          /* intentionally empty — file may not exist */
+        }
         // Also remove .tmp files if exist
         try {
           const tmpPath = this.legacyCachePath + '.tmp';
           if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
-        } catch {}
+        } catch {
+          /* intentionally empty — file may not exist */
+        }
       }
     } catch (err) {
       log.warn('Legacy cache migration error:', err);

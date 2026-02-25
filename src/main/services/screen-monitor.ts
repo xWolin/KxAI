@@ -66,7 +66,7 @@ export class ScreenMonitorService {
   private t1Interval: NodeJS.Timeout | null = null;
   private lastOcrText = '';
   private lastOcrTimestamp = 0;
-  private ocrChangeThreshold = 0.10; // 10% text difference = significant change
+  private ocrChangeThreshold = 0.1; // 10% text difference = significant change
 
   // T2 state — periodic vision check even without OCR changes
   private t2Interval: NodeJS.Timeout | null = null;
@@ -75,13 +75,14 @@ export class ScreenMonitorService {
   // Callbacks
   private onWindowChange: ((info: WindowInfo) => void) | null = null;
   private onContentChange: ((ctx: ScreenContext) => void) | null = null;
-  private onVisionNeeded: ((ctx: ScreenContext, screenshots: Array<{ base64: string; label: string }>) => void) | null = null;
+  private onVisionNeeded: ((ctx: ScreenContext, screenshots: Array<{ base64: string; label: string }>) => void) | null =
+    null;
   private onIdleStart: (() => void) | null = null;
   private onIdleEnd: (() => void) | null = null;
 
   // Config
-  private t0IntervalMs = 2000;   // Check window title every 2s
-  private t1IntervalMs = 12000;  // OCR every 12s
+  private t0IntervalMs = 2000; // Check window title every 2s
+  private t1IntervalMs = 12000; // OCR every 12s
   private t2IntervalMs = 3 * 60 * 1000; // Periodic vision check every 3 min
   private t1PendingCheck = false; // Flag: T0 detected change, T1 should run
 
@@ -106,7 +107,7 @@ export class ScreenMonitorService {
     onContentChange?: (ctx: ScreenContext) => void,
     onVisionNeeded?: (ctx: ScreenContext, screenshots: Array<{ base64: string; label: string }>) => void,
     onIdleStart?: () => void,
-    onIdleEnd?: () => void
+    onIdleEnd?: () => void,
   ): void {
     this.onWindowChange = onWindowChange || null;
     this.onContentChange = onContentChange || null;
@@ -134,9 +135,18 @@ export class ScreenMonitorService {
   }
 
   stop(): void {
-    if (this.t0Interval) { clearInterval(this.t0Interval); this.t0Interval = null; }
-    if (this.t1Interval) { clearInterval(this.t1Interval); this.t1Interval = null; }
-    if (this.t2Interval) { clearInterval(this.t2Interval); this.t2Interval = null; }
+    if (this.t0Interval) {
+      clearInterval(this.t0Interval);
+      this.t0Interval = null;
+    }
+    if (this.t1Interval) {
+      clearInterval(this.t1Interval);
+      this.t1Interval = null;
+    }
+    if (this.t2Interval) {
+      clearInterval(this.t2Interval);
+      this.t2Interval = null;
+    }
     console.log('[ScreenMonitor] Stopped');
   }
 
@@ -184,9 +194,7 @@ export class ScreenMonitorService {
       parts.push(`Widoczny tekst na ekranie:\n${trimmed}`);
     }
 
-    return parts.length > 0
-      ? `\n## 👁️ Screen Monitor\n${parts.join('\n')}\n`
-      : '';
+    return parts.length > 0 ? `\n## 👁️ Screen Monitor\n${parts.join('\n')}\n` : '';
   }
 
   // ─── T0: Window Title Tracking (FREE) ───
@@ -197,7 +205,6 @@ export class ScreenMonitorService {
 
       // Detect change
       if (info.title !== this.currentWindow.title || info.processName !== this.currentWindow.processName) {
-        const oldTitle = this.currentWindow.title;
         this.currentWindow = info;
 
         // Track recent windows (keep last 10)
@@ -219,7 +226,7 @@ export class ScreenMonitorService {
       try {
         const systemIdleSeconds = powerMonitor.getSystemIdleTime();
         const wasActive = this.isUserActive;
-        this.isUserActive = systemIdleSeconds < (this.idleThresholdMs / 1000);
+        this.isUserActive = systemIdleSeconds < this.idleThresholdMs / 1000;
         if (this.isUserActive) {
           this.lastActivityTime = Date.now();
         }
@@ -237,7 +244,7 @@ export class ScreenMonitorService {
           this.onIdleStart?.();
         }
       }
-    } catch (error) {
+    } catch {
       // T0 errors are non-critical
     }
   }
@@ -273,22 +280,18 @@ Write-Output "$title<SEP>$proc"
       // Encode as UTF-16LE Base64 for -EncodedCommand
       const encoded = Buffer.from(script, 'utf16le').toString('base64');
 
-      exec(
-        `powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`,
-        { timeout: 5000 },
-        (error, stdout) => {
-          if (error || !stdout.trim()) {
-            resolve({ title: 'Unknown', processName: 'Unknown', timestamp: Date.now() });
-            return;
-          }
-          const parts = stdout.trim().split('<SEP>');
-          resolve({
-            title: parts[0] || 'Unknown',
-            processName: parts[1] || 'Unknown',
-            timestamp: Date.now(),
-          });
+      exec(`powershell -NoProfile -NonInteractive -EncodedCommand ${encoded}`, { timeout: 5000 }, (error, stdout) => {
+        if (error || !stdout.trim()) {
+          resolve({ title: 'Unknown', processName: 'Unknown', timestamp: Date.now() });
+          return;
         }
-      );
+        const parts = stdout.trim().split('<SEP>');
+        resolve({
+          title: parts[0] || 'Unknown',
+          processName: parts[1] || 'Unknown',
+          timestamp: Date.now(),
+        });
+      });
     });
   }
 
@@ -308,7 +311,7 @@ Write-Output "$title<SEP>$proc"
             processName: parts[1] || 'Unknown',
             timestamp: Date.now(),
           });
-        }
+        },
       );
     });
   }
@@ -342,10 +345,7 @@ Write-Output "$title<SEP>$proc"
       for (const screen of allScreens) {
         const text = await this.extractText(screen.base64);
         if (text && text.length > 10) {
-          ocrTexts.push(allScreens.length > 1
-            ? `[${screen.displayLabel}] ${text}`
-            : text
-          );
+          ocrTexts.push(allScreens.length > 1 ? `[${screen.displayLabel}] ${text}` : text);
         }
       }
       const combinedOcr = ocrTexts.join('\n---\n');
@@ -368,7 +368,7 @@ Write-Output "$title<SEP>$proc"
         // Send ALL screens for multi-monitor awareness
         if (this.onVisionNeeded && allScreens.length > 0) {
           this.lastVisionTimestamp = Date.now();
-          const screenshots = allScreens.map(s => ({
+          const screenshots = allScreens.map((s) => ({
             base64: s.base64.replace(/^data:image\/\w+;base64,/, ''),
             label: s.displayLabel,
           }));
@@ -408,10 +408,7 @@ Write-Output "$title<SEP>$proc"
         for (const screen of allScreens) {
           const text = await this.extractText(screen.base64);
           if (text && text.length > 10) {
-            ocrTexts.push(allScreens.length > 1
-              ? `[${screen.displayLabel}] ${text}`
-              : text
-            );
+            ocrTexts.push(allScreens.length > 1 ? `[${screen.displayLabel}] ${text}` : text);
           }
         }
         this.lastOcrText = ocrTexts.join('\n---\n');
@@ -422,10 +419,12 @@ Write-Output "$title<SEP>$proc"
       const ctx = this.getScreenContext();
       ctx.contentChanged = true; // Force — periodic check
 
-      console.log(`[ScreenMonitor] Periodic T2 vision check — window: ${ctx.windowTitle}, ${allScreens.length} screen(s)`);
+      console.log(
+        `[ScreenMonitor] Periodic T2 vision check — window: ${ctx.windowTitle}, ${allScreens.length} screen(s)`,
+      );
 
       // Send ALL screens for multi-monitor vision
-      const screenshots = allScreens.map(s => ({
+      const screenshots = allScreens.map((s) => ({
         base64: s.base64.replace(/^data:image\/\w+;base64,/, ''),
         label: s.displayLabel,
       }));
@@ -490,14 +489,18 @@ $stream.Dispose()
         { timeout: 15000, maxBuffer: 1024 * 1024 },
         (error, stdout) => {
           // Clean up tmp file
-          try { require('fs').unlinkSync(tmpPath); } catch {}
+          try {
+            require('fs').unlinkSync(tmpPath);
+          } catch {
+            /* intentionally empty */
+          }
           if (error) {
             // Fallback: return empty — T1 just won't produce text
             resolve('');
             return;
           }
           resolve(stdout.trim().slice(0, 3000)); // Limit output
-        }
+        },
       );
     });
   }
@@ -524,7 +527,12 @@ print(text)
       require('fs').writeFileSync(tmpSwift, script);
 
       exec(`swift ${tmpSwift}`, { timeout: 15000, maxBuffer: 1024 * 1024 }, (error, stdout) => {
-        try { require('fs').unlinkSync(tmpPath); require('fs').unlinkSync(tmpSwift); } catch {}
+        try {
+          require('fs').unlinkSync(tmpPath);
+          require('fs').unlinkSync(tmpSwift);
+        } catch {
+          /* intentionally empty */
+        }
         resolve(error ? '' : stdout.trim().slice(0, 3000));
       });
     });
@@ -537,7 +545,11 @@ print(text)
       require('fs').writeFileSync(tmpPath, Buffer.from(base64, 'base64'));
 
       exec(`tesseract ${tmpPath} stdout 2>/dev/null`, { timeout: 15000, maxBuffer: 1024 * 1024 }, (error, stdout) => {
-        try { require('fs').unlinkSync(tmpPath); } catch {}
+        try {
+          require('fs').unlinkSync(tmpPath);
+        } catch {
+          /* intentionally empty */
+        }
         resolve(error ? '' : stdout.trim().slice(0, 3000));
       });
     });

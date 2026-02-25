@@ -1936,7 +1936,7 @@ export class ToolsService {
         }
 
         const jobs = cron.getJobs();
-        let target = params.id
+        const target = params.id
           ? jobs.find((j) => j.id === params.id && j.category === 'reminder')
           : jobs.find(
               (j) =>
@@ -1984,7 +1984,7 @@ export class ToolsService {
     }
 
     // ── "jutro o HH:MM" / "tomorrow at HH:MM" ──
-    const tomorrowMatch = text.match(/^(?:jutro|tomorrow)\s*(?:o|at|@)?\s*(\d{1,2})[:\.](\d{2})$/);
+    const tomorrowMatch = text.match(/^(?:jutro|tomorrow)\s*(?:o|at|@)?\s*(\d{1,2})[:.](\d{2})$/);
     if (tomorrowMatch) {
       const target = new Date(now);
       target.setDate(target.getDate() + 1);
@@ -1995,7 +1995,7 @@ export class ToolsService {
     }
 
     // ── "dziś/dzisiaj/today o HH:MM" ──
-    const todayMatch = text.match(/^(?:dzi[sś](?:iaj)?|today)\s*(?:o|at|@)?\s*(\d{1,2})[:\.](\d{2})$/);
+    const todayMatch = text.match(/^(?:dzi[sś](?:iaj)?|today)\s*(?:o|at|@)?\s*(\d{1,2})[:.](\d{2})$/);
     if (todayMatch) {
       const target = new Date(now);
       target.setHours(parseInt(todayMatch[1]), parseInt(todayMatch[2]), 0, 0);
@@ -2044,7 +2044,7 @@ export class ToolsService {
       sunday: 0,
       sun: 0,
     };
-    const dayMatch = text.match(/^(?:w\s+|we\s+|on\s+|next\s+)?(\w+)\s*(?:o|at|@)?\s*(\d{1,2})[:\.](\d{2})$/);
+    const dayMatch = text.match(/^(?:w\s+|we\s+|on\s+|next\s+)?(\w+)\s*(?:o|at|@)?\s*(\d{1,2})[:.](\d{2})$/);
     if (dayMatch) {
       const dayName = dayMatch[1];
       const targetDay = dayNames[dayName];
@@ -2065,7 +2065,7 @@ export class ToolsService {
     }
 
     // ── Absolute date: "YYYY-MM-DD HH:MM" or "DD.MM.YYYY HH:MM" ──
-    const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2})[:\.](\d{2})$/);
+    const isoMatch = text.match(/^(\d{4})-(\d{2})-(\d{2})\s+(\d{1,2})[:.](\d{2})$/);
     if (isoMatch) {
       const target = new Date(
         parseInt(isoMatch[1]),
@@ -2083,7 +2083,7 @@ export class ToolsService {
       return { schedule: `${min} ${hour} ${target.getDate()} ${target.getMonth() + 1} *`, timestamp: target.getTime() };
     }
 
-    const plDateMatch = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2})[:\.](\d{2})$/);
+    const plDateMatch = text.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})\s+(\d{1,2})[:.](\d{2})$/);
     if (plDateMatch) {
       const target = new Date(
         parseInt(plDateMatch[3]),
@@ -2102,7 +2102,7 @@ export class ToolsService {
     }
 
     // ── Recurring: "codziennie o HH:MM" / "every day at HH:MM" ──
-    const dailyMatch = text.match(/^(?:codziennie|every\s*day|daily)\s*(?:o|at|@)?\s*(\d{1,2})[:\.](\d{2})$/);
+    const dailyMatch = text.match(/^(?:codziennie|every\s*day|daily)\s*(?:o|at|@)?\s*(\d{1,2})[:.](\d{2})$/);
     if (dailyMatch) {
       const hour = parseInt(dailyMatch[1]);
       const minute = parseInt(dailyMatch[2]);
@@ -2121,7 +2121,7 @@ export class ToolsService {
     }
 
     // ── Just time: "o HH:MM" / "at HH:MM" / "HH:MM" ──
-    const timeOnly = text.match(/^(?:o|at|@)?\s*(\d{1,2})[:\.](\d{2})$/);
+    const timeOnly = text.match(/^(?:o|at|@)?\s*(\d{1,2})[:.](\d{2})$/);
     if (timeOnly) {
       const hour = parseInt(timeOnly[1]);
       const minute = parseInt(timeOnly[2]);
@@ -2181,7 +2181,9 @@ export class ToolsService {
     if (this.onToolExecuted) {
       try {
         this.onToolExecuted(name, params, result, Date.now() - startTime);
-      } catch { /* recording should never break tool execution */ }
+      } catch {
+        /* recording should never break tool execution */
+      }
     }
     return result;
   }

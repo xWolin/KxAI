@@ -4,7 +4,6 @@ import { app } from 'electron';
 import { EmbeddingService } from './embedding-service';
 import { ConfigService } from './config';
 import { DatabaseService } from './database-service';
-import type { HybridSearchResult } from './database-service';
 import { FileIntelligenceService } from './file-intelligence';
 import { createLogger } from './logger';
 import { PDFParse } from 'pdf-parse';
@@ -386,7 +385,7 @@ export class RAGService {
             allChunks.push(...chunks);
             allTexts.push(...chunks.map((c) => c.content));
           }
-        } catch (err) {
+        } catch {
           // Skip individual file errors silently
         }
 
@@ -927,11 +926,11 @@ export class RAGService {
 
   /** Extract text from binary documents (PDF, DOCX, EPUB) and chunk them */
   private chunkBinaryDocument(
-    filePath: string,
-    relativePath: string,
-    sourceFolder: string,
-    ext: string,
-    fileName: string,
+    _filePath: string,
+    _relativePath: string,
+    _sourceFolder: string,
+    _ext: string,
+    _fileName: string,
   ): RAGChunk[] {
     // We must use sync approach here; extraction is async so we cache results
     // The actual extraction happens in chunkBinaryDocumentAsync, called during indexing
@@ -1448,7 +1447,9 @@ export class RAGService {
         // Rename legacy file to avoid re-checking
         try {
           fs.renameSync(this.legacyIndexPath, this.legacyIndexPath + '.migrated');
-        } catch {}
+        } catch {
+          /* intentionally empty — rename failure is non-critical */
+        }
         return;
       }
 
@@ -1471,7 +1472,9 @@ export class RAGService {
       // Rename legacy file
       try {
         fs.renameSync(this.legacyIndexPath, this.legacyIndexPath + '.migrated');
-      } catch {}
+      } catch {
+        /* intentionally empty — rename failure is non-critical */
+      }
       log.info('Legacy index migration complete');
     } catch (err) {
       log.warn('Legacy index migration failed (will rebuild on next reindex):', err);

@@ -25,8 +25,8 @@ const DEFAULT_CONFIG: TTSConfig = {
   provider: 'elevenlabs',
   elevenLabsVoiceId: 'onwK4e9ZLuTAKqWW03F9', // "Daniel" — clear male voice
   elevenLabsModel: 'eleven_multilingual_v2',
-  openaiVoice: 'onyx',              // Deep male voice, good for Polish
-  openaiModel: 'tts-1-hd',          // High quality
+  openaiVoice: 'onyx', // Deep male voice, good for Polish
+  openaiModel: 'tts-1-hd', // High quality
   maxChars: 4000,
 };
 
@@ -69,9 +69,7 @@ export class TTSService {
     if (!clean || clean.length < 3) return null;
 
     // Truncate
-    const truncated = clean.length > this.config.maxChars
-      ? clean.slice(0, this.config.maxChars) + '...'
-      : clean;
+    const truncated = clean.length > this.config.maxChars ? clean.slice(0, this.config.maxChars) + '...' : clean;
 
     // Try ElevenLabs first (if provider is 'elevenlabs')
     if (this.config.provider === 'elevenlabs') {
@@ -120,9 +118,7 @@ export class TTSService {
   /**
    * HTTPS request to ElevenLabs TTS API.
    */
-  private elevenLabsRequest(
-    apiKey: string, voiceId: string, model: string, text: string
-  ): Promise<Buffer> {
+  private elevenLabsRequest(apiKey: string, voiceId: string, model: string, text: string): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const body = JSON.stringify({
         text,
@@ -137,29 +133,32 @@ export class TTSService {
 
       const REQUEST_TIMEOUT_MS = 30_000;
 
-      const req = https.request({
-        hostname: 'api.elevenlabs.io',
-        path: `/v1/text-to-speech/${voiceId}`,
-        method: 'POST',
-        headers: {
-          'Accept': 'audio/mpeg',
-          'Content-Type': 'application/json',
-          'xi-api-key': apiKey,
-          'Content-Length': Buffer.byteLength(body),
+      const req = https.request(
+        {
+          hostname: 'api.elevenlabs.io',
+          path: `/v1/text-to-speech/${voiceId}`,
+          method: 'POST',
+          headers: {
+            Accept: 'audio/mpeg',
+            'Content-Type': 'application/json',
+            'xi-api-key': apiKey,
+            'Content-Length': Buffer.byteLength(body),
+          },
+          timeout: REQUEST_TIMEOUT_MS,
         },
-        timeout: REQUEST_TIMEOUT_MS,
-      }, (res) => {
-        if (res.statusCode !== 200) {
-          let errBody = '';
-          res.on('data', (chunk: Buffer) => errBody += chunk.toString());
-          res.on('end', () => reject(new Error(`ElevenLabs API ${res.statusCode}: ${errBody.slice(0, 200)}`)));
-          return;
-        }
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', reject);
-      });
+        (res) => {
+          if (res.statusCode !== 200) {
+            let errBody = '';
+            res.on('data', (chunk: Buffer) => (errBody += chunk.toString()));
+            res.on('end', () => reject(new Error(`ElevenLabs API ${res.statusCode}: ${errBody.slice(0, 200)}`)));
+            return;
+          }
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => resolve(Buffer.concat(chunks)));
+          res.on('error', reject);
+        },
+      );
 
       req.on('timeout', () => {
         req.destroy(new Error(`ElevenLabs TTS request timed out after ${REQUEST_TIMEOUT_MS}ms`));
@@ -203,9 +202,7 @@ export class TTSService {
   /**
    * HTTPS request to OpenAI TTS API.
    */
-  private openaiTTSRequest(
-    apiKey: string, model: string, voice: string, text: string
-  ): Promise<Buffer> {
+  private openaiTTSRequest(apiKey: string, model: string, voice: string, text: string): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const body = JSON.stringify({
         model,
@@ -216,28 +213,31 @@ export class TTSService {
 
       const REQUEST_TIMEOUT_MS = 30_000;
 
-      const req = https.request({
-        hostname: 'api.openai.com',
-        path: '/v1/audio/speech',
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(body),
+      const req = https.request(
+        {
+          hostname: 'api.openai.com',
+          path: '/v1/audio/speech',
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+            'Content-Length': Buffer.byteLength(body),
+          },
+          timeout: REQUEST_TIMEOUT_MS,
         },
-        timeout: REQUEST_TIMEOUT_MS,
-      }, (res) => {
-        if (res.statusCode !== 200) {
-          let errBody = '';
-          res.on('data', (chunk: Buffer) => errBody += chunk.toString());
-          res.on('end', () => reject(new Error(`OpenAI TTS API ${res.statusCode}: ${errBody.slice(0, 200)}`)));
-          return;
-        }
-        const chunks: Buffer[] = [];
-        res.on('data', (chunk: Buffer) => chunks.push(chunk));
-        res.on('end', () => resolve(Buffer.concat(chunks)));
-        res.on('error', reject);
-      });
+        (res) => {
+          if (res.statusCode !== 200) {
+            let errBody = '';
+            res.on('data', (chunk: Buffer) => (errBody += chunk.toString()));
+            res.on('end', () => reject(new Error(`OpenAI TTS API ${res.statusCode}: ${errBody.slice(0, 200)}`)));
+            return;
+          }
+          const chunks: Buffer[] = [];
+          res.on('data', (chunk: Buffer) => chunks.push(chunk));
+          res.on('end', () => resolve(Buffer.concat(chunks)));
+          res.on('error', reject);
+        },
+      );
 
       req.on('timeout', () => {
         req.destroy(new Error(`OpenAI TTS request timed out after ${REQUEST_TIMEOUT_MS}ms`));
@@ -275,14 +275,14 @@ export class TTSService {
    */
   private cleanText(text: string): string {
     return text
-      .replace(/```[\s\S]*?```/g, '')             // code blocks
-      .replace(/`[^`]*`/g, '')                     // inline code
-      .replace(/\*\*([^*]+)\*\*/g, '$1')           // bold
-      .replace(/\*([^*]+)\*/g, '$1')               // italic
-      .replace(/#{1,6}\s/g, '')                    // headers
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')     // links
-      .replace(/[🤖💡📋📸⚙️🎮✅⛔⚠️●🔔]/gu, '') // common emojis
-      .replace(/\n{3,}/g, '\n\n')                  // excessive newlines
+      .replace(/```[\s\S]*?```/g, '') // code blocks
+      .replace(/`[^`]*`/g, '') // inline code
+      .replace(/\*\*([^*]+)\*\*/g, '$1') // bold
+      .replace(/\*([^*]+)\*/g, '$1') // italic
+      .replace(/#{1,6}\s/g, '') // headers
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
+      .replace(/[🤖💡📋📸🎮✅⛔●🔔]|⚙️|⚠️/gu, '') // common emojis
+      .replace(/\n{3,}/g, '\n\n') // excessive newlines
       .trim();
   }
 
@@ -300,6 +300,8 @@ export class TTSService {
           fs.unlinkSync(filePath);
         }
       }
-    } catch { /* non-critical */ }
+    } catch {
+      /* non-critical */
+    }
   }
 }

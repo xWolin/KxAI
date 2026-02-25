@@ -211,13 +211,16 @@ export class BrowserService {
     if (platform === 'win32') {
       const localAppData = process.env['LOCALAPPDATA'] || '';
       if (name.includes('chrome')) profileDir = path.join(localAppData, 'Google', 'Chrome', 'User Data');
-      else if (name.includes('msedge') || name.includes('edge')) profileDir = path.join(localAppData, 'Microsoft', 'Edge', 'User Data');
-      else if (name.includes('brave')) profileDir = path.join(localAppData, 'BraveSoftware', 'Brave-Browser', 'User Data');
+      else if (name.includes('msedge') || name.includes('edge'))
+        profileDir = path.join(localAppData, 'Microsoft', 'Edge', 'User Data');
+      else if (name.includes('brave'))
+        profileDir = path.join(localAppData, 'BraveSoftware', 'Brave-Browser', 'User Data');
     } else if (platform === 'darwin') {
       const home = os.homedir();
       if (name.includes('chrome')) profileDir = path.join(home, 'Library', 'Application Support', 'Google', 'Chrome');
       else if (name.includes('edge')) profileDir = path.join(home, 'Library', 'Application Support', 'Microsoft Edge');
-      else if (name.includes('brave')) profileDir = path.join(home, 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser');
+      else if (name.includes('brave'))
+        profileDir = path.join(home, 'Library', 'Application Support', 'BraveSoftware', 'Brave-Browser');
     } else {
       const home = os.homedir();
       if (name.includes('chromium')) profileDir = path.join(home, '.config', 'chromium');
@@ -277,16 +280,15 @@ export class BrowserService {
    * Chrome creates a lockfile 'SingletonLock' (Linux/Mac) or 'lockfile' (Windows).
    */
   private isBrowserProfileLocked(profileDir: string, browserExe?: string): boolean {
-    const lockFiles = [
-      path.join(profileDir, 'SingletonLock'),
-      path.join(profileDir, 'lockfile'),
-    ];
+    const lockFiles = [path.join(profileDir, 'SingletonLock'), path.join(profileDir, 'lockfile')];
 
     for (const lf of lockFiles) {
       try {
         fs.lstatSync(lf);
         return true;
-      } catch { /* not found */ }
+      } catch {
+        /* not found */
+      }
     }
 
     // Windows: check if the specific browser process is running
@@ -295,11 +297,15 @@ export class BrowserService {
       const targets = processName ? [processName] : ['chrome.exe', 'msedge.exe', 'brave.exe'];
       try {
         const result = execSync('tasklist /FI "STATUS eq Running" /FO CSV /NH', {
-          encoding: 'utf-8', timeout: 5000, windowsHide: true,
+          encoding: 'utf-8',
+          timeout: 5000,
+          windowsHide: true,
         });
         const lower = result.toLowerCase();
-        return targets.some(t => lower.includes(t));
-      } catch { /* ignore */ }
+        return targets.some((t) => lower.includes(t));
+      } catch {
+        /* ignore */
+      }
     }
 
     return false;
@@ -317,15 +323,23 @@ export class BrowserService {
     return new Promise((resolve) => {
       const req = http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
         let data = '';
-        res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+        res.on('data', (chunk: Buffer) => {
+          data += chunk.toString();
+        });
         res.on('end', async () => {
           try {
             const info = JSON.parse(data);
             const ws = info.webSocketDebuggerUrl;
-            if (!ws) { resolve(null); return; }
+            if (!ws) {
+              resolve(null);
+              return;
+            }
 
             // If no browserExe provided, skip ownership check
-            if (!browserExe) { resolve(ws); return; }
+            if (!browserExe) {
+              resolve(ws);
+              return;
+            }
 
             // Verify process ownership of this port
             const ownerMatch = await this.verifyPortOwner(port, browserExe, info);
@@ -335,11 +349,16 @@ export class BrowserService {
               log.warn(`CDP port ${port} belongs to a different process, skipping`);
               resolve(null);
             }
-          } catch { resolve(null); }
+          } catch {
+            resolve(null);
+          }
         });
       });
       req.on('error', () => resolve(null));
-      req.setTimeout(1500, () => { req.destroy(); resolve(null); });
+      req.setTimeout(1500, () => {
+        req.destroy();
+        resolve(null);
+      });
     });
   }
 
@@ -349,24 +368,29 @@ export class BrowserService {
    * Falls back to checking the Browser field in /json/version response.
    */
   private async verifyPortOwner(port: number, browserExe: string, versionInfo: any): Promise<boolean> {
-    const expectedName = path.basename(browserExe).toLowerCase().replace(/\.exe$/i, '');
+    const expectedName = path
+      .basename(browserExe)
+      .toLowerCase()
+      .replace(/\.exe$/i, '');
 
     // OS-specific PID lookup
     try {
       if (process.platform === 'win32') {
         // Use netstat to find PID listening on the port, then verify process name
-        const netstatResult = execSync(
-          `netstat -ano | findstr "LISTENING" | findstr ":${port} "`,
-          { encoding: 'utf-8', timeout: 5000, windowsHide: true }
-        ).trim();
+        const netstatResult = execSync(`netstat -ano | findstr "LISTENING" | findstr ":${port} "`, {
+          encoding: 'utf-8',
+          timeout: 5000,
+          windowsHide: true,
+        }).trim();
         const pidMatch = netstatResult.match(/\s(\d+)\s*$/m);
         if (pidMatch) {
           const pid = pidMatch[1];
           try {
-            const wmicResult = execSync(
-              `wmic process where "ProcessId=${pid}" get ExecutablePath /FORMAT:LIST`,
-              { encoding: 'utf-8', timeout: 5000, windowsHide: true }
-            );
+            const wmicResult = execSync(`wmic process where "ProcessId=${pid}" get ExecutablePath /FORMAT:LIST`, {
+              encoding: 'utf-8',
+              timeout: 5000,
+              windowsHide: true,
+            });
             const exeMatch = wmicResult.match(/ExecutablePath=(.+)/);
             if (exeMatch) {
               const ownerExe = exeMatch[1].trim().toLowerCase();
@@ -374,15 +398,17 @@ export class BrowserService {
               log.info(`Port ${port} owned by ${ownerExe}, expected ${expectedName}`);
               return false;
             }
-          } catch { /* WMIC may fail for system processes */ }
+          } catch {
+            /* WMIC may fail for system processes */
+          }
         }
       } else if (process.platform === 'linux') {
         // Use /proc/net/tcp or lsof
         try {
-          const lsofResult = execSync(
-            `lsof -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null`,
-            { encoding: 'utf-8', timeout: 5000 }
-          ).trim();
+          const lsofResult = execSync(`lsof -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null`, {
+            encoding: 'utf-8',
+            timeout: 5000,
+          }).trim();
           const pid = lsofResult.split('\n')[0];
           if (pid) {
             try {
@@ -390,28 +416,35 @@ export class BrowserService {
               if (exePath.toLowerCase().includes(expectedName)) return true;
               log.info(`Port ${port} owned by ${exePath}, expected ${expectedName}`);
               return false;
-            } catch { /* readlink may fail without permissions */ }
+            } catch {
+              /* readlink may fail without permissions */
+            }
           }
-        } catch { /* lsof may not be available */ }
+        } catch {
+          /* lsof may not be available */
+        }
       } else if (process.platform === 'darwin') {
         try {
-          const lsofResult = execSync(
-            `lsof -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null`,
-            { encoding: 'utf-8', timeout: 5000 }
-          ).trim();
+          const lsofResult = execSync(`lsof -iTCP:${port} -sTCP:LISTEN -t 2>/dev/null`, {
+            encoding: 'utf-8',
+            timeout: 5000,
+          }).trim();
           const pid = lsofResult.split('\n')[0];
           if (pid) {
-            const psResult = execSync(
-              `ps -p ${pid} -o comm= 2>/dev/null`,
-              { encoding: 'utf-8', timeout: 5000 }
-            ).trim().toLowerCase();
+            const psResult = execSync(`ps -p ${pid} -o comm= 2>/dev/null`, { encoding: 'utf-8', timeout: 5000 })
+              .trim()
+              .toLowerCase();
             if (psResult.includes(expectedName)) return true;
             log.info(`Port ${port} owned by ${psResult}, expected ${expectedName}`);
             return false;
           }
-        } catch { /* lsof/ps may fail */ }
+        } catch {
+          /* lsof/ps may fail */
+        }
       }
-    } catch { /* OS-level check failed, fall through to secondary check */ }
+    } catch {
+      /* OS-level check failed, fall through to secondary check */
+    }
 
     // Secondary fallback: check /json/version Browser field
     const browser = (versionInfo?.Browser || versionInfo?.['User-Agent'] || '').toLowerCase();
@@ -440,10 +473,11 @@ export class BrowserService {
     // Strategy 1: Windows — extract port from process command line
     if (process.platform === 'win32') {
       try {
-        const result = execSync(
-          `wmic process where "name='${name}'" get CommandLine /FORMAT:LIST`,
-          { encoding: 'utf-8', timeout: 5000, windowsHide: true }
-        );
+        const result = execSync(`wmic process where "name='${name}'" get CommandLine /FORMAT:LIST`, {
+          encoding: 'utf-8',
+          timeout: 5000,
+          windowsHide: true,
+        });
         const match = result.match(/--remote-debugging-port=(\d+)/);
         if (match) {
           const port = parseInt(match[1], 10);
@@ -455,7 +489,9 @@ export class BrowserService {
             }
           }
         }
-      } catch { /* process not found */ }
+      } catch {
+        /* process not found */
+      }
     }
 
     // Strategy 2: Scan common debug ports (verify ownership against detected browser)
@@ -480,7 +516,11 @@ export class BrowserService {
       let prefs: Record<string, any> = {};
       if (fs.existsSync(prefsPath)) {
         const raw = fs.readFileSync(prefsPath, 'utf-8');
-        try { prefs = JSON.parse(raw); } catch { prefs = {}; }
+        try {
+          prefs = JSON.parse(raw);
+        } catch {
+          prefs = {};
+        }
       } else {
         fs.mkdirSync(path.join(userDataDir, 'Default'), { recursive: true });
       }
@@ -510,7 +550,11 @@ export class BrowserService {
       let state: Record<string, any> = {};
       if (fs.existsSync(localStatePath)) {
         const raw = fs.readFileSync(localStatePath, 'utf-8');
-        try { state = JSON.parse(raw); } catch { state = {}; }
+        try {
+          state = JSON.parse(raw);
+        } catch {
+          state = {};
+        }
       }
 
       if (!state['browser']) state['browser'] = {};
@@ -541,17 +585,26 @@ export class BrowserService {
     // SQLite DB files that Chrome may hold open with WAL — need safe copy
     const sqliteFiles = ['Cookies', 'Login Data', 'Web Data', 'Extension Cookies'];
     const profileFiles = [
-      'Cookies', 'Cookies-journal',
-      'Login Data', 'Login Data-journal',
-      'Web Data', 'Web Data-journal',
-      'Preferences', 'Secure Preferences',
-      'Extension Cookies', 'Extension Cookies-journal',
+      'Cookies',
+      'Cookies-journal',
+      'Login Data',
+      'Login Data-journal',
+      'Web Data',
+      'Web Data-journal',
+      'Preferences',
+      'Secure Preferences',
+      'Extension Cookies',
+      'Extension Cookies-journal',
     ];
 
-    try { fs.mkdirSync(path.join(targetDir, 'Default'), { recursive: true }); } catch { /* exists */ }
+    try {
+      fs.mkdirSync(path.join(targetDir, 'Default'), { recursive: true });
+    } catch {
+      /* exists */
+    }
 
     let copied = 0;
-    let warnings: string[] = [];
+    const warnings: string[] = [];
 
     for (const file of rootFiles) {
       try {
@@ -587,12 +640,16 @@ export class BrowserService {
             if (attempt > 0) {
               // Synchronous sleep — acceptable here as this runs once at launch
               const waitUntil = Date.now() + 200;
-              while (Date.now() < waitUntil) { /* busy wait */ }
+              while (Date.now() < waitUntil) {
+                /* busy wait */
+              }
             }
             fs.copyFileSync(src, dst);
             directCopyOk = true;
             break;
-          } catch { /* retry */ }
+          } catch {
+            /* retry */
+          }
         }
 
         if (directCopyOk) {
@@ -626,10 +683,7 @@ export class BrowserService {
    */
   private trySqliteBackup(srcDb: string, dstDb: string): boolean {
     try {
-      execSync(
-        `sqlite3 "${srcDb}" ".backup '${dstDb}'"`,
-        { timeout: 5000, windowsHide: true, stdio: 'ignore' }
-      );
+      execSync(`sqlite3 "${srcDb}" ".backup '${dstDb}'"`, { timeout: 5000, windowsHide: true, stdio: 'ignore' });
       return fs.existsSync(dstDb);
     } catch (err: any) {
       log.info(`sqlite3 backup niedostępny/błąd: ${err.message}`);
@@ -690,30 +744,39 @@ export class BrowserService {
 
     // macOS Spotlight fallback
     try {
-      const result = execSync(
-        "mdfind \"kMDItemCFBundleIdentifier == 'com.google.Chrome'\" 2>/dev/null",
-        { encoding: 'utf8', timeout: 5000 }
-      ).trim();
+      const result = execSync('mdfind "kMDItemCFBundleIdentifier == \'com.google.Chrome\'" 2>/dev/null', {
+        encoding: 'utf8',
+        timeout: 5000,
+      }).trim();
       if (result) {
         const chromePath = path.join(result.split('\n')[0], 'Contents/MacOS/Google Chrome');
         if (fs.existsSync(chromePath)) return chromePath;
       }
-    } catch { /* not found */ }
+    } catch {
+      /* not found */
+    }
 
     return null;
   }
 
   private detectBrowserLinux(): string | null {
     const names = [
-      'google-chrome', 'google-chrome-stable', 'chromium', 'chromium-browser',
-      'microsoft-edge', 'microsoft-edge-stable', 'brave-browser',
+      'google-chrome',
+      'google-chrome-stable',
+      'chromium',
+      'chromium-browser',
+      'microsoft-edge',
+      'microsoft-edge-stable',
+      'brave-browser',
     ];
 
     for (const name of names) {
       try {
         const result = execSync(`which ${name} 2>/dev/null`, { encoding: 'utf8', timeout: 5000 }).trim();
         if (result) return result;
-      } catch { /* not found */ }
+      } catch {
+        /* not found */
+      }
     }
     return null;
   }
@@ -758,7 +821,7 @@ export class BrowserService {
           // Open a new tab for the agent — don't hijack existing user tabs
           this.activePage = await this.cdpBrowser.newPage();
           const targets = await this.cdpBrowser.getTargets();
-          this.activePageIdx = targets.findIndex(t => t.id === this.activePage!.targetId);
+          this.activePageIdx = targets.findIndex((t) => t.id === this.activePage!.targetId);
           if (this.activePageIdx < 0) this.activePageIdx = 0;
           log.info(`Połączono z istniejącym CDP na porcie ${existing.port} — sesja użytkownika`);
           return this.afterConnect(execPath, options, 'istniejąca sesja CDP');
@@ -781,7 +844,11 @@ export class BrowserService {
           this.cdpBrowser = null;
           this.activePage = null;
           if (this.browserProcess) {
-            try { this.browserProcess.kill(); } catch { /* ignore */ }
+            try {
+              this.browserProcess.kill();
+            } catch {
+              /* ignore */
+            }
             this.browserProcess = null;
           }
         }
@@ -797,7 +864,9 @@ export class BrowserService {
         log.info('Pierwsza sesja KxAI — próbuję skopiować cookies z profilu użytkownika...');
         try {
           cookiesCopied = this.copyProfileForSharing(realProfileDir, kxaiProfileDir);
-          log.info(`Kopia cookies: ${cookiesCopied ? 'OK — cookies skopiowane' : 'BRAK — profil izolowany (zaloguj się ręcznie)'}`);
+          log.info(
+            `Kopia cookies: ${cookiesCopied ? 'OK — cookies skopiowane' : 'BRAK — profil izolowany (zaloguj się ręcznie)'}`,
+          );
         } catch (copyErr: any) {
           log.warn(`Kopia cookies nieudana: ${copyErr.message} — profil izolowany`);
         }
@@ -811,7 +880,9 @@ export class BrowserService {
       await this.launchViaCDP(execPath, options);
 
       const label = isFirstLaunch
-        ? (cookiesCopied ? 'profil KxAI (cookies skopiowane)' : 'profil KxAI — izolowany (zaloguj się raz, sesje zostaną zapamiętane)')
+        ? cookiesCopied
+          ? 'profil KxAI (cookies skopiowane)'
+          : 'profil KxAI — izolowany (zaloguj się raz, sesje zostaną zapamiętane)'
         : 'profil KxAI (zachowane sesje)';
       log.info(`Uruchomiono z ${label}`);
       return this.afterConnect(execPath, options, label);
@@ -938,18 +1009,28 @@ export class BrowserService {
 
         const req = http.get(`http://127.0.0.1:${port}/json/version`, (res) => {
           let data = '';
-          res.on('data', (chunk: Buffer) => { data += chunk.toString(); });
+          res.on('data', (chunk: Buffer) => {
+            data += chunk.toString();
+          });
           res.on('end', () => {
             try {
               const ws = JSON.parse(data).webSocketDebuggerUrl;
-              if (ws) { resolve(ws); return; }
-            } catch { /* retry */ }
+              if (ws) {
+                resolve(ws);
+                return;
+              }
+            } catch {
+              /* retry */
+            }
             setTimeout(poll, 250);
           });
         });
 
         req.on('error', () => setTimeout(poll, 250));
-        req.setTimeout(2000, () => { req.destroy(); setTimeout(poll, 250); });
+        req.setTimeout(2000, () => {
+          req.destroy();
+          setTimeout(poll, 250);
+        });
       };
 
       poll();
@@ -1059,10 +1140,13 @@ export class BrowserService {
   /**
    * Click element by ref (e.g., "e5").
    */
-  async click(ref: string, options?: {
-    button?: 'left' | 'right' | 'middle';
-    doubleClick?: boolean;
-  }): Promise<BrowserResult> {
+  async click(
+    ref: string,
+    options?: {
+      button?: 'left' | 'right' | 'middle';
+      doubleClick?: boolean;
+    },
+  ): Promise<BrowserResult> {
     const page = this.getActivePage();
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
@@ -1107,10 +1191,14 @@ export class BrowserService {
   /**
    * Type text into input element by ref.
    */
-  async type(ref: string, text: string, options?: {
-    clear?: boolean;
-    submit?: boolean;
-  }): Promise<BrowserResult> {
+  async type(
+    ref: string,
+    text: string,
+    options?: {
+      clear?: boolean;
+      submit?: boolean;
+    },
+  ): Promise<BrowserResult> {
     const page = this.getActivePage();
     if (!page) return { success: false, error: 'Przeglądarka nie jest uruchomiona' };
 
@@ -1200,10 +1288,18 @@ export class BrowserService {
 
     try {
       switch (direction) {
-        case 'up':    await page.mouseWheel(0, -(amount || 500)); break;
-        case 'down':  await page.mouseWheel(0, amount || 500); break;
-        case 'top':   await page.evaluate('window.scrollTo(0, 0)'); break;
-        case 'bottom': await page.evaluate('window.scrollTo(0, document.body.scrollHeight)'); break;
+        case 'up':
+          await page.mouseWheel(0, -(amount || 500));
+          break;
+        case 'down':
+          await page.mouseWheel(0, amount || 500);
+          break;
+        case 'top':
+          await page.evaluate('window.scrollTo(0, 0)');
+          break;
+        case 'bottom':
+          await page.evaluate('window.scrollTo(0, document.body.scrollHeight)');
+          break;
       }
       await page.sleep(300);
       return { success: true, data: { action: 'scroll', direction, amount } };
@@ -1268,14 +1364,17 @@ export class BrowserService {
             await page.sleep(500);
             break; // One dismissal is usually enough
           }
-        } catch { /* selector not found — try next */ }
+        } catch {
+          /* selector not found — try next */
+        }
       }
 
       return {
         success: true,
-        data: dismissed.length > 0
-          ? { dismissed: dismissed.length, selectors: dismissed }
-          : { dismissed: 0, message: 'Nie znaleziono popupów do zamknięcia' },
+        data:
+          dismissed.length > 0
+            ? { dismissed: dismissed.length, selectors: dismissed }
+            : { dismissed: 0, message: 'Nie znaleziono popupów do zamknięcia' },
       };
     } catch (err: any) {
       return { success: false, error: `DismissPopups: ${err.message}` };
@@ -1295,11 +1394,15 @@ export class BrowserService {
 
       if (options?.ref) {
         buffer = await page.screenshotElement(`[data-kxref="${options.ref}"]`, {
-          quality: 80, format: 'jpeg', timeout: 10000,
+          quality: 80,
+          format: 'jpeg',
+          timeout: 10000,
         });
       } else {
         buffer = await page.screenshot({
-          quality: 80, format: 'jpeg', fullPage: options?.fullPage ?? false,
+          quality: 80,
+          format: 'jpeg',
+          fullPage: options?.fullPage ?? false,
         });
       }
 
@@ -1346,7 +1449,7 @@ export class BrowserService {
       this.activePage = newPage;
 
       const targets = await this.cdpBrowser.getTargets();
-      this.activePageIdx = targets.findIndex(t => t.id === newPage.targetId);
+      this.activePageIdx = targets.findIndex((t) => t.id === newPage.targetId);
       if (this.activePageIdx < 0) this.activePageIdx = targets.length - 1;
 
       return {
@@ -1374,7 +1477,11 @@ export class BrowserService {
 
       this.activePageIdx = index;
       this.activePage = await this.cdpBrowser.attachToPage(targets[index]);
-      try { await this.activePage.bringToFront(); } catch { /* ok */ }
+      try {
+        await this.activePage.bringToFront();
+      } catch {
+        /* ok */
+      }
 
       return { success: true, data: { index, url: this.activePage.url(), title: await this.activePage.title() } };
     } catch (err: any) {
@@ -1390,7 +1497,8 @@ export class BrowserService {
       const idx = index ?? this.activePageIdx;
 
       if (idx < 0 || idx >= targets.length) return { success: false, error: `Tab ${idx} nie istnieje` };
-      if (targets.length <= 1) return { success: false, error: 'Nie można zamknąć ostatniego taba. Użyj browser_close.' };
+      if (targets.length <= 1)
+        return { success: false, error: 'Nie można zamknąć ostatniego taba. Użyj browser_close.' };
 
       await this.cdpBrowser.closePage(targets[idx].id);
 
@@ -1403,7 +1511,10 @@ export class BrowserService {
         this.activePage = await this.cdpBrowser.attachToPage(remainingTargets[this.activePageIdx]);
       }
 
-      return { success: true, data: { closedIndex: idx, activeIndex: this.activePageIdx, totalTabs: remainingTargets.length } };
+      return {
+        success: true,
+        data: { closedIndex: idx, activeIndex: this.activePageIdx, totalTabs: remainingTargets.length },
+      };
     } catch (err: any) {
       return { success: false, error: `Close tab: ${err.message}` };
     }
@@ -1429,9 +1540,7 @@ export class BrowserService {
       })()`;
       const result: { ok: boolean; value?: string; error?: string } = await page.evaluate(wrappedScript);
 
-      return result.ok
-        ? { success: true, data: result.value }
-        : { success: false, error: `JS error: ${result.error}` };
+      return result.ok ? { success: true, data: result.value } : { success: false, error: `JS error: ${result.error}` };
     } catch (err: any) {
       return { success: false, error: `Evaluate: ${err.message}` };
     }
@@ -1510,7 +1619,10 @@ export class BrowserService {
       try {
         const selector = `[data-kxref="${f.ref}"]`;
         const count = await page.queryCount(selector);
-        if (count === 0) { results.push({ ref: f.ref, ok: false, error: 'nie znaleziony' }); continue; }
+        if (count === 0) {
+          results.push({ ref: f.ref, ok: false, error: 'nie znaleziony' });
+          continue;
+        }
 
         const tag = await page.tagName(selector);
         if (tag === 'select') {
@@ -1524,7 +1636,7 @@ export class BrowserService {
       }
     }
 
-    const allOk = results.every(r => r.ok);
+    const allOk = results.every((r) => r.ok);
     return { success: allOk, data: results, error: allOk ? undefined : 'Niektóre pola nie wypełnione' };
   }
 
@@ -1616,10 +1728,16 @@ export class BrowserService {
         this.cdpBrowser = null;
         this.activePage = null;
       }
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
 
     if (this.browserProcess) {
-      try { this.browserProcess.kill(); } catch { /* ignore */ }
+      try {
+        this.browserProcess.kill();
+      } catch {
+        /* ignore */
+      }
       this.browserProcess = null;
     }
 
@@ -1642,7 +1760,10 @@ export class BrowserService {
         fs.rmSync(kxaiProfileDir, { recursive: true, force: true });
         log.info('Profil KxAI usunięty — cookies zostaną skopiowane przy następnym uruchomieniu');
       }
-      return { success: true, data: 'Profil przeglądarki KxAI został zresetowany. Przy następnym uruchomieniu cookies zostaną skopiowane z Twojego profilu Chrome.' };
+      return {
+        success: true,
+        data: 'Profil przeglądarki KxAI został zresetowany. Przy następnym uruchomieniu cookies zostaną skopiowane z Twojego profilu Chrome.',
+      };
     } catch (err: any) {
       return { success: false, error: `Błąd resetu profilu: ${err.message}` };
     }

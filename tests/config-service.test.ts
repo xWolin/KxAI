@@ -102,7 +102,7 @@ describe('ConfigService v2', () => {
       expect(svc.get('aiProvider')).toBe('openai');
       expect(svc.get('aiModel')).toBe('gpt-5');
       expect(svc.get('proactiveMode')).toBe(false);
-      expect(svc.get('proactiveIntervalMs')).toBe(30000);
+      expect(svc.get('proactiveIntervalMs')).toBe(60000);
       expect(svc.get('theme')).toBe('dark');
       expect(svc.get('onboarded')).toBe(false);
       expect(svc.get('agentName')).toBe('KxAI');
@@ -131,11 +131,13 @@ describe('ConfigService v2', () => {
 
   describe('loading from file', () => {
     it('loads valid JSON and merges with defaults', () => {
-      const svc = createService(JSON.stringify({
-        aiProvider: 'anthropic',
-        aiModel: 'claude-4-opus',
-        userName: 'Jan',
-      }));
+      const svc = createService(
+        JSON.stringify({
+          aiProvider: 'anthropic',
+          aiModel: 'claude-4-opus',
+          userName: 'Jan',
+        }),
+      );
       expect(svc.get('aiProvider')).toBe('anthropic');
       expect(svc.get('aiModel')).toBe('claude-4-opus');
       expect(svc.get('userName')).toBe('Jan');
@@ -159,10 +161,12 @@ describe('ConfigService v2', () => {
     });
 
     it('preserves unknown keys via passthrough', () => {
-      const svc = createService(JSON.stringify({
-        customField: 'hello',
-        nested: { a: 1 },
-      }));
+      const svc = createService(
+        JSON.stringify({
+          customField: 'hello',
+          nested: { a: 1 },
+        }),
+      );
       const all = svc.getAll();
       expect((all as any).customField).toBe('hello');
       expect((all as any).nested).toEqual({ a: 1 });
@@ -301,7 +305,9 @@ describe('ConfigService v2', () => {
 
     it('listener errors do not crash the service', () => {
       const svc = createService();
-      svc.onChange('aiProvider', () => { throw new Error('boom'); });
+      svc.onChange('aiProvider', () => {
+        throw new Error('boom');
+      });
       expect(() => svc.set('aiProvider', 'anthropic')).not.toThrow();
       expect(svc.get('aiProvider')).toBe('anthropic');
     });
@@ -410,19 +416,23 @@ describe('ConfigService v2', () => {
 
   describe('config migration', () => {
     it('migrates v0 config (no _version) to current version', () => {
-      const svc = createService(JSON.stringify({
-        aiProvider: 'anthropic',
-        // no _version field
-      }));
+      const svc = createService(
+        JSON.stringify({
+          aiProvider: 'anthropic',
+          // no _version field
+        }),
+      );
       expect(svc.get('_version')).toBe(CURRENT_CONFIG_VERSION);
       expect(svc.get('aiProvider')).toBe('anthropic');
     });
 
     it('does not migrate config already at current version', () => {
-      const svc = createService(JSON.stringify({
-        _version: CURRENT_CONFIG_VERSION,
-        aiProvider: 'anthropic',
-      }));
+      const svc = createService(
+        JSON.stringify({
+          _version: CURRENT_CONFIG_VERSION,
+          aiProvider: 'anthropic',
+        }),
+      );
       expect(svc.get('_version')).toBe(CURRENT_CONFIG_VERSION);
       expect(svc.get('aiProvider')).toBe('anthropic');
     });
@@ -501,15 +511,17 @@ describe('ConfigService v2', () => {
 
     it('accepts valid MCP server config', () => {
       const result = KxAIConfigSchema.safeParse({
-        mcpServers: [{
-          id: 'test',
-          name: 'Test Server',
-          transport: 'stdio',
-          command: 'node',
-          args: ['server.js'],
-          autoConnect: true,
-          enabled: true,
-        }],
+        mcpServers: [
+          {
+            id: 'test',
+            name: 'Test Server',
+            transport: 'stdio',
+            command: 'node',
+            args: ['server.js'],
+            autoConnect: true,
+            enabled: true,
+          },
+        ],
       });
       expect(result.success).toBe(true);
     });

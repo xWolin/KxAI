@@ -76,7 +76,9 @@ function MessageContent({ content, highlighterReady }: { content: string; highli
       await navigator.clipboard.writeText(cleaned);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
-    } catch {}
+    } catch {
+      /* clipboard write unavailable */
+    }
   }, [content]);
 
   /** Event delegation: handle clicks on code block copy buttons inside rendered markdown. */
@@ -101,7 +103,12 @@ function MessageContent({ content, highlighterReady }: { content: string; highli
   if (!html) return null;
   return (
     <div className={s.bubbleWrapper}>
-      <button className={copied ? s.copyBtnCopied : s.copyBtn} onClick={handleCopy} title={t('chat.copyMessage')} aria-label={t('chat.copyMessage')}>
+      <button
+        className={copied ? s.copyBtnCopied : s.copyBtn}
+        onClick={handleCopy}
+        title={t('chat.copyMessage')}
+        aria-label={t('chat.copyMessage')}
+      >
         {copied ? '✓' : '📋'}
       </button>
       <div className={s.markdown} dangerouslySetInnerHTML={{ __html: html }} onClick={handleCodeCopy} />
@@ -292,7 +299,9 @@ export function ChatPanel({
       if (capture.success && capture.data?.[0]?.base64) {
         previewUrl = capture.data[0].base64;
       }
-    } catch {}
+    } catch {
+      /* screen capture unavailable */
+    }
 
     // Add optimistic user message so it's visible immediately
     const msgId = `opt-${Date.now()}`;
@@ -311,9 +320,7 @@ export function ChatPanel({
     }
 
     try {
-      const result = await window.kxai.streamWithScreen(
-        t('chat.screenshot.prompt'),
-      );
+      const result = await window.kxai.streamWithScreen(t('chat.screenshot.prompt'));
       // Safety: always reset streaming state after IPC completes
       setIsStreaming(false);
       if (result.success) {
@@ -448,9 +455,7 @@ export function ChatPanel({
     // Build a message asking the AI to analyze the dropped files
     const fileList = paths.map((p) => `- ${p}`).join('\n');
     const message =
-      paths.length === 1
-        ? t('chat.drop.single', { path: paths[0] })
-        : t('chat.drop.multiple', { files: fileList });
+      paths.length === 1 ? t('chat.drop.single', { path: paths[0] }) : t('chat.drop.multiple', { files: fileList });
 
     // Send as a regular chat message
     setInput('');
@@ -538,7 +543,9 @@ export function ChatPanel({
             inputRef.current?.focus();
           } else {
             setInput((prev) =>
-              prev === t('chat.voice.transcribing') ? `⚠️ ${result.error || t('chat.voice.transcriptionFailed')}` : prev,
+              prev === t('chat.voice.transcribing')
+                ? `⚠️ ${result.error || t('chat.voice.transcriptionFailed')}`
+                : prev,
             );
           }
         } catch (err: any) {
@@ -658,7 +665,12 @@ export function ChatPanel({
           </button>
 
           {/* Screenshot */}
-          <button onClick={captureAndAnalyze} title={t('chat.screenshot.title')} aria-label={t('chat.screenshot.title')} className={s.btn}>
+          <button
+            onClick={captureAndAnalyze}
+            title={t('chat.screenshot.title')}
+            aria-label={t('chat.screenshot.title')}
+            className={s.btn}
+          >
             📸
           </button>
 
@@ -668,7 +680,12 @@ export function ChatPanel({
           </button>
 
           {/* Dashboard */}
-          <button onClick={openDashboard} title={t('chat.dashboard.title')} aria-label={t('chat.dashboard.title')} className={s.btn}>
+          <button
+            onClick={openDashboard}
+            title={t('chat.dashboard.title')}
+            aria-label={t('chat.dashboard.title')}
+            className={s.btn}
+          >
             📊
           </button>
 
@@ -678,7 +695,12 @@ export function ChatPanel({
           </button>
 
           {/* Settings */}
-          <button onClick={onOpenSettings} title={t('chat.settings.title')} aria-label={t('chat.settings.title')} className={s.btn}>
+          <button
+            onClick={onOpenSettings}
+            title={t('chat.settings.title')}
+            aria-label={t('chat.settings.title')}
+            className={s.btn}
+          >
             ⚙️
           </button>
 
@@ -711,7 +733,8 @@ export function ChatPanel({
             <div className={s.ragFill} style={{ width: `${ragProgress.overallPercent}%` }} />
           </div>
           <div className={s.ragDetail}>
-            {ragProgress.filesProcessed}/{ragProgress.filesTotal} {t('chat.rag.files')} · {ragProgress.chunksCreated} {t('chat.rag.chunks')}
+            {ragProgress.filesProcessed}/{ragProgress.filesTotal} {t('chat.rag.files')} · {ragProgress.chunksCreated}{' '}
+            {t('chat.rag.chunks')}
             {ragProgress.currentFile && (
               <span title={ragProgress.currentFile}> · {ragProgress.currentFile.split(/[/\\]/).pop()}</span>
             )}
@@ -740,7 +763,11 @@ export function ChatPanel({
                   loading="lazy"
                 />
               )}
-              {msg.role === 'assistant' ? <MessageContent content={msg.content} highlighterReady={highlighterReady} /> : msg.content}
+              {msg.role === 'assistant' ? (
+                <MessageContent content={msg.content} highlighterReady={highlighterReady} />
+              ) : (
+                msg.content
+              )}
             </div>
             <div className={s.msgTime}>{formatTime(msg.timestamp)}</div>
           </div>

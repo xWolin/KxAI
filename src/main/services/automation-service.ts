@@ -95,7 +95,7 @@ export class AutomationService {
       if (this.platform === 'win32') {
         return this.runPowerShell(
           `Add-Type -AssemblyName System.Windows.Forms; ` +
-          `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${sx}, ${sy})`
+            `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${sx}, ${sy})`,
         );
       } else if (this.platform === 'darwin') {
         // macOS: use Python + Quartz CoreGraphics for real HID mouse move
@@ -118,24 +118,25 @@ export class AutomationService {
 
     return this.executeAction('mouse_click', { x: sx, y: sy, button }, async () => {
       if (this.platform === 'win32') {
-        const moveCmd = sx !== undefined && sy !== undefined
-          ? `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${sx}, ${sy}); Start-Sleep -Milliseconds 50; `
-          : '';
+        const moveCmd =
+          sx !== undefined && sy !== undefined
+            ? `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${sx}, ${sy}); Start-Sleep -Milliseconds 50; `
+            : '';
 
         const downFlag = button === 'right' ? '0x0008' : button === 'middle' ? '0x0020' : '0x0002';
         const upFlag = button === 'right' ? '0x0010' : button === 'middle' ? '0x0040' : '0x0004';
 
         return this.runPowerShell(
           `Add-Type -AssemblyName System.Windows.Forms; ` +
-          `${moveCmd}` +
-          `$signature = @"
+            `${moveCmd}` +
+            `$signature = @"
 [DllImport("user32.dll")]
 public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
 "@; ` +
-          `$mouse = Add-Type -MemberDefinition $signature -Name "Win32Mouse" -Namespace "Win32" -PassThru; ` +
-          `$mouse::mouse_event(${downFlag}, 0, 0, 0, 0); ` +
-          `Start-Sleep -Milliseconds 50; ` +
-          `$mouse::mouse_event(${upFlag}, 0, 0, 0, 0)`
+            `$mouse = Add-Type -MemberDefinition $signature -Name "Win32Mouse" -Namespace "Win32" -PassThru; ` +
+            `$mouse::mouse_event(${downFlag}, 0, 0, 0, 0); ` +
+            `Start-Sleep -Milliseconds 50; ` +
+            `$mouse::mouse_event(${upFlag}, 0, 0, 0, 0)`,
         );
       } else if (this.platform === 'darwin') {
         // macOS: use cliclick for coordinate-based clicking (brew install cliclick)
@@ -170,7 +171,7 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
             (error, stdout) => {
               if (error) resolve({ success: false, error: error.message });
               else resolve({ success: true, data: stdout.trim() || 'OK' });
-            }
+            },
           );
         });
       } else if (this.platform === 'darwin') {
@@ -178,16 +179,24 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         const tmpFile = path.join(os.tmpdir(), `kxai-type-${Date.now()}.txt`);
         fs.writeFileSync(tmpFile, text, 'utf8');
         const result = await this.runCommand(
-          `osascript -e 'set theText to (read POSIX file "${tmpFile}" as «class utf8»)' -e 'tell application "System Events" to keystroke theText'`
+          `osascript -e 'set theText to (read POSIX file "${tmpFile}" as «class utf8»)' -e 'tell application "System Events" to keystroke theText'`,
         );
-        try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+        try {
+          fs.unlinkSync(tmpFile);
+        } catch {
+          /* ignore */
+        }
         return result;
       } else {
         // Write text to temp file and pipe to xdotool to avoid injection
         const tmpFile = path.join(os.tmpdir(), `kxai-type-${Date.now()}.txt`);
         fs.writeFileSync(tmpFile, text, 'utf8');
         const result = await this.runCommand(`xdotool type --delay 20 --clearmodifiers -- "$(cat '${tmpFile}')"`);
-        try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
+        try {
+          fs.unlinkSync(tmpFile);
+        } catch {
+          /* ignore */
+        }
         return result;
       }
     });
@@ -200,7 +209,7 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         const sendKeysStr = this.toSendKeysFormat(keys);
         return this.runPowerShell(
           `Add-Type -AssemblyName System.Windows.Forms; ` +
-          `[System.Windows.Forms.SendKeys]::SendWait('${sendKeysStr}')`
+            `[System.Windows.Forms.SendKeys]::SendWait('${sendKeysStr}')`,
         );
       } else if (this.platform === 'darwin') {
         const modifiers: string[] = [];
@@ -214,15 +223,23 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         }
         const using = modifiers.length > 0 ? ` using {${modifiers.join(', ')}}` : '';
         const key = keyParts[0] || '';
-        return this.runCommand(
-          `osascript -e 'tell application "System Events" to keystroke "${key}"${using}'`
-        );
+        return this.runCommand(`osascript -e 'tell application "System Events" to keystroke "${key}"${using}'`);
       } else {
         const xdotoolKeys = keys.map((k) => {
           const map: Record<string, string> = {
-            ctrl: 'ctrl', alt: 'alt', shift: 'shift', enter: 'Return',
-            tab: 'Tab', escape: 'Escape', space: 'space', backspace: 'BackSpace',
-            delete: 'Delete', up: 'Up', down: 'Down', left: 'Left', right: 'Right',
+            ctrl: 'ctrl',
+            alt: 'alt',
+            shift: 'shift',
+            enter: 'Return',
+            tab: 'Tab',
+            escape: 'Escape',
+            space: 'space',
+            backspace: 'BackSpace',
+            delete: 'Delete',
+            up: 'Up',
+            down: 'Down',
+            left: 'Left',
+            right: 'Right',
           };
           return map[k.toLowerCase()] || k;
         });
@@ -236,14 +253,11 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
       if (this.platform === 'win32') {
         const sendKey = this.specialKeyToSendKeys(key);
         return this.runPowerShell(
-          `Add-Type -AssemblyName System.Windows.Forms; ` +
-          `[System.Windows.Forms.SendKeys]::SendWait('${sendKey}')`
+          `Add-Type -AssemblyName System.Windows.Forms; ` + `[System.Windows.Forms.SendKeys]::SendWait('${sendKey}')`,
         );
       } else if (this.platform === 'darwin') {
         const keyCode = this.keyToMacKeyCode(key);
-        return this.runCommand(
-          `osascript -e 'tell application "System Events" to key code ${keyCode}'`
-        );
+        return this.runCommand(`osascript -e 'tell application "System Events" to key code ${keyCode}'`);
       } else {
         const xKey = this.keyToXdotool(key);
         return this.runCommand(`xdotool key ${xKey}`);
@@ -265,12 +279,12 @@ public class Win32Window {
     [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
 }
-"@; $hwnd = [Win32Window]::GetForegroundWindow(); $sb = New-Object System.Text.StringBuilder 256; [Win32Window]::GetWindowText($hwnd, $sb, 256); $sb.ToString()`
+"@; $hwnd = [Win32Window]::GetForegroundWindow(); $sb = New-Object System.Text.StringBuilder 256; [Win32Window]::GetWindowText($hwnd, $sb, 256); $sb.ToString()`,
         );
         return result.trim();
       } else if (this.platform === 'darwin') {
         const result = await this.runCommandRaw(
-          `osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true'`
+          `osascript -e 'tell application "System Events" to get name of first application process whose frontmost is true'`,
         );
         return result.trim();
       } else {
@@ -287,7 +301,7 @@ public class Win32Window {
       if (this.platform === 'win32') {
         const result = await this.runPowerShellRaw(
           `Add-Type -AssemblyName System.Windows.Forms; ` +
-          `$p = [System.Windows.Forms.Cursor]::Position; "$($p.X),$($p.Y)"`
+            `$p = [System.Windows.Forms.Cursor]::Position; "$($p.X),$($p.Y)"`,
         );
         const [x, y] = result.trim().split(',').map(Number);
         return { x: x || 0, y: y || 0 };
@@ -295,7 +309,7 @@ public class Win32Window {
         // macOS: get mouse position via Python + Quartz CoreGraphics
         try {
           const result = await this.runCommandRaw(
-            `python3 -c "import Quartz; e = Quartz.CGEventCreate(None); p = Quartz.CGEventGetLocation(e); print(f'{int(p.x)},{int(p.y)}')"`
+            `python3 -c "import Quartz; e = Quartz.CGEventCreate(None); p = Quartz.CGEventGetLocation(e); print(f'{int(p.x)},{int(p.y)}')"`,
           );
           const [x, y] = result.trim().split(',').map(Number);
           return { x: x || 0, y: y || 0 };
@@ -317,7 +331,7 @@ public class Win32Window {
   private async executeAction(
     type: string,
     params: any,
-    action: () => Promise<AutomationResult>
+    action: () => Promise<AutomationResult>,
   ): Promise<AutomationResult> {
     if (!this.enabled) {
       return { success: false, error: 'Automation wyłączona. Włącz ją w ustawieniach.' };
@@ -345,13 +359,13 @@ public class Win32Window {
       exec(
         `powershell -NoProfile -NonInteractive -Command "${script.replace(/"/g, '\\"')}"`,
         { timeout: 10000 },
-        (error, stdout, stderr) => {
+        (error, stdout, _stderr) => {
           if (error) {
             resolve({ success: false, error: error.message });
           } else {
             resolve({ success: true, data: stdout.trim() || 'OK' });
           }
-        }
+        },
       );
     });
   }
@@ -364,7 +378,7 @@ public class Win32Window {
         (error, stdout) => {
           if (error) reject(error);
           else resolve(stdout);
-        }
+        },
       );
     });
   }
@@ -390,7 +404,6 @@ public class Win32Window {
   // ─── Key Mapping ───
 
   private toSendKeysFormat(keys: string[]): string {
-    let result = '';
     const modifiers: string[] = [];
     let mainKey = '';
 
@@ -402,36 +415,76 @@ public class Win32Window {
       else mainKey = this.specialKeyToSendKeys(lower);
     }
 
-    result = modifiers.join('') + mainKey;
-    return result;
+    return modifiers.join('') + mainKey;
   }
 
   private specialKeyToSendKeys(key: string): string {
     const map: Record<string, string> = {
-      enter: '{ENTER}', return: '{ENTER}', tab: '{TAB}', escape: '{ESC}', esc: '{ESC}',
-      backspace: '{BACKSPACE}', delete: '{DELETE}', del: '{DELETE}',
-      up: '{UP}', down: '{DOWN}', left: '{LEFT}', right: '{RIGHT}',
-      home: '{HOME}', end: '{END}', pageup: '{PGUP}', pagedown: '{PGDN}',
-      f1: '{F1}', f2: '{F2}', f3: '{F3}', f4: '{F4}', f5: '{F5}',
-      f6: '{F6}', f7: '{F7}', f8: '{F8}', f9: '{F9}', f10: '{F10}',
-      f11: '{F11}', f12: '{F12}', space: ' ', insert: '{INSERT}',
+      enter: '{ENTER}',
+      return: '{ENTER}',
+      tab: '{TAB}',
+      escape: '{ESC}',
+      esc: '{ESC}',
+      backspace: '{BACKSPACE}',
+      delete: '{DELETE}',
+      del: '{DELETE}',
+      up: '{UP}',
+      down: '{DOWN}',
+      left: '{LEFT}',
+      right: '{RIGHT}',
+      home: '{HOME}',
+      end: '{END}',
+      pageup: '{PGUP}',
+      pagedown: '{PGDN}',
+      f1: '{F1}',
+      f2: '{F2}',
+      f3: '{F3}',
+      f4: '{F4}',
+      f5: '{F5}',
+      f6: '{F6}',
+      f7: '{F7}',
+      f8: '{F8}',
+      f9: '{F9}',
+      f10: '{F10}',
+      f11: '{F11}',
+      f12: '{F12}',
+      space: ' ',
+      insert: '{INSERT}',
     };
     return map[key.toLowerCase()] || key;
   }
 
   private keyToMacKeyCode(key: string): number {
     const map: Record<string, number> = {
-      enter: 36, return: 36, tab: 48, escape: 53, space: 49,
-      delete: 51, backspace: 51, up: 126, down: 125, left: 123, right: 124,
+      enter: 36,
+      return: 36,
+      tab: 48,
+      escape: 53,
+      space: 49,
+      delete: 51,
+      backspace: 51,
+      up: 126,
+      down: 125,
+      left: 123,
+      right: 124,
     };
     return map[key.toLowerCase()] || 0;
   }
 
   private keyToXdotool(key: string): string {
     const map: Record<string, string> = {
-      enter: 'Return', tab: 'Tab', escape: 'Escape', space: 'space',
-      backspace: 'BackSpace', delete: 'Delete', up: 'Up', down: 'Down',
-      left: 'Left', right: 'Right', home: 'Home', end: 'End',
+      enter: 'Return',
+      tab: 'Tab',
+      escape: 'Escape',
+      space: 'space',
+      backspace: 'BackSpace',
+      delete: 'Delete',
+      up: 'Up',
+      down: 'Down',
+      left: 'Left',
+      right: 'Right',
+      home: 'Home',
+      end: 'End',
     };
     return map[key.toLowerCase()] || key;
   }

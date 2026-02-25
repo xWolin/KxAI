@@ -20,9 +20,11 @@ export function initTTS(): void {
   const loadVoices = () => {
     const voices = speechSynthesis.getVoices();
     // Prefer Polish voice
-    ttsVoice = voices.find((v) => v.lang.startsWith('pl')) ||
-               voices.find((v) => v.lang.startsWith('en') && v.localService) ||
-               voices[0] || null;
+    ttsVoice =
+      voices.find((v) => v.lang.startsWith('pl')) ||
+      voices.find((v) => v.lang.startsWith('en') && v.localService) ||
+      voices[0] ||
+      null;
   };
 
   loadVoices();
@@ -77,13 +79,13 @@ function speakWebSpeechAPI(text: string): void {
 
   // Clean text — strip markdown, emojis, code blocks
   const clean = text
-    .replace(/```[\s\S]*?```/g, '')           // code blocks
-    .replace(/`[^`]*`/g, '')                   // inline code
-    .replace(/\*\*([^*]+)\*\*/g, '$1')         // bold
-    .replace(/\*([^*]+)\*/g, '$1')             // italic
-    .replace(/#{1,6}\s/g, '')                  // headers
-    .replace(/[🤖💡📋📸⚙️🎮✅⛔⚠️●🔔]/gu, '')  // common emojis
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')   // links
+    .replace(/```[\s\S]*?```/g, '') // code blocks
+    .replace(/`[^`]*`/g, '') // inline code
+    .replace(/\*\*([^*]+)\*\*/g, '$1') // bold
+    .replace(/\*([^*]+)\*/g, '$1') // italic
+    .replace(/#{1,6}\s/g, '') // headers
+    .replace(/[🤖💡📋📸🎮✅⛔●🔔]|⚙️|⚠️/gu, '') // common emojis
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // links
     .trim();
 
   if (!clean || clean.length < 3) return;

@@ -144,8 +144,8 @@ export class AnthropicProvider implements AIProvider {
     model: string,
     promptTokens: number,
     completionTokens: number,
-    cacheCreation?: number,
-    cacheRead?: number,
+    _cacheCreation?: number,
+    _cacheRead?: number,
   ): void {
     // Approximate Anthropic pricing per 1K tokens
     const costs: Record<string, { input: number; output: number }> = {

@@ -290,7 +290,7 @@ export class AIService {
         const buf = Buffer.from(data, 'base64');
         if (buf.length === 0) throw new Error('Empty base64 payload');
       } catch (e) {
-        throw new Error(`Invalid screenshot base64 data: ${e instanceof Error ? e.message : e}`);
+        throw new Error(`Invalid screenshot base64 data: ${e instanceof Error ? e.message : e}`, { cause: e });
       }
 
       const createOpts: Record<string, any> = {
@@ -369,7 +369,7 @@ export class AIService {
     }
 
     const signal = options?.signal;
-    let responseText = '';
+    let responseText: string;
 
     if (provider === 'openai' && this.openaiClient) {
       responseText = await this.retryHandler.execute('openai-chat', async () => {
@@ -1088,7 +1088,7 @@ export class AIService {
     return null;
   }
 
-  async organizeFiles(directory: string, rules?: any): Promise<{ moved: string[]; summary: string }> {
+  async organizeFiles(directory: string, _rules?: any): Promise<{ moved: string[]; summary: string }> {
     // Basic file organization (can be enhanced)
     const fs = require('fs');
     const p = require('path');

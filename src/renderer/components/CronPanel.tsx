@@ -16,16 +16,19 @@ export function CronPanel({ onBack }: CronPanelProps) {
   const [newSchedule, setNewSchedule] = useState('30m');
   const [newAction, setNewAction] = useState('');
   const [newCategory, setNewCategory] = useState<CronJob['category']>('custom');
-  const [editingId, setEditingId] = useState<string | null>(null);
-
-  useEffect(() => {
-    loadJobs();
-  }, []);
+  const [_editingId, _setEditingId] = useState<string | null>(null);
 
   async function loadJobs() {
     const list = await window.kxai.getCronJobs();
     setJobs(list);
   }
+
+  useEffect(() => {
+    window.kxai
+      .getCronJobs()
+      .then((list) => setJobs(list))
+      .catch(() => {});
+  }, []);
 
   async function addJob() {
     if (!newName.trim() || !newAction.trim()) return;
@@ -93,7 +96,12 @@ export function CronPanel({ onBack }: CronPanelProps) {
           </div>
         </div>
         <div className={s.headerActions}>
-          <button onClick={() => setShowAdd(true)} className={s.btn} title={t('cron.addJob')} aria-label={t('cron.addJob')}>
+          <button
+            onClick={() => setShowAdd(true)}
+            className={s.btn}
+            title={t('cron.addJob')}
+            aria-label={t('cron.addJob')}
+          >
             ➕
           </button>
           <button onClick={onBack} className={s.btn} title={t('cron.back')} aria-label={t('cron.back')}>
@@ -159,9 +167,7 @@ export function CronPanel({ onBack }: CronPanelProps) {
           <div className={s.empty}>
             <div className={s.emptyIcon}>⏰</div>
             <div className={s.emptyTitle}>{t('cron.empty.title')}</div>
-            <div className={s.emptySubtitle}>
-              {t('cron.empty.subtitle')}
-            </div>
+            <div className={s.emptySubtitle}>{t('cron.empty.subtitle')}</div>
           </div>
         )}
 
@@ -184,7 +190,12 @@ export function CronPanel({ onBack }: CronPanelProps) {
                 >
                   {job.enabled ? '✓' : '○'}
                 </button>
-                <button onClick={() => removeJob(job.id)} className={s.delete} title={t('cron.delete')} aria-label={t('cron.delete')}>
+                <button
+                  onClick={() => removeJob(job.id)}
+                  className={s.delete}
+                  title={t('cron.delete')}
+                  aria-label={t('cron.delete')}
+                >
                   🗑️
                 </button>
               </div>
@@ -195,11 +206,7 @@ export function CronPanel({ onBack }: CronPanelProps) {
               <span>{t('cron.runCount', { count: job.runCount })}</span>
               <span>{t('cron.lastRun', { time: formatTime(job.lastRun) })}</span>
             </div>
-            {job.lastResult && (
-              <div className={s.jobResult}>
-                {job.lastResult.slice(0, 150)}
-              </div>
-            )}
+            {job.lastResult && <div className={s.jobResult}>{job.lastResult.slice(0, 150)}</div>}
           </div>
         ))}
       </div>
