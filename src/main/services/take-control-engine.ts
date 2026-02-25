@@ -143,7 +143,7 @@ export class TakeControlEngine {
     task: string,
     onStatus?: (status: string) => void,
     onChunk?: (chunk: string) => void,
-    confirmed: boolean = false
+    confirmed: boolean = false,
   ): Promise<string> {
     if (!this.automation) {
       return 'Desktop automation nie jest dostępna.';
@@ -192,7 +192,7 @@ export class TakeControlEngine {
   private async takeControlNativeAnthropic(
     task: string,
     onStatus?: (status: string) => void,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
   ): Promise<string> {
     const maxActions = 30;
     let totalActions = 0;
@@ -202,13 +202,9 @@ export class TakeControlEngine {
       maxSteps: String(maxActions),
     });
 
-    const systemPrompt = [
-      await this.memory.buildSystemContext(),
-      '',
-      takeControlPrompt,
-      '',
-      `Zadanie: ${task}`,
-    ].join('\n');
+    const systemPrompt = [await this.memory.buildSystemContext(), '', takeControlPrompt, '', `Zadanie: ${task}`].join(
+      '\n',
+    );
 
     // Initial screenshot
     const initialCapture = await this.screenCapture!.captureForComputerUse();
@@ -230,7 +226,9 @@ export class TakeControlEngine {
     ];
 
     onStatus?.('🤖 Przejmuje sterowanie (Computer Use API)...');
-    onChunk?.(`\n🖥️ Rozdzielczość: ${initialCapture.width}x${initialCapture.height} (natywna: ${initialCapture.nativeWidth}x${initialCapture.nativeHeight})\n`);
+    onChunk?.(
+      `\n🖥️ Rozdzielczość: ${initialCapture.width}x${initialCapture.height} (natywna: ${initialCapture.nativeWidth}x${initialCapture.nativeHeight})\n`,
+    );
 
     let latestCapture = initialCapture;
 
@@ -240,12 +238,9 @@ export class TakeControlEngine {
 
       let steps: ComputerUseStep[];
       try {
-        steps = await this.ai.computerUseStep(
-          systemPrompt,
-          messages,
-          initialCapture.width,
-          initialCapture.height
-        );
+        steps = await this.ai.computerUseStep(systemPrompt, messages, initialCapture.width, initialCapture.height, {
+          signal: this.abortController?.signal,
+        });
       } catch (error: any) {
         const errMsg = `API error: ${error.message}`;
         actionLog.push(`[${totalActions}] ${errMsg}`);
@@ -312,9 +307,7 @@ export class TakeControlEngine {
           messages.push({ role: 'assistant', content: assistantContent.splice(0) });
           messages.push({
             role: 'user',
-            content: [
-              this.ai.buildComputerUseToolResult(step.toolUseId, capture.base64, actionError),
-            ],
+            content: [this.ai.buildComputerUseToolResult(step.toolUseId, capture.base64, actionError)],
           });
 
           const resultStr = actionError || 'OK';
@@ -348,10 +341,7 @@ export class TakeControlEngine {
    * Execute a Computer Use action via AutomationService.
    * Maps AI coordinates from scaled space back to native screen coordinates.
    */
-  private async executeComputerUseAction(
-    action: ComputerUseAction,
-    capture: ComputerUseScreenshot
-  ): Promise<void> {
+  private async executeComputerUseAction(action: ComputerUseAction, capture: ComputerUseScreenshot): Promise<void> {
     const scaleCoord = (coord: [number, number]): [number, number] => [
       Math.round(coord[0] * capture.scaleX),
       Math.round(coord[1] * capture.scaleY),
@@ -374,9 +364,7 @@ export class TakeControlEngine {
       case 'right_click':
       case 'middle_click':
       case 'double_click': {
-        const button = action.action === 'right_click' ? 'right'
-          : action.action === 'middle_click' ? 'middle'
-          : 'left';
+        const button = action.action === 'right_click' ? 'right' : action.action === 'middle_click' ? 'middle' : 'left';
         if (action.coordinate) {
           const [x, y] = scaleCoord(action.coordinate);
           await this.automation.mouseClick(x, y, button);
@@ -450,7 +438,7 @@ export class TakeControlEngine {
   private async takeControlVisionFallback(
     task: string,
     onStatus?: (status: string) => void,
-    onChunk?: (chunk: string) => void
+    onChunk?: (chunk: string) => void,
   ): Promise<string> {
     const maxActions = 20;
     const maxTextRetries = 3;
@@ -477,24 +465,27 @@ export class TakeControlEngine {
       }
 
       const recentLog = actionLog.slice(-5).join('\n') || '(none)';
-      const prompt = textRetries > 0
-        ? [
-            `RESPOND ONLY WITH A \`\`\`tool BLOCK. No text, no explanations.`,
-            `Screenshot: ${capture.width}x${capture.height}`,
-            `[Step ${totalActions + 1}/${maxActions}] Task: ${task}`,
-            `Log:\n${recentLog}`,
-          ].join('\n')
-        : [
-            `[Step ${totalActions + 1}/${maxActions}]`,
-            `Screenshot: ${capture.width}x${capture.height}`,
-            `Task: ${task}`,
-            `Log:\n${recentLog}`,
-            `Execute next action or respond "TASK_COMPLETE".`,
-          ].join('\n');
+      const prompt =
+        textRetries > 0
+          ? [
+              `RESPOND ONLY WITH A \`\`\`tool BLOCK. No text, no explanations.`,
+              `Screenshot: ${capture.width}x${capture.height}`,
+              `[Step ${totalActions + 1}/${maxActions}] Task: ${task}`,
+              `Log:\n${recentLog}`,
+            ].join('\n')
+          : [
+              `[Step ${totalActions + 1}/${maxActions}]`,
+              `Screenshot: ${capture.width}x${capture.height}`,
+              `Task: ${task}`,
+              `Log:\n${recentLog}`,
+              `Execute next action or respond "TASK_COMPLETE".`,
+            ].join('\n');
 
       let response: string;
       try {
-        response = await this.ai.sendMessageWithVision(prompt, capture.dataUrl, takeControlSystemCtx, 'high');
+        response = await this.ai.sendMessageWithVision(prompt, capture.dataUrl, takeControlSystemCtx, 'high', {
+          signal: this.abortController?.signal,
+        });
       } catch (error: any) {
         actionLog.push(`[${totalActions}] API error: ${error.message}`);
         onChunk?.(`\n❌ API error: ${error.message}\n`);
@@ -570,7 +561,9 @@ export class TakeControlEngine {
       if (parsed.tool && typeof parsed.tool === 'string') {
         return { tool: parsed.tool, params: parsed.params || {} };
       }
-    } catch { /* invalid JSON */ }
+    } catch {
+      /* invalid JSON */
+    }
     return null;
   }
 

@@ -236,6 +236,7 @@ export class AIService {
     screenshotBase64: string,
     systemContextOverride?: string,
     detail: 'low' | 'high' | 'auto' = 'auto',
+    options?: { signal?: AbortSignal },
   ): Promise<string> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
@@ -248,21 +249,24 @@ export class AIService {
         : 'You are KxAI, a helpful personal AI assistant.');
 
     if (provider === 'openai' && this.openaiClient) {
-      const response = await this.openaiClient.chat.completions.create({
-        model,
-        messages: [
-          { role: systemRole, content: systemContext },
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: userMessage },
-              { type: 'image_url', image_url: { url: screenshotBase64, detail } },
-            ],
-          },
-        ],
-        ...this.openaiTokenParam(2048),
-        temperature: 0.5,
-      });
+      const response = await this.openaiClient.chat.completions.create(
+        {
+          model,
+          messages: [
+            { role: systemRole, content: systemContext },
+            {
+              role: 'user',
+              content: [
+                { type: 'text', text: userMessage },
+                { type: 'image_url', image_url: { url: screenshotBase64, detail } },
+              ],
+            },
+          ],
+          ...this.openaiTokenParam(2048),
+          temperature: 0.5,
+        },
+        { signal: options?.signal },
+      );
       return response.choices[0]?.message?.content || '';
     } else if (provider === 'anthropic' && this.anthropicClient) {
       // Extract base64 data from data URL
@@ -289,7 +293,7 @@ export class AIService {
         throw new Error(`Invalid screenshot base64 data: ${e instanceof Error ? e.message : e}`);
       }
 
-      const response = await this.anthropicClient.messages.create({
+      const createOpts: Record<string, any> = {
         model,
         max_tokens: 2048,
         system: systemContext,
@@ -302,7 +306,8 @@ export class AIService {
             ],
           },
         ],
-      });
+      };
+      const response = await this.anthropicClient.messages.create(createOpts, { signal: options?.signal });
       return response.content[0]?.type === 'text' ? response.content[0].text : '';
     }
     throw new Error('No AI client configured');
@@ -368,12 +373,15 @@ export class AIService {
 
     if (provider === 'openai' && this.openaiClient) {
       responseText = await this.retryHandler.execute('openai-chat', async () => {
-        const response = await this.openaiClient.chat.completions.create({
-          model,
-          messages,
-          ...this.openaiTokenParam(4096),
-          temperature: 0.7,
-        }, { signal });
+        const response = await this.openaiClient.chat.completions.create(
+          {
+            model,
+            messages,
+            ...this.openaiTokenParam(4096),
+            temperature: 0.7,
+          },
+          { signal },
+        );
         return response.choices[0]?.message?.content || '';
       });
     } else if (provider === 'anthropic' && this.anthropicClient) {
@@ -388,12 +396,15 @@ export class AIService {
         : systemContext;
 
       responseText = await this.retryHandler.execute('anthropic-chat', async () => {
-        const response = await this.anthropicClient.messages.create({
-          model,
-          max_tokens: 4096,
-          system: systemParam,
-          messages: anthropicMessages,
-        }, { signal });
+        const response = await this.anthropicClient.messages.create(
+          {
+            model,
+            max_tokens: 4096,
+            system: systemParam,
+            messages: anthropicMessages,
+          },
+          { signal },
+        );
         return response.content[0]?.type === 'text' ? response.content[0].text : '';
       });
     } else {
@@ -543,13 +554,16 @@ export class AIService {
     let fullResponse = '';
 
     if (provider === 'openai' && this.openaiClient) {
-      const stream = await this.openaiClient.chat.completions.create({
-        model,
-        messages,
-        ...this.openaiTokenParam(4096),
-        temperature: 0.7,
-        stream: true,
-      }, { signal });
+      const stream = await this.openaiClient.chat.completions.create(
+        {
+          model,
+          messages,
+          ...this.openaiTokenParam(4096),
+          temperature: 0.7,
+          stream: true,
+        },
+        { signal },
+      );
 
       for await (const chunk of stream) {
         const content = chunk.choices[0]?.delta?.content || '';
@@ -569,12 +583,15 @@ export class AIService {
         ? [{ type: 'text', text: systemContext, cache_control: { type: 'ephemeral' as const } }]
         : systemContext;
 
-      const stream = this.anthropicClient.messages.stream({
-        model,
-        max_tokens: 4096,
-        system: systemParam,
-        messages: anthropicMessages,
-      }, { signal });
+      const stream = this.anthropicClient.messages.stream(
+        {
+          model,
+          max_tokens: 4096,
+          system: systemParam,
+          messages: anthropicMessages,
+        },
+        { signal },
+      );
 
       for await (const event of stream) {
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
@@ -725,16 +742,19 @@ export class AIService {
     if (provider === 'openai' && this.openaiClient) {
       const openaiTools = toOpenAITools(tools);
 
-      const stream = await this.openaiClient.chat.completions.create({
-        model,
-        messages,
-        tools: openaiTools.length > 0 ? openaiTools : undefined,
-        tool_choice: openaiTools.length > 0 ? 'auto' : undefined,
-        parallel_tool_calls: true,
-        ...this.openaiTokenParam(4096),
-        temperature: 0.7,
-        stream: true,
-      }, { signal });
+      const stream = await this.openaiClient.chat.completions.create(
+        {
+          model,
+          messages,
+          tools: openaiTools.length > 0 ? openaiTools : undefined,
+          tool_choice: openaiTools.length > 0 ? 'auto' : undefined,
+          parallel_tool_calls: true,
+          ...this.openaiTokenParam(4096),
+          temperature: 0.7,
+          stream: true,
+        },
+        { signal },
+      );
 
       // Accumulate tool call chunks — OpenAI streams them incrementally
       const toolCallAccumulators: Map<number, { id: string; name: string; argsJson: string }> = new Map();
@@ -811,13 +831,16 @@ export class AIService {
         ? [{ type: 'text', text: systemContent, cache_control: { type: 'ephemeral' as const } }]
         : systemContent;
 
-      const stream = this.anthropicClient.messages.stream({
-        model,
-        max_tokens: 4096,
-        system: systemParam,
-        messages: anthropicMessages,
-        tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-      }, { signal });
+      const stream = this.anthropicClient.messages.stream(
+        {
+          model,
+          max_tokens: 4096,
+          system: systemParam,
+          messages: anthropicMessages,
+          tools: anthropicTools.length > 0 ? anthropicTools : undefined,
+        },
+        { signal },
+      );
 
       // Anthropic streams content blocks — text blocks and tool_use blocks
       let currentToolUse: { id: string; name: string; inputJson: string } | null = null;
@@ -1173,6 +1196,7 @@ export class AIService {
     messages: ComputerUseMessage[],
     displayWidth: number,
     displayHeight: number,
+    options?: { signal?: AbortSignal },
   ): Promise<ComputerUseStep[]> {
     await this.ensureClient();
     if (!this.anthropicClient) {
@@ -1183,21 +1207,24 @@ export class AIService {
     const toolVersion = this.getComputerUseToolVersion();
     const betaFlag = this.getComputerUseBetaFlag();
 
-    const response = await this.anthropicClient.beta.messages.create({
-      model,
-      max_tokens: 1024,
-      system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
-      tools: [
-        {
-          type: toolVersion,
-          name: 'computer',
-          display_width_px: displayWidth,
-          display_height_px: displayHeight,
-        },
-      ],
-      messages,
-      betas: [betaFlag, 'prompt-caching-2024-07-31'],
-    });
+    const response = await this.anthropicClient.beta.messages.create(
+      {
+        model,
+        max_tokens: 1024,
+        system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
+        tools: [
+          {
+            type: toolVersion,
+            name: 'computer',
+            display_width_px: displayWidth,
+            display_height_px: displayHeight,
+          },
+        ],
+        messages,
+        betas: [betaFlag, 'prompt-caching-2024-07-31'],
+      },
+      { signal: options?.signal },
+    );
 
     const steps: ComputerUseStep[] = [];
 

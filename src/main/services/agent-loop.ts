@@ -482,12 +482,15 @@ export class AgentLoop {
    * Uses RAG for context enrichment.
    */
   /**
-   * Stop the agent's current processing (tool loop, heartbeat, streaming).
+   * Stop the agent's current processing (tool loop, heartbeat, streaming, take-control).
    * Returns immediately — the running operation will check the flag and abort.
    */
   stopProcessing(): void {
     this.abortController?.abort();
-    log.info('stopProcessing requested');
+    // Also stop take-control and heartbeat engines to abort any in-flight AI calls
+    this.takeControlEngine.stopTakeControl();
+    this.heartbeatEngine.stopHeartbeat();
+    log.info('stopProcessing requested — all engines signalled');
   }
 
   /** Check if the current operation has been aborted. */
@@ -546,6 +549,7 @@ export class AgentLoop {
               capture.dataUrl,
               await this.contextBuilder.buildEnhancedContext({ mode: 'vision', userMessage }),
               'high',
+              { signal: this.abortController?.signal },
             );
             onChunk?.(visionResponse);
 
@@ -902,11 +906,17 @@ export class AgentLoop {
       // Continue conversation with tool results
       let turnText = '';
       try {
-        result = await this.ai.continueWithToolResults(result._messages, toolResults, toolDefs, (chunk) => {
-          turnText += chunk;
-          // Don't stream intermediate tool responses to UI yet —
-          // wait until we know if there are more tool calls
-        }, { signal });
+        result = await this.ai.continueWithToolResults(
+          result._messages,
+          toolResults,
+          toolDefs,
+          (chunk) => {
+            turnText += chunk;
+            // Don't stream intermediate tool responses to UI yet —
+            // wait until we know if there are more tool calls
+          },
+          { signal },
+        );
       } catch (aiErr: any) {
         console.error('AgentLoop: continueWithToolResults failed:', aiErr);
         onChunk?.(`\n\n❌ Błąd AI podczas przetwarzania narzędzia: ${aiErr.message || aiErr}\n`);
@@ -1918,7 +1928,9 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
 
       let response: string;
       try {
-        response = await this.ai.sendMessageWithVision(prompt, capture.dataUrl, takeControlSystemCtx, 'high');
+        response = await this.ai.sendMessageWithVision(prompt, capture.dataUrl, takeControlSystemCtx, 'high', {
+          signal: this.abortController?.signal,
+        });
       } catch (error: any) {
         log.push(`[${totalActions}] API error: ${error.message}`);
         onChunk?.(`\n❌ API error: ${error.message}\n`);
