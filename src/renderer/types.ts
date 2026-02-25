@@ -55,6 +55,8 @@ export interface KxAIBridge {
   // Proactive
   setProactiveMode: (enabled: boolean) => Promise<{ success: boolean }>;
   getProactiveMode: () => Promise<boolean>;
+  sendProactiveFeedback: (ruleId: string, action: 'accepted' | 'dismissed' | 'replied') => Promise<{ success: boolean }>;
+  getProactiveStats: () => Promise<any>;
 
   // Cron jobs
   getCronJobs: () => Promise<CronJob[]>;
@@ -303,6 +305,7 @@ export interface ProactiveMessage {
   type: string;
   message: string;
   context: string;
+  ruleId?: string;
 }
 
 export interface KxAIConfig {

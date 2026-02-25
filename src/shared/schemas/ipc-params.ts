@@ -96,6 +96,12 @@ const FilesListParams = z.tuple([nonEmptyString]);
 // ─── Proactive ───
 
 const ProactiveSetModeParams = z.tuple([booleanVal]);
+const ProactiveFeedbackParams = z.tuple([
+  z.object({
+    ruleId: z.string(),
+    action: z.enum(['accepted', 'dismissed', 'replied']),
+  }),
+]);
 
 // ─── Cron ───
 
@@ -287,6 +293,7 @@ export const IpcParamSchemas: Partial<Record<string, z.ZodType>> = {
 
   // Proactive
   [Ch.PROACTIVE_SET_MODE]: ProactiveSetModeParams,
+  [Ch.PROACTIVE_FEEDBACK]: ProactiveFeedbackParams,
 
   // Cron
   [Ch.CRON_ADD_JOB]: CronAddJobParams,

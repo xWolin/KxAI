@@ -43,6 +43,7 @@ import { CalendarService } from './calendar-service';
 import { PrivacyService } from './privacy-service';
 import { ClipboardService } from './clipboard-service';
 import { KnowledgeGraphService } from './knowledge-graph-service';
+import { ProactiveEngine } from './proactive-engine';
 
 const log = createLogger('Container');
 
@@ -79,6 +80,7 @@ export interface ServiceMap {
   privacy: PrivacyService;
   clipboard: ClipboardService;
   knowledgeGraph: KnowledgeGraphService;
+  proactiveEngine: ProactiveEngine;
 }
 
 export type ServiceKey = keyof ServiceMap;
@@ -113,6 +115,7 @@ export interface IPCServices {
   privacyService: PrivacyService;
   clipboardService: ClipboardService;
   knowledgeGraphService: KnowledgeGraphService;
+  proactiveEngine: ProactiveEngine;
 }
 
 export class ServiceContainer {
@@ -200,6 +203,7 @@ export class ServiceContainer {
     const privacy = new PrivacyService(database);
     const clipboardSvc = new ClipboardService();
     const knowledgeGraph = new KnowledgeGraphService();
+    const proactiveEngine = new ProactiveEngine({ workflow, memory, config });
 
     this.set('memory', memory);
     this.set('ai', ai);
@@ -223,6 +227,7 @@ export class ServiceContainer {
     this.set('privacy', privacy);
     this.set('clipboard', clipboardSvc);
     this.set('knowledgeGraph', knowledgeGraph);
+    this.set('proactiveEngine', proactiveEngine);
     p();
 
     // ── Phase 3: Async initialization (parallelized — no cross-deps) ──
@@ -263,12 +268,19 @@ export class ServiceContainer {
     // Knowledge Graph wiring
     knowledgeGraph.setDependencies({ database, toolsService: tools });
 
+    // Proactive Engine wiring (optional deps set here, started by IPC toggle)
+    proactiveEngine.setCalendarService(calendar);
+    proactiveEngine.setSystemMonitor(this.get('systemMonitor'));
+    proactiveEngine.setKnowledgeGraphService(knowledgeGraph);
+    proactiveEngine.setScreenMonitor(screenMonitor);
+
     // Agent loop — central orchestrator
     const agentLoop = new AgentLoop(ai, tools, cron, workflow, memory, config);
     agentLoop.setRAGService(rag);
     agentLoop.setAutomationService(automation);
     agentLoop.setScreenCaptureService(screenCapture);
     agentLoop.setKnowledgeGraphService(knowledgeGraph);
+    agentLoop.setProactiveEngine(proactiveEngine);
     this.set('agentLoop', agentLoop);
 
     // Screen monitor ↔ screen capture
@@ -417,6 +429,7 @@ export class ServiceContainer {
     this.trySync('updater', (s) => s.destroy());
     this.trySync('clipboard', (s) => s.shutdown());
     this.trySync('knowledgeGraph', (s) => s.shutdown());
+    this.trySync('proactiveEngine', (s) => s.stop());
 
     // ── Phase 2: Close network connections ──
     await this.tryAsync('calendar', (s) => s.shutdown());
@@ -478,6 +491,7 @@ export class ServiceContainer {
       privacyService: this.get('privacy'),
       clipboardService: this.get('clipboard'),
       knowledgeGraphService: this.get('knowledgeGraph'),
+      proactiveEngine: this.get('proactiveEngine'),
     };
   }
 

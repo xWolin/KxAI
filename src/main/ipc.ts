@@ -30,6 +30,7 @@ import { CalendarService } from './services/calendar-service';
 import { PrivacyService } from './services/privacy-service';
 import { ClipboardService } from './services/clipboard-service';
 import { KnowledgeGraphService } from './services/knowledge-graph-service';
+import { ProactiveEngine } from './services/proactive-engine';
 
 const log = createLogger('IPC');
 
@@ -59,6 +60,7 @@ interface Services {
   privacyService: PrivacyService;
   clipboardService: ClipboardService;
   knowledgeGraphService: KnowledgeGraphService;
+  proactiveEngine: ProactiveEngine;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
@@ -533,15 +535,50 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
       // Start heartbeat for autonomous operations
       agentLoop.startHeartbeat(5 * 60 * 1000); // 5 min
+
+      // Start Proactive Intelligence Engine — rule-based notifications
+      const { proactiveEngine } = services;
+      proactiveEngine.setResultCallback((notification) => {
+        memoryService.addMessage({
+          id: `proactive-rule-${Date.now()}`,
+          role: 'assistant',
+          content: `🔔 **KxAI (proaktywny):**\n${notification.message}${notification.context ? `\n\n📋 ${notification.context}` : ''}`,
+          timestamp: Date.now(),
+          type: 'proactive',
+        });
+        mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+        mainWindow.webContents.send(Ev.AI_PROACTIVE, {
+          type: notification.type,
+          message: notification.message,
+          context: notification.context,
+          ruleId: notification.ruleId,
+        });
+      });
+      proactiveEngine.start();
     } else {
       screenMonitorService.stop();
       agentLoop.stopHeartbeat();
+      services.proactiveEngine.stop();
     }
     return { success: true };
   });
 
   ipcMain.handle(Ch.PROACTIVE_GET_MODE, async () => {
     return configService.get('proactiveMode') || false;
+  });
+
+  // Proactive feedback (learning loop)
+  validatedHandle(Ch.PROACTIVE_FEEDBACK, async (_event, data: { ruleId: string; action: 'accepted' | 'dismissed' | 'replied' }) => {
+    services.proactiveEngine.recordFeedback({
+      ruleId: data.ruleId,
+      action: data.action,
+      timestamp: Date.now(),
+    });
+    return { success: true };
+  });
+
+  ipcMain.handle(Ch.PROACTIVE_GET_STATS, async () => {
+    return services.proactiveEngine.getStats();
   });
 
   // ──────────────── Cron Jobs ────────────────

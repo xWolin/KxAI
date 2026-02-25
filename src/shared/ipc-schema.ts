@@ -67,6 +67,8 @@ export const Ch = {
   // Proactive
   PROACTIVE_SET_MODE: 'proactive:set-mode',
   PROACTIVE_GET_MODE: 'proactive:get-mode',
+  PROACTIVE_FEEDBACK: 'proactive:feedback',
+  PROACTIVE_GET_STATS: 'proactive:get-stats',
 
   // Cron
   CRON_GET_JOBS: 'cron:get-jobs',

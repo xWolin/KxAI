@@ -89,6 +89,9 @@ contextBridge.exposeInMainWorld('kxai', {
   // Proactive engine
   setProactiveMode: (enabled: boolean) => ipcRenderer.invoke(Ch.PROACTIVE_SET_MODE, enabled),
   getProactiveMode: () => ipcRenderer.invoke(Ch.PROACTIVE_GET_MODE),
+  sendProactiveFeedback: (ruleId: string, action: 'accepted' | 'dismissed' | 'replied') =>
+    ipcRenderer.invoke(Ch.PROACTIVE_FEEDBACK, { ruleId, action }),
+  getProactiveStats: () => ipcRenderer.invoke(Ch.PROACTIVE_GET_STATS),
 
   // Cron jobs
   getCronJobs: () => ipcRenderer.invoke(Ch.CRON_GET_JOBS),

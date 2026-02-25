@@ -65,6 +65,7 @@ function startCompanionMonitor(win: BrowserWindow): void {
   const aiService = container.get('ai');
   const agentLoop = container.get('agentLoop');
   const memoryService = container.get('memory');
+  const proactiveEngine = container.get('proactiveEngine');
 
   screenMonitorService.start(
     // T0: Window change
@@ -142,6 +143,25 @@ function startCompanionMonitor(win: BrowserWindow): void {
       message,
     });
   });
+
+  // Start Proactive Intelligence Engine — rule-based notifications
+  proactiveEngine.setResultCallback((notification) => {
+    memoryService.addMessage({
+      id: `proactive-rule-${Date.now()}`,
+      role: 'assistant',
+      content: `🔔 **KxAI (proaktywny):**\n${notification.message}${notification.context ? `\n\n📋 ${notification.context}` : ''}`,
+      timestamp: Date.now(),
+      type: 'proactive',
+    });
+    safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+    safeSend(Ev.AI_PROACTIVE, {
+      type: notification.type,
+      message: notification.message,
+      context: notification.context,
+      ruleId: notification.ruleId,
+    });
+  });
+  proactiveEngine.start();
 }
 
 function createMainWindow(): BrowserWindow {

@@ -65,7 +65,7 @@ export const KxAIConfigSchema = z
 
     // ── Proactive mode ──
     proactiveMode: z.boolean().default(false),
-    proactiveIntervalMs: z.number().default(30000),
+    proactiveIntervalMs: z.number().default(60000),
 
     // ── UI ──
     widgetPosition: WidgetPositionSchema.optional(),

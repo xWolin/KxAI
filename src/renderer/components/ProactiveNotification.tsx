@@ -15,6 +15,22 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
   const { t } = useTranslation();
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  const sendFeedback = (action: 'accepted' | 'dismissed' | 'replied') => {
+    if (message.ruleId) {
+      window.kxai?.sendProactiveFeedback(message.ruleId, action).catch(() => {});
+    }
+  };
+
+  const handleDismiss = () => {
+    sendFeedback('dismissed');
+    onDismiss();
+  };
+
+  const handleReply = () => {
+    sendFeedback('replied');
+    onReply(message.message);
+  };
+
   const handleSpeak = async () => {
     if (isSpeaking) {
       stopSpeaking();
@@ -42,7 +58,7 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
           </span>
         </div>
         <button
-          onClick={onDismiss}
+          onClick={handleDismiss}
           className={s.close}
           aria-label="Close"
         >
@@ -73,13 +89,13 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
           {isSpeaking ? '⏹️' : '🔊'}
         </button>
         <button
-          onClick={onDismiss}
+          onClick={handleDismiss}
           className={s.btnDismiss}
         >
           {t('proactive.dismiss')}
         </button>
         <button
-          onClick={() => onReply(message.message)}
+          onClick={handleReply}
           className={s.btnReply}
         >
           {t('proactive.reply')}

@@ -55,6 +55,7 @@ export class AgentLoop {
   private automation?: AutomationService;
   private screenCapture?: ScreenCaptureService;
   private screenMonitor?: import('./screen-monitor').ScreenMonitorService;
+  private proactiveEngine?: import('./proactive-engine').ProactiveEngine;
   private systemMonitor: SystemMonitor;
   private promptService: PromptService;
   private intentDetector: IntentDetector;
@@ -283,6 +284,10 @@ export class AgentLoop {
     this.contextBuilder.setKnowledgeGraphService(kg);
   }
 
+  setProactiveEngine(engine: import('./proactive-engine').ProactiveEngine): void {
+    this.proactiveEngine = engine;
+  }
+
   /**
    * Set callback for heartbeat/AFK results (so they can be sent to UI).
    */
@@ -317,6 +322,7 @@ export class AgentLoop {
     }
     this.heartbeatEngine.setActiveHours(start, end);
     this.contextBuilder.setActiveHours(start !== null && end !== null ? { start, end } : null);
+    this.proactiveEngine?.setActiveHours(start, end);
   }
 
   /**
@@ -346,6 +352,7 @@ export class AgentLoop {
     }
     this.isAfk = isAfk;
     this.heartbeatEngine.setAfkState(isAfk);
+    this.proactiveEngine?.setAfkState(isAfk);
   }
 
   /**
