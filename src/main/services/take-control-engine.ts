@@ -36,7 +36,7 @@ export class TakeControlEngine {
   private screenCapture?: ScreenCaptureService;
 
   private takeControlActive = false;
-  private takeControlAbort = false;
+  private abortController: AbortController | null = null;
   private pendingTakeControlTask: string | null = null;
 
   onAgentStatus?: (status: AgentStatus) => void;
@@ -72,7 +72,12 @@ export class TakeControlEngine {
   }
 
   stopTakeControl(): void {
-    this.takeControlAbort = true;
+    this.abortController?.abort();
+  }
+
+  /** Check if the current take-control operation has been aborted. */
+  private get isAborted(): boolean {
+    return this.abortController?.signal.aborted ?? false;
   }
 
   /**
@@ -154,7 +159,7 @@ export class TakeControlEngine {
     }
 
     this.takeControlActive = true;
-    this.takeControlAbort = false;
+    this.abortController = new AbortController();
     this.automation.enable();
     this.automation.unlockSafety();
 
@@ -166,6 +171,7 @@ export class TakeControlEngine {
       }
     } finally {
       this.takeControlActive = false;
+      this.abortController = null;
       this.automation.lockSafety();
       this.automation.disable();
     }
@@ -228,7 +234,7 @@ export class TakeControlEngine {
 
     let latestCapture = initialCapture;
 
-    while (!this.takeControlAbort && totalActions < maxActions) {
+    while (!this.isAborted && totalActions < maxActions) {
       // Prune old images to keep costs down
       this.ai.pruneComputerUseImages(messages, 3);
 
@@ -325,7 +331,7 @@ export class TakeControlEngine {
       }
     }
 
-    if (this.takeControlAbort) {
+    if (this.isAborted) {
       onStatus?.('⛔ Przerwano przez użytkownika');
       actionLog.push('Przerwano przez użytkownika');
     } else if (totalActions >= maxActions) {
@@ -462,7 +468,7 @@ export class TakeControlEngine {
 
     onStatus?.('🤖 Przejmuje sterowanie (Vision mode)...');
 
-    while (!this.takeControlAbort && totalActions < maxActions) {
+    while (!this.isAborted && totalActions < maxActions) {
       const capture = await this.screenCapture!.captureForComputerUse();
       if (!capture) {
         actionLog.push(`[${totalActions}] Screenshot failed`);
@@ -539,7 +545,7 @@ export class TakeControlEngine {
       }
     }
 
-    if (this.takeControlAbort) {
+    if (this.isAborted) {
       onStatus?.('⛔ Przerwano przez użytkownika');
       actionLog.push('Przerwano przez użytkownika');
     } else if (totalActions >= maxActions) {

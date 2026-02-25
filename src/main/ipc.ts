@@ -121,7 +121,8 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   // Stop agent processing (cancel tool loop, heartbeat, take-control)
   ipcMain.handle(Ch.AGENT_STOP, async () => {
     agentLoop.stopProcessing();
-    safeSend(Ev.AI_STREAM, { done: true });
+    // Don't send done: true here — the AI_STREAM_MESSAGE handler will send it
+    // when streamWithTools() resolves after the AbortSignal terminates the stream.
     return { success: true };
   });
 

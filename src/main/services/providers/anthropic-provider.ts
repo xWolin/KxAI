@@ -180,7 +180,7 @@ export class AnthropicProvider implements AIProvider {
       max_tokens: options.maxTokens ?? 4096,
       system: systemParam,
       messages: conversationMessages,
-    });
+    }, { signal: options.signal });
 
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     const usage = response.usage;
@@ -224,7 +224,7 @@ export class AnthropicProvider implements AIProvider {
       max_tokens: options.maxTokens ?? 4096,
       system: systemParam,
       messages: conversationMessages,
-    });
+    }, { signal: options.signal });
 
     let fullText = '';
     for await (const event of stream) {
@@ -260,7 +260,7 @@ export class AnthropicProvider implements AIProvider {
           content: [{ type: 'text', text: userMessage }, ...imageContents],
         },
       ],
-    });
+    }, { signal: options.signal });
 
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     const usage = response.usage;
@@ -301,7 +301,7 @@ export class AnthropicProvider implements AIProvider {
       system: systemParam,
       messages: conversationMessages,
       tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-    });
+    }, { signal: options.signal });
 
     let text = '';
     const toolCalls: Array<{ id: string; name: string; arguments: Record<string, any> }> = [];

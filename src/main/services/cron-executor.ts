@@ -17,7 +17,7 @@ const log = createLogger('CronExecutor');
 export type ProcessWithToolsFn = (
   userMessage: string,
   extraContext?: string,
-  options?: { skipHistory?: boolean }
+  options?: { skipHistory?: boolean; signal?: AbortSignal }
 ) => Promise<string>;
 
 // ─── CronExecutor ───

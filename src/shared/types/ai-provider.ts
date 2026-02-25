@@ -34,6 +34,8 @@ export interface ChatOptions {
   responseFormat?: any;
   /** Whether to skip streaming and return full response */
   stream?: boolean;
+  /** AbortSignal for cancellation */
+  signal?: AbortSignal;
 }
 
 export interface ChatResponse {

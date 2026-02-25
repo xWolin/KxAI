@@ -370,8 +370,36 @@ export class AgentLoop {
   async processWithTools(
     userMessage: string,
     extraContext?: string,
-    options?: { skipHistory?: boolean },
+    options?: { skipHistory?: boolean; signal?: AbortSignal },
   ): Promise<string> {
+    // Ensure we have an AbortController for cancellation.
+    // If called from streamWithTools, we already have one.
+    // If called from cron/heartbeat, create a temporary one.
+    const needsOwnAC = !this.abortController;
+    if (needsOwnAC) {
+      this.abortController = new AbortController();
+    }
+    const signal = options?.signal ?? this.abortController!.signal;
+
+    try {
+      return await this._processWithToolsInner(userMessage, extraContext, {
+        skipHistory: options?.skipHistory,
+        signal,
+      });
+    } finally {
+      if (needsOwnAC) {
+        this.abortController = null;
+      }
+    }
+  }
+
+  private async _processWithToolsInner(
+    userMessage: string,
+    extraContext?: string,
+    options?: { skipHistory?: boolean; signal?: AbortSignal },
+  ): Promise<string> {
+    const signal = options?.signal;
+
     // Build enhanced system context (delegated to ContextBuilder)
     const enhancedCtx = await this.contextBuilder.buildEnhancedContext({ mode: 'chat', userMessage });
 
@@ -386,7 +414,7 @@ export class AgentLoop {
     }
     const fullContext = [extraContext, ragContext].filter(Boolean).join('\n\n');
 
-    const sendOpts = options?.skipHistory ? { skipHistory: true } : undefined;
+    const sendOpts = options?.skipHistory ? { skipHistory: true, signal } : { signal };
     let response = await this.ai.sendMessage(userMessage, fullContext || undefined, enhancedCtx, sendOpts);
     const detector = new ToolLoopDetector();
 
@@ -597,7 +625,7 @@ export class AgentLoop {
           onChunk?.(chunk);
         },
         structuredCtx.full,
-        { skipHistory: true },
+        { skipHistory: true, signal: this.abortController?.signal },
       );
     } catch (aiErr: any) {
       console.error('AgentLoop: Initial streamMessage failed:', aiErr);
@@ -674,7 +702,7 @@ export class AgentLoop {
             // Only the final response after the tool loop will be streamed.
           },
           undefined,
-          { skipHistory: true },
+          { skipHistory: true, signal: this.abortController?.signal },
         );
       } catch (aiErr: any) {
         console.error('AgentLoop: AI streamMessage failed in tool loop:', aiErr);
@@ -777,6 +805,7 @@ export class AgentLoop {
     let fullResponse = '';
 
     // Initial call with tools — pass structured context for prompt caching
+    const signal = this.abortController?.signal;
     try {
       result = await this.ai.streamMessageWithNativeTools(
         userMessage,
@@ -787,6 +816,7 @@ export class AgentLoop {
           onChunk?.(chunk);
         },
         structuredCtx,
+        { signal },
       );
     } catch (aiErr: any) {
       console.error('AgentLoop: Initial streamMessageWithNativeTools failed:', aiErr);
@@ -876,7 +906,7 @@ export class AgentLoop {
           turnText += chunk;
           // Don't stream intermediate tool responses to UI yet —
           // wait until we know if there are more tool calls
-        });
+        }, { signal });
       } catch (aiErr: any) {
         console.error('AgentLoop: continueWithToolResults failed:', aiErr);
         onChunk?.(`\n\n❌ Błąd AI podczas przetwarzania narzędzia: ${aiErr.message || aiErr}\n`);

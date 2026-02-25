@@ -67,6 +67,7 @@ export class HeartbeatEngine {
   private afkSince = 0;
   private lastAfkTaskTime = 0;
   private afkTasksDone: Set<string> = new Set();
+  private abortController: AbortController | null = null;
 
   /** External check: is the main agent currently processing a user message? */
   private isProcessingCheck?: () => boolean;
@@ -150,6 +151,9 @@ export class HeartbeatEngine {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    // Abort any currently running heartbeat operation
+    this.abortController?.abort();
+    this.abortController = null;
   }
 
   // ─── Active Hours ───
@@ -235,12 +239,14 @@ Nie mów "mogę to zrobić" — PO PROSTU TO ZRÓB.
 ${await this.promptService.load('HEARTBEAT.md')}`;
 
     try {
+      this.abortController = new AbortController();
+      const signal = this.abortController.signal;
       this.emitStatus({ state: 'heartbeat', detail: 'Heartbeat...' });
 
-      let response = await this.ai.sendMessage(prompt, undefined, undefined, { skipHistory: true });
+      let response = await this.ai.sendMessage(prompt, undefined, undefined, { skipHistory: true, signal });
 
       // ── Heartbeat tool loop (max 5 iterations) ──
-      response = await this.runHeartbeatToolLoop(response, 5);
+      response = await this.runHeartbeatToolLoop(response, 5, signal);
 
       this.emitStatus({ state: 'idle' });
 
@@ -267,6 +273,8 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
     } catch {
       this.emitStatus({ state: 'idle' });
       return null;
+    } finally {
+      this.abortController = null;
     }
   }
 
@@ -296,16 +304,18 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
     this.afkTasksDone.add(task.id);
 
     try {
+      this.abortController = new AbortController();
+      const signal = this.abortController.signal;
       const timeCtx = this.workflow.buildTimeContext();
       let response = await this.ai.sendMessage(
         `[AFK MODE — Użytkownik jest nieaktywny od ${afkMinutes} minut]\n\n${timeCtx}\n\n${task.prompt}\n\nMasz pełny dostęp do narzędzi — używaj ich! Odpowiedz zwięźle.\nJeśli nie masz nic wartościowego do zrobienia, odpowiedz "HEARTBEAT_OK".`,
         undefined,
         undefined,
-        { skipHistory: true }
+        { skipHistory: true, signal }
       );
 
       // AFK tool loop (max 3 iterations)
-      response = await this.runHeartbeatToolLoop(response, 3);
+      response = await this.runHeartbeatToolLoop(response, 3, signal);
 
       if (this.responseProcessor.isHeartbeatSuppressed(response)) {
         return null;
@@ -321,6 +331,8 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
     } catch (err) {
       log.error('AFK task error:', err);
       return null;
+    } finally {
+      this.abortController = null;
     }
   }
 
@@ -330,12 +342,18 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
    * Run a simple tool loop for heartbeat/AFK (legacy ```tool blocks).
    * Uses ToolLoopDetector for safety, simpler than full ToolExecutor.
    */
-  private async runHeartbeatToolLoop(initialResponse: string, maxIterations: number): Promise<string> {
+  private async runHeartbeatToolLoop(initialResponse: string, maxIterations: number, signal?: AbortSignal): Promise<string> {
     let response = initialResponse;
     const detector = new ToolLoopDetector();
     let iterations = 0;
 
     while (iterations < maxIterations) {
+      // Check abort signal
+      if (signal?.aborted) {
+        log.info('Heartbeat tool loop aborted');
+        break;
+      }
+
       const toolCall = this.parseToolCall(response);
       if (!toolCall) break;
 
@@ -359,7 +377,7 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${feedbackSuffix}`,
         undefined,
         undefined,
-        { skipHistory: true }
+        { skipHistory: true, signal }
       );
 
       if (!loopCheck.shouldContinue) break;

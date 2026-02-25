@@ -312,7 +312,7 @@ export class AIService {
     userMessage: string,
     extraContext?: string,
     systemContextOverride?: string,
-    options?: { skipHistory?: boolean },
+    options?: { skipHistory?: boolean; signal?: AbortSignal },
   ): Promise<string> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
@@ -363,6 +363,7 @@ export class AIService {
       });
     }
 
+    const signal = options?.signal;
     let responseText = '';
 
     if (provider === 'openai' && this.openaiClient) {
@@ -372,7 +373,7 @@ export class AIService {
           messages,
           ...this.openaiTokenParam(4096),
           temperature: 0.7,
-        });
+        }, { signal });
         return response.choices[0]?.message?.content || '';
       });
     } else if (provider === 'anthropic' && this.anthropicClient) {
@@ -392,7 +393,7 @@ export class AIService {
           max_tokens: 4096,
           system: systemParam,
           messages: anthropicMessages,
-        });
+        }, { signal });
         return response.content[0]?.type === 'text' ? response.content[0].text : '';
       });
     } else {
@@ -492,7 +493,7 @@ export class AIService {
     extraContext?: string,
     onChunk?: (chunk: string) => void,
     systemContextOverride?: string,
-    options?: { skipHistory?: boolean },
+    options?: { skipHistory?: boolean; signal?: AbortSignal },
   ): Promise<void> {
     const skipHistory = options?.skipHistory ?? false;
     await this.ensureClient();
@@ -538,6 +539,7 @@ export class AIService {
       });
     }
 
+    const signal = options?.signal;
     let fullResponse = '';
 
     if (provider === 'openai' && this.openaiClient) {
@@ -547,7 +549,7 @@ export class AIService {
         ...this.openaiTokenParam(4096),
         temperature: 0.7,
         stream: true,
-      });
+      }, { signal });
 
       for await (const chunk of stream) {
         const content = chunk.choices[0]?.delta?.content || '';
@@ -572,7 +574,7 @@ export class AIService {
         max_tokens: 4096,
         system: systemParam,
         messages: anthropicMessages,
-      });
+      }, { signal });
 
       for await (const event of stream) {
         if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
@@ -613,6 +615,7 @@ export class AIService {
     extraContext?: string,
     onTextChunk?: (chunk: string) => void,
     systemContextOverride?: string | StructuredContext,
+    options?: { signal?: AbortSignal },
   ): Promise<NativeToolStreamResult> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
@@ -653,7 +656,7 @@ export class AIService {
 
     messages.push({ role: 'user', content: fullMessage });
 
-    return this._callWithNativeTools(messages, tools, provider, model, onTextChunk);
+    return this._callWithNativeTools(messages, tools, provider, model, onTextChunk, options?.signal);
   }
 
   /**
@@ -666,12 +669,14 @@ export class AIService {
    * @param toolResults - Results from executing the tool calls
    * @param tools - Same tool definitions (for the next turn)
    * @param onTextChunk - Callback for streaming text chunks
+   * @param options - Optional signal for cancellation
    */
   async continueWithToolResults(
     previousMessages: any[],
     toolResults: Array<{ callId: string; name: string; result: string; isError?: boolean }>,
     tools: ToolDefinition[],
     onTextChunk?: (chunk: string) => void,
+    options?: { signal?: AbortSignal },
   ): Promise<NativeToolStreamResult> {
     await this.ensureClient();
     const provider = this.config.get('aiProvider') || 'openai';
@@ -699,7 +704,7 @@ export class AIService {
       messages.push({ role: 'user', content: resultBlocks });
     }
 
-    return this._callWithNativeTools(messages, tools, provider, model, onTextChunk);
+    return this._callWithNativeTools(messages, tools, provider, model, onTextChunk, options?.signal);
   }
 
   /**
@@ -712,6 +717,7 @@ export class AIService {
     provider: string,
     model: string,
     onTextChunk?: (chunk: string) => void,
+    signal?: AbortSignal,
   ): Promise<NativeToolStreamResult> {
     let text = '';
     const toolCalls: NativeToolCall[] = [];
@@ -728,7 +734,7 @@ export class AIService {
         ...this.openaiTokenParam(4096),
         temperature: 0.7,
         stream: true,
-      });
+      }, { signal });
 
       // Accumulate tool call chunks — OpenAI streams them incrementally
       const toolCallAccumulators: Map<number, { id: string; name: string; argsJson: string }> = new Map();
@@ -811,7 +817,7 @@ export class AIService {
         system: systemParam,
         messages: anthropicMessages,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
-      });
+      }, { signal });
 
       // Anthropic streams content blocks — text blocks and tool_use blocks
       let currentToolUse: { id: string; name: string; inputJson: string } | null = null;

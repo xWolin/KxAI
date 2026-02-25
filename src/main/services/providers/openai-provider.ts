@@ -105,7 +105,7 @@ export class OpenAIProvider implements AIProvider {
       ...this.tokenParam(options.maxTokens ?? 4096),
       temperature: options.temperature ?? 0.7,
       ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
-    });
+    }, { signal: options.signal });
 
     const usage = response.usage;
     if (usage) {
@@ -137,7 +137,7 @@ export class OpenAIProvider implements AIProvider {
       ...this.tokenParam(options.maxTokens ?? 4096),
       temperature: options.temperature ?? 0.7,
       stream: true,
-    });
+    }, { signal: options.signal });
 
     let fullText = '';
     for await (const chunk of stream) {
@@ -185,7 +185,7 @@ export class OpenAIProvider implements AIProvider {
       ...this.tokenParam(options.maxTokens ?? 1024),
       temperature: options.temperature ?? 0.3,
       ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
-    });
+    }, { signal: options.signal });
 
     const usage = response.usage;
     if (usage) {
@@ -225,7 +225,7 @@ export class OpenAIProvider implements AIProvider {
       ...this.tokenParam(options.maxTokens ?? 4096),
       temperature: options.temperature ?? 0.7,
       stream: true,
-    });
+    }, { signal: options.signal });
 
     let text = '';
     const toolCalls: Array<{ id: string; name: string; arguments: Record<string, any> }> = [];
