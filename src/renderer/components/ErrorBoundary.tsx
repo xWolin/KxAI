@@ -1,5 +1,6 @@
 import React, { Component, ErrorInfo, ReactNode } from 'react';
 import s from './ErrorBoundary.module.css';
+import { t } from '../i18n';
 
 // ─── Types ───
 
@@ -89,11 +90,11 @@ function DefaultErrorFallback({ error, label, onReset }: DefaultErrorFallbackPro
   return (
     <div className={s.root}>
       <div className={s.icon}>⚠️</div>
-      <h3 className={s.title}>Coś poszło nie tak</h3>
+      <h3 className={s.title}>{t('error.title')}</h3>
       <p className={s.message}>
         {label
-          ? `Wystąpił błąd w komponencie ${label}.`
-          : 'Wystąpił nieoczekiwany błąd.'}
+          ? t('error.messageWithLabel', { label })
+          : t('error.messageGeneric')}
       </p>
 
       <div className={s.actions}>
@@ -101,13 +102,13 @@ function DefaultErrorFallback({ error, label, onReset }: DefaultErrorFallbackPro
           className={s.btnPrimary}
           onClick={onReset}
         >
-          Spróbuj ponownie
+          {t('error.retry')}
         </button>
         <button
           className={s.btnSecondary}
           onClick={() => setShowDetails((v) => !v)}
         >
-          {showDetails ? 'Ukryj szczegóły' : 'Pokaż szczegóły'}
+          {showDetails ? t('error.hideDetails') : t('error.showDetails')}
         </button>
       </div>
 

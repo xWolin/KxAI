@@ -12,6 +12,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import type { KxAIConfig, MeetingBriefingParticipant, MeetingBriefingInfo } from '../types';
 import s from './CoachingOverlay.module.css';
 import { cn } from '../utils/cn';
+import { useTranslation } from '../i18n';
 
 interface TranscriptLine {
   timestamp: number;
@@ -62,6 +63,7 @@ const COACHING_BAR_HEIGHT = 140;
 const COACHING_BAR_EXPANDED_HEIGHT = 340;
 
 export function CoachingOverlay({ config, onBack }: Props) {
+  const { t } = useTranslation();
   const [meetingState, setMeetingState] = useState<MeetingState>({
     active: false, meetingId: null, startTime: null,
     duration: 0, transcriptLineCount: 0, lastCoachingTip: null,
@@ -301,7 +303,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
       }
     } catch (err) {
       console.error('[CoachingOverlay] Audio capture failed:', err);
-      setError('Nie udało się uruchomić przechwytywania audio');
+      setError(t('meeting.setup.audioCaptureFailed'));
     }
   }, []);
 
@@ -327,7 +329,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
   const handleStart = async () => {
     if (!hasDeepgramKey) {
-      setError('Ustaw klucz API Deepgram w ustawieniach');
+      setError(t('meeting.setup.noDeepgramKey'));
       return;
     }
     setIsStarting(true);
@@ -341,7 +343,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
       await window.kxai.meetingStart();
     } catch (err: any) {
       stopAudioCapture();
-      setError(err.message || 'Nie udało się rozpocząć spotkania');
+      setError(err.message || t('meeting.setup.startFailed'));
     } finally {
       setIsStarting(false);
     }
@@ -353,7 +355,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
       stopAudioCapture();
       await window.kxai.meetingStop();
     } catch (err: any) {
-      setError(err.message || 'Błąd podczas zatrzymywania');
+      setError(err.message || t('meeting.setup.stopFailed'));
     } finally {
       setIsStopping(false);
     }
@@ -402,10 +404,10 @@ export function CoachingOverlay({ config, onBack }: Props) {
       if (result.success) {
         setBriefingSaved(true);
       } else {
-        setError(result.error || 'Nie udało się zapisać briefingu');
+        setError(result.error || t('meeting.briefing.saveFailed'));
       }
     } catch (err: any) {
-      setError(err.message || 'Błąd zapisu briefingu');
+      setError(err.message || t('meeting.briefing.saveError'));
     } finally {
       setBriefingLoading(false);
     }
@@ -423,7 +425,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
       setBriefingSaved(false);
       setShowBriefing(false);
     } catch (err: any) {
-      setError(err.message || 'Nie udało się wyczyścić briefingu');
+      setError(err.message || t('meeting.briefing.clearFailed'));
     }
   };
 
@@ -452,12 +454,12 @@ export function CoachingOverlay({ config, onBack }: Props) {
             <span className={s.barLines}>💬 {meetingState.transcriptLineCount}</span>
           </div>
           <div className={s.barActions}>
-            <button className={s.barBtnExpand} onClick={() => setExpanded(!expanded)} title={expanded ? 'Zwiń' : 'Rozwiń'}>
+            <button className={s.barBtnExpand} onClick={() => setExpanded(!expanded)} title={expanded ? t('meeting.bar.collapse') : t('meeting.bar.expand')}>
               {expanded ? '▲' : '▼'}
             </button>
-            <button className={s.barBtnDashboard} onClick={handleOpenDashboard} title="Dashboard">📊</button>
+            <button className={s.barBtnDashboard} onClick={handleOpenDashboard} title={t('meeting.bar.dashboard')}>📊</button>
             <button className={s.barBtnStop} onClick={handleStop} disabled={isStopping}>
-              {isStopping ? '⏳' : '⏹'} Zakończ
+              {isStopping ? '⏳' : '⏹'} {t('meeting.bar.stop')}
             </button>
           </div>
         </div>
@@ -468,7 +470,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
           {activeCoaching ? (
             <div className={s.barActiveTip}>
               <div className={s.barTipLabel}>
-                💡 Sugestia
+                {t('meeting.bar.suggestion')}
                 {activeCoaching.questionText && (
                 <span className={s.barTipQuestion}> — „{activeCoaching.questionText.length > 50 ? activeCoaching.questionText.substring(0, 50) + '...' : activeCoaching.questionText}”</span>
                 )}
@@ -481,19 +483,19 @@ export function CoachingOverlay({ config, onBack }: Props) {
           ) : coachingTips.length > 0 ? (
             <div className={s.barLastTip}>
               <div className={s.barTipLabel}>
-                ✅ Ostatnia sugestia
+                {t('meeting.bar.lastSuggestion')}
                 <span className={s.barTipTime}>{formatTime(coachingTips[coachingTips.length - 1].timestamp)}</span>
               </div>
               <div className={s.barTipTextWrap}>
                 <div className={s.barTipText}>{coachingTips[coachingTips.length - 1].tip}</div>
-                <button className={s.barBtnCopy} onClick={() => handleCopyTip(coachingTips[coachingTips.length - 1].tip)} title="Kopiuj">📋</button>
+                <button className={s.barBtnCopy} onClick={() => handleCopyTip(coachingTips[coachingTips.length - 1].tip)} title={t('meeting.bar.copy')}>📋</button>
               </div>
             </div>
           ) : meetingState.isCoaching ? (
-            <div className={s.barGenerating}>🧠 Generuję sugestię...</div>
+            <div className={s.barGenerating}>{t('meeting.bar.generating')}</div>
           ) : (
             <div className={s.barWaiting}>
-              <span>🎤 Nasłuchuję pytań...</span>
+              <span>{t('meeting.bar.listening')}</span>
               {recentLines.length > 0 && (
                 <span className={s.barLastUtterance}>
                   <span className={recentLines[recentLines.length - 1].speaker === 'Ja' ? s.barSpeakerMe : s.barSpeaker}>{recentLines[recentLines.length - 1].speaker}:</span>
@@ -519,7 +521,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
           <div className={s.barExpanded}>
             {recentLines.length > 0 && (
               <div>
-                <div className={s.barSectionLabel}>Ostatnie wypowiedzi:</div>
+                <div className={s.barSectionLabel}>{t('meeting.bar.recentUtterances')}</div>
                 {recentLines.map((line, i) => (
                   <div key={i} className={s.barRecentLine}>
                     <span className={line.speaker === 'Ja' ? s.barSpeakerMe : s.barSpeaker}>{line.speaker}:</span>
@@ -530,7 +532,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
             )}
             {coachingTips.length > 1 && (
               <div className={s.barHistory}>
-                <div className={s.barSectionLabel}>Historia sugestii ({coachingTips.length}):</div>
+                <div className={s.barSectionLabel}>{t('meeting.bar.suggestionsHistory', { count: coachingTips.length })}</div>
                 {coachingTips.slice(-3).reverse().map(tip => (
                   <div key={tip.id} className={s.barHistoryItem}>
                     <span className={s.barHistoryTime}>{formatTime(tip.timestamp)}</span>
@@ -550,10 +552,10 @@ export function CoachingOverlay({ config, onBack }: Props) {
   return (
     <div className={s.overlay}>
       <div className={s.header}>
-        <button className={s.back} onClick={onBack} title="Powrót">←</button>
-        <span className={s.title}>🎤️ Meeting Coach</span>
+        <button className={s.back} onClick={onBack} title={t('meeting.setup.back')}>←</button>
+        <span className={s.title}>{t('meeting.setup.title')}</span>
         <div className={s.actions}>
-          <button className={s.btnDashboard} onClick={handleOpenDashboard} title="Dashboard">📊</button>
+          <button className={s.btnDashboard} onClick={handleOpenDashboard} title={t('meeting.bar.dashboard')}>📊</button>
         </div>
       </div>
 
@@ -561,7 +563,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
 
       <div className={s.controls}>
         <button className={s.btnStart} onClick={handleStart} disabled={isStarting}>
-          {isStarting ? '⏳ Uruchamiam...' : '🔴 Rozpocznij nagrywanie'}
+          {isStarting ? t('meeting.setup.starting') : t('meeting.setup.startRecording')}
         </button>
       </div>
 
@@ -570,7 +572,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
           className={showBriefing ? s.btnBriefingActive : s.btnBriefing}
           onClick={() => setShowBriefing(!showBriefing)}
         >
-          📋 {showBriefing ? 'Ukryj briefing' : 'Pre-meeting briefing'}
+          📋 {showBriefing ? t('meeting.briefing.hide') : t('meeting.briefing.show')}
           {briefingSaved && !showBriefing && <span className={s.briefingBadge}>✓</span>}
         </button>
       </div>
@@ -578,15 +580,15 @@ export function CoachingOverlay({ config, onBack }: Props) {
       {showBriefing && (
         <div className={s.briefingForm}>
           <div className={s.briefingField}>
-            <label className={s.briefingLabel}>📌 Temat spotkania</label>
-            <input className={s.briefingInput} value={briefingTopic} onChange={e => { setBriefingTopic(e.target.value); setBriefingSaved(false); }} placeholder="np. Sprint review, design review, 1:1..." />
+            <label className={s.briefingLabel}>{t('meeting.briefing.topicLabel')}</label>
+            <input className={s.briefingInput} value={briefingTopic} onChange={e => { setBriefingTopic(e.target.value); setBriefingSaved(false); }} placeholder={t('meeting.briefing.topicPlaceholder')} />
           </div>
           <div className={s.briefingField}>
-            <label className={s.briefingLabel}>📝 Agenda</label>
-            <textarea className={s.briefingTextarea} value={briefingAgenda} onChange={e => { setBriefingAgenda(e.target.value); setBriefingSaved(false); }} placeholder="Punkty do omówienia..." rows={2} />
+            <label className={s.briefingLabel}>{t('meeting.briefing.agendaLabel')}</label>
+            <textarea className={s.briefingTextarea} value={briefingAgenda} onChange={e => { setBriefingAgenda(e.target.value); setBriefingSaved(false); }} placeholder={t('meeting.briefing.agendaPlaceholder')} rows={2} />
           </div>
           <div className={s.briefingField}>
-            <label className={s.briefingLabel}>👥 Uczestnicy</label>
+            <label className={s.briefingLabel}>{t('meeting.briefing.participantsLabel')}</label>
             {briefingParticipants.length > 0 && (
               <div className={s.briefingParticipants}>
                 {briefingParticipants.map((p, i) => (
@@ -600,33 +602,33 @@ export function CoachingOverlay({ config, onBack }: Props) {
               </div>
             )}
             <div className={s.briefingAddParticipant}>
-              <input className={s.briefingInputSmall} value={newParticipantName} onChange={e => setNewParticipantName(e.target.value)} placeholder="Imię" onKeyDown={e => e.key === 'Enter' && handleAddParticipant()} />
-              <input className={s.briefingInputSmall} value={newParticipantRole} onChange={e => setNewParticipantRole(e.target.value)} placeholder="Rola" onKeyDown={e => e.key === 'Enter' && handleAddParticipant()} />
-              <button className={s.btnAdd} onClick={handleAddParticipant}>+ Dodaj</button>
+              <input className={s.briefingInputSmall} value={newParticipantName} onChange={e => setNewParticipantName(e.target.value)} placeholder={t('meeting.briefing.namePlaceholder')} onKeyDown={e => e.key === 'Enter' && handleAddParticipant()} />
+              <input className={s.briefingInputSmall} value={newParticipantRole} onChange={e => setNewParticipantRole(e.target.value)} placeholder={t('meeting.briefing.rolePlaceholder')} onKeyDown={e => e.key === 'Enter' && handleAddParticipant()} />
+              <button className={s.btnAdd} onClick={handleAddParticipant}>{t('meeting.briefing.addParticipant')}</button>
             </div>
           </div>
           <div className={s.briefingField}>
-            <label className={s.briefingLabel}>📄 Notatki</label>
-            <textarea className={s.briefingTextarea} value={briefingNotes} onChange={e => { setBriefingNotes(e.target.value); setBriefingSaved(false); }} placeholder="Wolne notatki..." rows={2} />
+            <label className={s.briefingLabel}>{t('meeting.briefing.notesLabel')}</label>
+            <textarea className={s.briefingTextarea} value={briefingNotes} onChange={e => { setBriefingNotes(e.target.value); setBriefingSaved(false); }} placeholder={t('meeting.briefing.notesPlaceholder')} rows={2} />
           </div>
           <div className={s.briefingActions}>
             <button className={s.btnSave} onClick={handleSaveBriefing} disabled={briefingLoading}>
-              {briefingLoading ? '⏳ Przetwarzam...' : briefingSaved ? '✅ Zapisany' : '💾 Zapisz briefing'}
+              {briefingLoading ? t('meeting.briefing.processing') : briefingSaved ? t('meeting.briefing.saved') : t('meeting.briefing.save')}
             </button>
-            {briefingSaved && <button className={s.btnClear} onClick={handleClearBriefing}>🗑️ Wyczyść</button>}
+            {briefingSaved && <button className={s.btnClear} onClick={handleClearBriefing}>{t('meeting.briefing.clear')}</button>}
           </div>
         </div>
       )}
 
       <div className={s.idleInfo}>
-        <p>Rozpocznij nagrywanie aby aktywować real-time coaching.</p>
-        {briefingSaved && <p style={{ fontSize: '0.75rem', color: 'var(--neon-green)', marginTop: '0.2rem' }}>✅ Briefing załadowany</p>}
+        <p>{t('meeting.idle.info')}</p>
+        {briefingSaved && <p style={{ fontSize: '0.75rem', color: 'var(--neon-green)', marginTop: '0.2rem' }}>{t('meeting.idle.briefingLoaded')}</p>}
         <p style={{ fontSize: '0.75rem', opacity: 0.7, marginTop: '0.3rem' }}>
-          Po starcie okno zmieni się w kompaktowy pasek z podpowiedziami.<br />
-          Transkrypcja live dostępna na dashboardzie.
+          {t('meeting.idle.hint1')}<br />
+          {t('meeting.idle.hint2')}
         </p>
         <p style={{ marginTop: '0.5rem' }}>
-          <button className={s.btnLink} onClick={handleOpenDashboard}>📊 Otwórz dashboard</button>
+          <button className={s.btnLink} onClick={handleOpenDashboard}>{t('meeting.idle.openDashboard')}</button>
         </p>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import React, { useRef, useCallback, useEffect } from 'react';
 import s from './FloatingWidget.module.css';
 import { cn } from '../utils/cn';
+import { useTranslation } from '../i18n';
 
 interface FloatingWidgetProps {
   emoji: string;
@@ -13,6 +14,7 @@ interface FloatingWidgetProps {
 }
 
 export function FloatingWidget({ emoji, name, onClick, hasNotification, controlActive, hasSuggestion, wantsToSpeak }: FloatingWidgetProps) {
+  const { t } = useTranslation();
   const isDragging = useRef(false);
   const dragStart = useRef({ x: 0, y: 0 });
   const windowPosRef = useRef<[number, number]>([0, 0]);
@@ -84,12 +86,12 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
           : undefined;
 
   const titleText = controlActive
-    ? `${name} — sterowanie aktywne (Ctrl+Shift+K aby zatrzymać)`
+    ? t('widget.titleControl', { name })
     : hasSuggestion
-      ? `${name} — mam sugestię! Kliknij aby zobaczyć`
+      ? t('widget.titleSuggestion', { name })
       : wantsToSpeak
-        ? `${name} — chcę coś powiedzieć (Ctrl+Shift+P)`
-        : `${name} — kliknij aby otworzyć`;
+        ? t('widget.titleWantsToSpeak', { name })
+        : t('widget.titleDefault', { name });
 
   // ─── Click-through toggle: disable when hovering widget, enable when leaving ───
   const handleMouseEnter = useCallback(() => {

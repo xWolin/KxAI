@@ -118,6 +118,10 @@ src/
 │   │       ├── Section.tsx, PanelHeader.tsx, Tabs.tsx, EmojiPicker.tsx
 │   │       ├── EmptyState.tsx      # Placeholder with icon/title/subtitle
 │   │       └── index.ts            # Barrel export
+│   ├── i18n/                # Internationalization (Faza 7.4 ✅)
+│   │   ├── index.ts            # useTranslation() hook, standalone t(), translate()
+│   │   ├── pl.ts               # Polish translations (~230 keys)
+│   │   └── en.ts               # English translations (~230 keys)
 │   └── styles/
 │       └── global.css      # Design tokens + animations (futuristic dark theme)
 ```
@@ -132,6 +136,7 @@ src/
 - **State management**: Zustand stores w `src/renderer/stores/`. 4 stores: `useNavigationStore`, `useConfigStore`, `useAgentStore`, `useChatStore`. IPC event subscriptions scentralizowane w `useStoreInit`. Import: `import { useAgentStore } from '../stores'`
 - **Styling**: CSS Modules per-component (`*.module.css`), `cn()` utility, design tokens w `global.css` `:root`. Import: `import s from './Comp.module.css'`
 - **UI components**: Reusable atomic components w `src/renderer/components/ui/`. Import: `import { Button, Input, Badge } from '../ui'`. Nie duplikuj styli — użyj istniejących komponentów
+- **i18n**: Lightweight custom i18n w `src/renderer/i18n/`. Hook: `const { t } = useTranslation()` (React FC), standalone `t()` z `import { t } from '../i18n'` (class components). ~230 kluczy tłumaczeń. Fallback: locale → PL → raw key. Interpolacja: `t('key', { name: 'value' })`. Język konfigurowalny w Settings (General tab) via `config.userLanguage`
 - **AI models**: OpenAI używa `max_completion_tokens` (nie `max_tokens`); GPT-5+ używa roli `developer` zamiast `system`
 - **Tool calling**: Native function calling (OpenAI tools API / Anthropic tool_use) domyślnie włączone (`config.useNativeFunctionCalling`). Fallback na ```tool bloki gdy wyłączone.
 - **Cron suggestions**: AI outputuje ```cron\n{JSON}\n``` bloki, agent-loop parsuje i proponuje użytkownikowi
@@ -615,10 +620,12 @@ src/
 - [ ] High contrast mode
 - [ ] Reduced motion mode
 
-### Krok 7.4 — Internationalization (i18n)
-- [ ] Wyodrębnij stringi UI do translation files
-- [ ] Support: PL (primary), EN (secondary)
-- [ ] Język agenta = język UI (konfigurowalny)
+### Krok 7.4 — Internationalization (i18n) ✅
+> **Zaimplementowano**: Lightweight custom i18n (bez zewnętrznej biblioteki). `src/renderer/i18n/index.ts` — `useTranslation()` hook (React FC) + standalone `t()` (class components/utilities), `translate()` core z fallback chain (locale → PL → raw key), `{param}` interpolation via `String.replaceAll`. ~230 kluczy tłumaczeń w `pl.ts` i `en.ts` pokrywających wszystkie 8 komponentów UI. Language selector w SettingsPanel (General tab) — `🇵🇱 Polski` / `🇬🇧 English`. Reaktywne przełączanie via `useConfigStore` → `config.userLanguage`.
+
+- [x] Wyodrębnij stringi UI do translation files ✅ (~230 kluczy w 8 komponentach)
+- [x] Support: PL (primary), EN (secondary) ✅
+- [x] Język agenta = język UI (konfigurowalny) ✅ (Settings → General → Language selector)
 
 ### Krok 7.5 — Privacy & compliance ✅
 > **Zaimplementowano**: `privacy-service.ts` z pełną obsługą GDPR. `PrivacyDataSummary` — przegląd 12 kategorii danych (konwersacje, pamięć, aktywność, spotkania, cron, RAG, audit, config, prompty, przeglądarka, sekrety, temp). `exportData()` — eksport do folderu z JSON/Markdown + manifest, bez kluczy API. `deleteData()` — selektywne usuwanie z opcjami `keepConfig`/`keepPersona`. 3 narzędzia AI: `data_summary`, `data_export`, `data_delete`. 3 kanały IPC: Ch.PRIVACY_*. Dialogi potwierdzenia przed eksportem/usuwaniem. Typy w `shared/types/privacy.ts`. Wired w ServiceContainer Phase 2.
@@ -698,7 +705,7 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-### ✅ Ukończone (35/47)
+### ✅ Ukończone (36/47)
 
 | # | Zadanie | Faza | Status |
 |---|---------|------|--------|
@@ -737,8 +744,9 @@ src/
 | 43 | Privacy & compliance (GDPR) | 7.5 | ✅ |
 | 38 | Gmail / Email via MCP | 8.3 | ✅ |
 | 32 | Smart Clipboard Pipeline | 6.1 | ✅ |
+| 42 | i18n (PL + EN) | 7.4 | ✅ |
 
-### ⬜ Remaining (11 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (10 tasks) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
@@ -750,7 +758,6 @@ src/
 | 35 | Proactive Intelligence Engine | 6.4 | 🟡 High | 3-4 sesje | P4 |
 | 39 | MCP Server Discovery | 8.5 | 🟢 Medium | 1 sesja | P4 |
 | 41 | Accessibility (a11y) | 7.3 | 🟢 Medium | 1 sesja | P4 |
-| 42 | i18n (PL + EN) | 7.4 | 🟢 Medium | 1 sesja | P4 |
 | 44 | Code signing + distribution | 7.6 | 🟢 Medium | 1 sesja | P4 |
 | 45-47 | CDP anti-detection, streaming, network | 1.4-1.5 | 🟢 Medium | 3 sesje | P4 |
 

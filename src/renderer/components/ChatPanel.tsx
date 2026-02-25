@@ -5,6 +5,7 @@ import type { ConversationMessage, KxAIConfig } from '../types';
 import { useAgentStore } from '../stores';
 import s from './ChatPanel.module.css';
 import { cn } from '../utils/cn';
+import { useTranslation } from '../i18n';
 
 // Configure marked for chat messages
 marked.setOptions({
@@ -48,6 +49,7 @@ function renderMarkdown(text: string): string {
  * Memoized markdown message bubble with copy button.
  */
 function MessageContent({ content }: { content: string }) {
+  const { t } = useTranslation();
   const html = useMemo(() => renderMarkdown(content), [content]);
   const [copied, setCopied] = useState(false);
 
@@ -63,7 +65,7 @@ function MessageContent({ content }: { content: string }) {
   if (!html) return null;
   return (
     <div className={s.bubbleWrapper}>
-      <button className={copied ? s.copyBtnCopied : s.copyBtn} onClick={handleCopy} title="Kopiuj wiadomość">
+      <button className={copied ? s.copyBtnCopied : s.copyBtn} onClick={handleCopy} title={t('chat.copyMessage')}>
         {copied ? '✓' : '📋'}
       </button>
       <div className={s.markdown} dangerouslySetInnerHTML={{ __html: html }} />
@@ -98,6 +100,7 @@ export function ChatPanel({
   // Agent status & RAG progress from global store (subscribed in useStoreInit)
   const agentStatus = useAgentStore((s) => s.agentStatus);
   const ragProgress = useAgentStore((s) => s.ragProgress);
+  const { t } = useTranslation();
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -208,7 +211,7 @@ export function ChatPanel({
           {
             id: Date.now().toString(),
             role: 'assistant',
-            content: `❌ Błąd: ${result.error || 'Nie udało się wysłać wiadomości'}`,
+            content: t('chat.error.generic', { error: result.error || t('chat.error.sendFailed') }),
             timestamp: Date.now(),
             type: 'chat',
           },
@@ -221,7 +224,7 @@ export function ChatPanel({
         {
           id: Date.now().toString(),
           role: 'assistant',
-          content: `❌ Błąd: ${error.message || 'Nie udało się wysłać wiadomości'}`,
+          content: t('chat.error.generic', { error: error.message || t('chat.error.sendFailed') }),
           timestamp: Date.now(),
           type: 'chat',
         },
@@ -244,7 +247,7 @@ export function ChatPanel({
     const screenshotMsg: ConversationMessage = {
       id: `opt-${Date.now()}`,
       role: 'user',
-      content: '📸 Przeanalizuj mój obecny ekran. Co widzisz? Jakie masz obserwacje, porady, uwagi?',
+      content: t('chat.screenshot.prompt'),
       timestamp: Date.now(),
       type: 'analysis',
     };
@@ -252,7 +255,7 @@ export function ChatPanel({
 
     try {
       const result = await window.kxai.streamWithScreen(
-        'Przeanalizuj mój obecny ekran. Co widzisz? Jakie masz obserwacje, porady, uwagi?',
+        t('chat.screenshot.prompt'),
       );
       // Safety: always reset streaming state after IPC completes
       setIsStreaming(false);
@@ -266,7 +269,7 @@ export function ChatPanel({
           {
             id: Date.now().toString(),
             role: 'assistant',
-            content: `❌ Nie udało się przeanalizować ekranu: ${result.error}`,
+            content: t('chat.error.screenshotFailed', { error: result.error ?? '' }),
             timestamp: Date.now(),
           },
         ]);
@@ -278,7 +281,7 @@ export function ChatPanel({
         {
           id: Date.now().toString(),
           role: 'assistant',
-          content: `❌ Nie udało się przeanalizować ekranu: ${error.message}`,
+          content: t('chat.error.screenshotFailed', { error: error.message }),
           timestamp: Date.now(),
         },
       ]);
@@ -320,7 +323,7 @@ export function ChatPanel({
 
         if (chunks.length === 0) return;
 
-        setInput((prev) => prev || '⏳ Transkrybuję...');
+        setInput((prev) => prev || t('chat.voice.transcribing'));
 
         try {
           const blob = new Blob(chunks, { type: 'audio/webm' });
@@ -337,18 +340,18 @@ export function ChatPanel({
           const result = await window.kxai.transcribeAudio(base64);
           if (result.success && result.text) {
             setInput((prev) => {
-              const clean = prev === '⏳ Transkrybuję...' ? '' : prev;
+              const clean = prev === t('chat.voice.transcribing') ? '' : prev;
               return (clean ? clean + ' ' : '') + result.text;
             });
             inputRef.current?.focus();
           } else {
             setInput((prev) =>
-              prev === '⏳ Transkrybuję...' ? `⚠️ ${result.error || 'Transkrypcja nie powiodła się'}` : prev,
+              prev === t('chat.voice.transcribing') ? `⚠️ ${result.error || t('chat.voice.transcriptionFailed')}` : prev,
             );
           }
         } catch (err: any) {
           console.error('[ChatPanel] Whisper transcription error:', err);
-          setInput((prev) => (prev === '⏳ Transkrybuję...' ? '⚠️ Błąd transkrypcji' : prev));
+          setInput((prev) => (prev === t('chat.voice.transcribing') ? t('chat.voice.transcriptionError') : prev));
         }
       };
 
@@ -363,7 +366,7 @@ export function ChatPanel({
       setIsRecording(true);
     } catch (err: any) {
       console.error('[ChatPanel] Mic access failed:', err);
-      setInput((prev) => prev || '⚠️ Brak uprawnień do mikrofonu');
+      setInput((prev) => prev || t('chat.voice.noMicPermission'));
     }
   }
 
@@ -426,17 +429,17 @@ export function ChatPanel({
                   {' '}
                   ·{' '}
                   {agentStatus.state === 'thinking'
-                    ? 'myślę...'
+                    ? t('chat.status.thinking')
                     : agentStatus.state === 'tool-calling'
-                      ? agentStatus.toolName || 'narzędzie...'
+                      ? agentStatus.toolName || t('chat.status.toolCalling')
                       : agentStatus.state === 'streaming'
-                        ? 'odpowiadam...'
+                        ? t('chat.status.streaming')
                         : agentStatus.state === 'heartbeat'
-                          ? 'heartbeat'
+                          ? t('chat.status.heartbeat')
                           : agentStatus.state === 'take-control'
-                            ? 'sterowanie'
+                            ? t('chat.status.takeControl')
                             : agentStatus.state === 'sub-agent'
-                              ? 'sub-agent'
+                              ? t('chat.status.subAgent')
                               : ''}
                 </span>
               )}
@@ -448,14 +451,14 @@ export function ChatPanel({
           {/* Proactive toggle */}
           <button
             onClick={toggleProactive}
-            title={proactiveEnabled ? 'Wyłącz tryb proaktywny' : 'Włącz tryb proaktywny'}
+            title={proactiveEnabled ? t('chat.proactive.disable') : t('chat.proactive.enable')}
             className={proactiveEnabled ? s.btnActive : s.btn}
           >
             👁️
           </button>
 
           {/* Screenshot */}
-          <button onClick={captureAndAnalyze} title="Zrób screenshot i analizuj" className={s.btn}>
+          <button onClick={captureAndAnalyze} title={t('chat.screenshot.title')} className={s.btn}>
             📸
           </button>
 
@@ -465,7 +468,7 @@ export function ChatPanel({
           </button>
 
           {/* Dashboard */}
-          <button onClick={openDashboard} title="Otwórz Dashboard" className={s.btn}>
+          <button onClick={openDashboard} title={t('chat.dashboard.title')} className={s.btn}>
             📊
           </button>
 
@@ -475,12 +478,12 @@ export function ChatPanel({
           </button>
 
           {/* Settings */}
-          <button onClick={onOpenSettings} title="Ustawienia" className={s.btn}>
+          <button onClick={onOpenSettings} title={t('chat.settings.title')} className={s.btn}>
             ⚙️
           </button>
 
           {/* Close */}
-          <button onClick={onClose} title="Zwiń" className={s.btn}>
+          <button onClick={onClose} title={t('chat.minimize')} className={s.btn}>
             ✕
           </button>
         </div>
@@ -491,15 +494,15 @@ export function ChatPanel({
         <div className={s.ragProgress}>
           <div className={s.ragInfo}>
             <span className={s.ragLabel}>
-              📚 Indeksowanie:{' '}
+              {t('chat.rag.indexing')}{' '}
               {ragProgress.phase === 'scanning'
-                ? 'Skanowanie plików'
+                ? t('chat.rag.scanning')
                 : ragProgress.phase === 'chunking'
-                  ? 'Dzielenie na fragmenty'
+                  ? t('chat.rag.chunking')
                   : ragProgress.phase === 'embedding'
-                    ? 'Generowanie embeddingów'
+                    ? t('chat.rag.embedding')
                     : ragProgress.phase === 'saving'
-                      ? 'Zapisywanie indeksu'
+                      ? t('chat.rag.saving')
                       : ragProgress.phase}
             </span>
             <span className={s.ragPercent}>{Math.round(ragProgress.overallPercent)}%</span>
@@ -508,7 +511,7 @@ export function ChatPanel({
             <div className={s.ragFill} style={{ width: `${ragProgress.overallPercent}%` }} />
           </div>
           <div className={s.ragDetail}>
-            {ragProgress.filesProcessed}/{ragProgress.filesTotal} plików · {ragProgress.chunksCreated} fragmentów
+            {ragProgress.filesProcessed}/{ragProgress.filesTotal} {t('chat.rag.files')} · {ragProgress.chunksCreated} {t('chat.rag.chunks')}
             {ragProgress.currentFile && (
               <span title={ragProgress.currentFile}> · {ragProgress.currentFile.split(/[/\\]/).pop()}</span>
             )}
@@ -521,8 +524,8 @@ export function ChatPanel({
         {messages.length === 0 && !isStreaming && (
           <div className={s.empty}>
             <div className={s.emptyEmoji}>{config.agentEmoji || '🤖'}</div>
-            <div className={s.emptyTitle}>Cześć! Jestem {config.agentName || 'KxAI'}</div>
-            <div className={s.emptySubtitle}>Napisz coś lub kliknij 📸 żeby przeanalizować ekran</div>
+            <div className={s.emptyTitle}>{t('chat.empty.title', { name: config.agentName || 'KxAI' })}</div>
+            <div className={s.emptySubtitle}>{t('chat.empty.subtitle')}</div>
           </div>
         )}
 
@@ -563,14 +566,14 @@ export function ChatPanel({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Napisz wiadomość... (Shift+Enter = nowa linia)"
+            placeholder={t('chat.input.placeholder')}
             disabled={isStreaming}
             className={s.textarea}
             rows={1}
           />
           <button
             onClick={toggleVoiceInput}
-            title={isRecording ? 'Zatrzymaj nagrywanie' : 'Nagrywaj głos'}
+            title={isRecording ? t('chat.voice.stopRecording') : t('chat.voice.startRecording')}
             className={isRecording ? s.voiceRecording : s.voice}
             disabled={isStreaming}
           >
@@ -582,7 +585,7 @@ export function ChatPanel({
                 await window.kxai.agentStop();
                 setIsStreaming(false);
               }}
-              title="Zatrzymaj agenta"
+              title={t('chat.stopAgent')}
               className={s.sendStop}
             >
               ■

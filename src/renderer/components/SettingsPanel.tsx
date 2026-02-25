@@ -4,6 +4,7 @@ import type { McpServerConfig, McpHubStatus, McpRegistryEntry } from '@shared/ty
 import type { CalendarConfig, CalendarStatus, CalendarInfo, CalendarProvider } from '@shared/types/calendar';
 import s from './SettingsPanel.module.css';
 import { cn } from '../utils/cn';
+import { useTranslation } from '../i18n';
 
 interface SettingsPanelProps {
   config: KxAIConfig;
@@ -38,6 +39,7 @@ const MODELS = {
 };
 
 export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelProps) {
+  const { t } = useTranslation();
   const [provider, setProvider] = useState(config.aiProvider || 'openai');
   const [model, setModel] = useState(config.aiModel || 'gpt-5');
   const [apiKey, setApiKey] = useState('');
@@ -188,7 +190,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   }
 
   async function handleRemoveFolder(folderPath: string) {
-    if (!confirm(`Usunąć folder z indeksu?\n${folderPath}`)) return;
+    if (!confirm(t('settings.knowledge.removeFolderConfirm', { path: folderPath }))) return;
     await window.kxai.ragRemoveFolder(folderPath);
     await loadKnowledgeData();
   }
@@ -206,7 +208,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   }
 
   async function clearHistory() {
-    if (confirm('Czy na pewno chcesz wyczyścić historię konwersacji?')) {
+    if (confirm(t('settings.general.clearHistoryConfirm'))) {
       await window.kxai.clearConversationHistory();
     }
   }
@@ -254,7 +256,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   }
 
   async function handleMcpRemove(id: string, name: string) {
-    if (!confirm(`Usunąć serwer MCP "${name}"?`)) return;
+    if (!confirm(t('settings.mcp.removeConfirm', { name }))) return;
     try {
       await window.kxai.mcpRemoveServer(id);
       await loadMcpData();
@@ -353,15 +355,15 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   function getMcpStatusBadge(status: string) {
     switch (status) {
       case 'connected':
-        return { text: 'Połączony', cls: s.mcpBadgeConnected };
+        return { text: t('settings.mcp.status.connected'), cls: s.mcpBadgeConnected };
       case 'connecting':
-        return { text: 'Łączenie...', cls: s.mcpBadgeConnecting };
+        return { text: t('settings.mcp.status.connecting'), cls: s.mcpBadgeConnecting };
       case 'reconnecting':
-        return { text: 'Reconnect...', cls: s.mcpBadgeConnecting };
+        return { text: t('settings.mcp.status.reconnecting'), cls: s.mcpBadgeConnecting };
       case 'error':
-        return { text: 'Błąd', cls: s.mcpBadgeError };
+        return { text: t('settings.mcp.status.error'), cls: s.mcpBadgeError };
       default:
-        return { text: 'Rozłączony', cls: s.mcpBadgeDisconnected };
+        return { text: t('settings.mcp.status.disconnected'), cls: s.mcpBadgeDisconnected };
     }
   }
 
@@ -443,7 +445,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   }
 
   async function handleCalendarRemove(id: string, name: string) {
-    if (!confirm(`Usunąć połączenie "${name}"?`)) return;
+    if (!confirm(t('settings.calendar.removeConfirm', { name }))) return;
     try {
       await window.kxai.calendarRemoveConnection(id);
       await loadCalendarData();
@@ -464,13 +466,13 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   function getCalStatusBadge(status: string) {
     switch (status) {
       case 'connected':
-        return { text: 'Połączony', cls: s.mcpBadgeConnected };
+        return { text: t('settings.mcp.status.connected'), cls: s.mcpBadgeConnected };
       case 'connecting':
-        return { text: 'Łączenie...', cls: s.mcpBadgeConnecting };
+        return { text: t('settings.mcp.status.connecting'), cls: s.mcpBadgeConnecting };
       case 'error':
-        return { text: 'Błąd', cls: s.mcpBadgeError };
+        return { text: t('settings.mcp.status.error'), cls: s.mcpBadgeError };
       default:
-        return { text: 'Rozłączony', cls: s.mcpBadgeDisconnected };
+        return { text: t('settings.mcp.status.disconnected'), cls: s.mcpBadgeDisconnected };
     }
   }
 
@@ -481,28 +483,28 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         <button onClick={onBack} className={s.headerBack}>
           ←
         </button>
-        <span className={s.headerTitle}>Ustawienia</span>
+        <span className={s.headerTitle}>{t('settings.title')}</span>
       </div>
 
       {/* Tabs */}
       <div className={s.tabs}>
         <button className={activeTab === 'general' ? s.tabActive : s.tab} onClick={() => setActiveTab('general')}>
-          ⚙️ Ogólne
+          {t('settings.tabs.general')}
         </button>
         <button className={activeTab === 'persona' ? s.tabActive : s.tab} onClick={() => setActiveTab('persona')}>
-          🎭 Persona
+          {t('settings.tabs.persona')}
         </button>
         <button className={activeTab === 'memory' ? s.tabActive : s.tab} onClick={() => setActiveTab('memory')}>
-          🧠 Pamięć
+          {t('settings.tabs.memory')}
         </button>
         <button className={activeTab === 'knowledge' ? s.tabActive : s.tab} onClick={() => setActiveTab('knowledge')}>
-          📚 Wiedza
+          {t('settings.tabs.knowledge')}
         </button>
         <button className={activeTab === 'mcp' ? s.tabActive : s.tab} onClick={() => setActiveTab('mcp')}>
-          🔌 MCP
+          {t('settings.tabs.mcp')}
         </button>
         <button className={activeTab === 'calendar' ? s.tabActive : s.tab} onClick={() => setActiveTab('calendar')}>
-          📅 Kalendarz
+          {t('settings.tabs.calendar')}
         </button>
       </div>
 
@@ -512,17 +514,17 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
           <div className="fade-in">
             {/* Agent identity */}
             <div className={s.section}>
-              <h3 className={s.sectionTitle}>Agent</h3>
+              <h3 className={s.sectionTitle}>{t('settings.general.agentSection')}</h3>
 
-              <label className={s.label}>Nazwa</label>
+              <label className={s.label}>{t('settings.general.name')}</label>
               <input
                 className={s.input}
                 value={agentName}
                 onChange={(e) => setAgentName(e.target.value)}
-                title="Nazwa agenta"
+                title={t('settings.general.name')}
               />
 
-              <label className={s.label}>Emoji</label>
+              <label className={s.label}>{t('settings.general.emoji')}</label>
               <div className={s.emojiGrid}>
                 {['🤖', '🧠', '⚡', '🔮', '🦾', '🎯', '💡', '🚀'].map((e) => (
                   <button
@@ -536,15 +538,29 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               </div>
             </div>
 
+            {/* Language */}
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>{t('settings.general.language')}</h3>
+              <select
+                className={s.select}
+                value={config?.userLanguage ?? 'pl'}
+                onChange={(e) => window.kxai.setConfigBatch({ userLanguage: e.target.value })}
+              >
+                <option value="pl">🇵🇱 Polski</option>
+                <option value="en">🇬🇧 English</option>
+              </select>
+              <small className={s.hint}>{t('settings.general.languageHint')}</small>
+            </div>
+
             {/* AI Provider */}
             <div className={s.section}>
-              <h3 className={s.sectionTitle}>AI Provider</h3>
+              <h3 className={s.sectionTitle}>{t('settings.general.aiProvider')}</h3>
 
-              <label className={s.label}>Dostawca</label>
+              <label className={s.label}>{t('settings.general.provider')}</label>
               <select
                 className={s.select}
                 value={provider}
-                title="Dostawca AI"
+                title={t('settings.general.provider')}
                 onChange={(e) => {
                   const p = e.target.value as 'openai' | 'anthropic';
                   setProvider(p);
@@ -555,8 +571,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 <option value="anthropic">Anthropic</option>
               </select>
 
-              <label className={s.label}>Model</label>
-              <select className={s.select} value={model} title="Model AI" onChange={(e) => setModel(e.target.value)}>
+              <label className={s.label}>{t('settings.general.model')}</label>
+              <select className={s.select} value={model} title={t('settings.general.model')} onChange={(e) => setModel(e.target.value)}>
                 {MODELS[provider].map((m) => (
                   <option key={m.value} value={m.value}>
                     {m.label}
@@ -564,59 +580,59 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 ))}
               </select>
 
-              <label className={s.label}>Klucz API {hasKey ? '✅' : '❌'}</label>
+              <label className={s.label}>{t('settings.general.apiKey')} {hasKey ? '✅' : '❌'}</label>
               <input
                 type="password"
                 className={s.input}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={hasKey ? '••••••••••• (zmień)' : 'Wklej klucz API'}
+                placeholder={hasKey ? t('settings.general.apiKeyChangePlaceholder') : t('settings.general.apiKeyPlaceholder')}
               />
             </div>
 
             {/* Proactive */}
             <div className={s.section}>
-              <h3 className={s.sectionTitle}>Tryb proaktywny</h3>
+              <h3 className={s.sectionTitle}>{t('settings.general.proactiveSection')}</h3>
 
-              <label className={s.label}>Interwał analizy ekranu (sekundy)</label>
+              <label className={s.label}>{t('settings.general.proactiveInterval')}</label>
               <input
                 type="number"
                 className={s.input}
                 value={proactiveInterval}
                 onChange={(e) => setProactiveInterval(Number(e.target.value))}
-                title="Interwał proaktywny w sekundach"
+                title={t('settings.general.proactiveInterval')}
                 min={5}
                 max={300}
               />
               <p className={s.hint}>
-                Co ile sekund agent analizuje ekran (min. 5s). Niższa wartość = więcej API calls.
+                {t('settings.general.proactiveHint')}
               </p>
             </div>
 
             {/* Deepgram / Meeting Coach */}
             <div className={s.section}>
-              <h3 className={s.sectionTitle}>🎙️ Meeting Coach (Deepgram)</h3>
+              <h3 className={s.sectionTitle}>{t('settings.general.meetingCoach')}</h3>
 
-              <label className={s.label}>Klucz API Deepgram {hasDeepgramKey ? '✅' : '❌'}</label>
+              <label className={s.label}>{t('settings.general.deepgramKey')} {hasDeepgramKey ? '✅' : '❌'}</label>
               <input
                 type="password"
                 className={s.input}
                 value={deepgramKey}
                 onChange={(e) => setDeepgramKey(e.target.value)}
-                placeholder={hasDeepgramKey ? '••••••••••• (zmień)' : 'Wklej klucz API Deepgram'}
+                placeholder={hasDeepgramKey ? t('settings.general.apiKeyChangePlaceholder') : t('settings.general.deepgramKeyPlaceholder')}
               />
               <p className={s.hint}>
-                Wymagany do transkrypcji w czasie rzeczywistym (Nova-3 z diaryzacją). Pay-as-you-go: ~$0.0043/min.
+                {t('settings.general.deepgramHint')}
               </p>
             </div>
 
             {/* Embeddings (RAG) */}
             <div className={s.section}>
-              <h3 className={s.sectionTitle}>🧬 Embeddingi (RAG)</h3>
+              <h3 className={s.sectionTitle}>{t('settings.general.embeddingsSection')}</h3>
 
               <label className={s.label}>
-                Klucz API OpenAI (embeddingi){' '}
-                {hasEmbeddingKey ? '✅' : hasKey && provider === 'openai' ? '🔗 (główny)' : '❌'}
+                {t('settings.general.embeddingKey')}{' '}
+                {hasEmbeddingKey ? '✅' : hasKey && provider === 'openai' ? t('settings.general.embeddingKeyShared') : '❌'}
               </label>
               <input
                 type="password"
@@ -624,38 +640,37 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 value={embeddingKey}
                 onChange={(e) => setEmbeddingKey(e.target.value)}
                 placeholder={
-                  hasEmbeddingKey ? '••••••••••• (zmień)' : 'Osobny klucz OpenAI do embeddingów (opcjonalnie)'
+                  hasEmbeddingKey ? t('settings.general.apiKeyChangePlaceholder') : t('settings.general.embeddingKeyPlaceholder')
                 }
               />
               <p className={s.hint}>
-                Osobny klucz OpenAI do generowania embeddingów. Jeśli nie podany, używany jest główny klucz OpenAI.
-                Jeśli żaden nie jest dostępny — RAG działa na lokalnym TF-IDF (bez kosztów, niższa jakość).
+                {t('settings.general.embeddingHint')}
               </p>
 
-              <label className={s.label}>Model embeddingów</label>
+              <label className={s.label}>{t('settings.general.embeddingModel')}</label>
               <select
                 className={s.select}
                 value={embeddingModel}
-                title="Model embeddingów"
+                title={t('settings.general.embeddingModel')}
                 onChange={(e) => setEmbeddingModel(e.target.value)}
               >
-                <option value="text-embedding-3-small">text-embedding-3-small (tani, szybki)</option>
-                <option value="text-embedding-3-large">text-embedding-3-large (dokładniejszy)</option>
-                <option value="text-embedding-ada-002">text-embedding-ada-002 (legacy)</option>
+                <option value="text-embedding-3-small">{t('settings.general.embeddingModelSmall')}</option>
+                <option value="text-embedding-3-large">{t('settings.general.embeddingModelLarge')}</option>
+                <option value="text-embedding-ada-002">{t('settings.general.embeddingModelAda')}</option>
               </select>
             </div>
 
             {/* Danger zone */}
             <div>
-              <h3 className={s.sectionTitleDanger}>Strefa niebezpieczna</h3>
+              <h3 className={s.sectionTitleDanger}>{t('settings.general.dangerZone')}</h3>
               <button onClick={clearHistory} className={s.btnDanger}>
-                🗑️ Wyczyść historię konwersacji
+                {t('settings.general.clearHistory')}
               </button>
             </div>
 
             <div className={s.saveWrapper}>
               <button onClick={saveSettings} disabled={saving} className={saving ? s.btnSaveSaving : s.btnSave}>
-                {saving ? 'Zapisywanie...' : 'Zapisz ustawienia'}
+                {saving ? t('settings.general.saving') : t('settings.general.saveSettings')}
               </button>
             </div>
           </div>
@@ -664,16 +679,16 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         {activeTab === 'persona' && (
           <div className="fade-in">
             <p className={s.desc}>
-              SOUL.md definiuje osobowość, ton i granice Twojego agenta. Edytuj poniżej aby dostosować zachowanie.
+              {t('settings.persona.description')}
             </p>
             <textarea
               className={s.textarea}
               value={soulContent}
               onChange={(e) => setSoulContent(e.target.value)}
-              title="Edycja SOUL.md"
+              title={t('settings.persona.saveSoul')}
             />
             <button onClick={saveSoul} className={s.btnSave}>
-              Zapisz SOUL.md
+              {t('settings.persona.saveSoul')}
             </button>
           </div>
         )}
@@ -681,17 +696,16 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         {activeTab === 'memory' && (
           <div className="fade-in">
             <p className={s.desc}>
-              MEMORY.md to pamięć długoterminowa Twojego agenta. Agent sam ją uzupełnia, ale możesz ją też edytować
-              ręcznie.
+              {t('settings.memory.description')}
             </p>
             <textarea
               className={s.textarea}
               value={memoryContent}
               onChange={(e) => setMemoryContent(e.target.value)}
-              title="Edycja MEMORY.md"
+              title={t('settings.memory.saveMemory')}
             />
             <button onClick={saveMemory} className={s.btnSave}>
-              Zapisz MEMORY.md
+              {t('settings.memory.saveMemory')}
             </button>
           </div>
         )}
@@ -699,26 +713,25 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         {activeTab === 'knowledge' && (
           <div className="fade-in">
             <p className={s.desc}>
-              Zarządzaj folderami, które agent indeksuje. Dodaj foldery z kodem, dokumentami lub notatkami — agent
-              będzie je przeszukiwał semantycznie.
+              {t('settings.knowledge.description')}
             </p>
 
             {/* Stats */}
             {ragStats && (
               <div className={s.section}>
-                <h3 className={s.sectionTitle}>Statystyki indeksu</h3>
+                <h3 className={s.sectionTitle}>{t('settings.knowledge.statsTitle')}</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
                   <div className={s.statCard}>
                     <div className={s.statCardValue}>{ragStats.totalFiles}</div>
-                    <div className={s.statCardLabel}>Plików</div>
+                    <div className={s.statCardLabel}>{t('settings.knowledge.filesLabel')}</div>
                   </div>
                   <div className={s.statCard}>
                     <div className={s.statCardValue}>{ragStats.totalChunks}</div>
-                    <div className={s.statCardLabel}>Chunków</div>
+                    <div className={s.statCardLabel}>{t('settings.knowledge.chunksLabel')}</div>
                   </div>
                   <div className={s.statCard}>
                     <div className={s.statCardValue}>{ragStats.embeddingType}</div>
-                    <div className={s.statCardLabel}>Embeddings</div>
+                    <div className={s.statCardLabel}>{t('settings.knowledge.embeddingsLabel')}</div>
                   </div>
                 </div>
               </div>
@@ -726,7 +739,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
             {/* Indexed folders */}
             <div className={s.section}>
-              <h3 className={s.sectionTitle}>Zaindeksowane foldery</h3>
+              <h3 className={s.sectionTitle}>{t('settings.knowledge.indexedFolders')}</h3>
 
               {folderStats.map((folder, idx) => (
                 <div key={idx} className={s.folderItem}>
@@ -735,7 +748,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       {folder.path}
                     </div>
                     <div className={s.folderItemStats}>
-                      {folder.fileCount} plików · {folder.chunkCount} chunków
+                      {folder.fileCount} {t('settings.knowledge.folderFiles')} · {folder.chunkCount} {t('settings.knowledge.folderChunks')}
                       {folder.lastIndexed > 0 && <> · {new Date(folder.lastIndexed).toLocaleString('pl-PL')}</>}
                     </div>
                   </div>
@@ -743,7 +756,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     <button
                       className={s.folderItemRemove}
                       onClick={() => handleRemoveFolder(folder.path)}
-                      title="Usuń folder"
+                      title={t('settings.knowledge.removeFolder')}
                     >
                       ✕
                     </button>
@@ -752,14 +765,14 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               ))}
 
               <button className={s.btnSave} onClick={handleAddFolder} style={{ marginTop: '8px' }}>
-                ➕ Dodaj folder
+                {t('settings.knowledge.addFolder')}
               </button>
             </div>
 
             {/* Reindex */}
             <div className={s.section}>
               <button className={s.btnSave} onClick={handleReindex} disabled={reindexing} style={{ width: '100%' }}>
-                {reindexing ? '⏳ Reindeksowanie...' : '🔄 Przeindeksuj wszystko'}
+                {reindexing ? t('settings.knowledge.reindexing') : t('settings.knowledge.reindexAll')}
               </button>
             </div>
           </div>
@@ -768,26 +781,25 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         {activeTab === 'mcp' && (
           <div className="fade-in">
             <p className={s.desc}>
-              Zarządzaj serwerami MCP (Model Context Protocol). Agent może łączyć się z zewnętrznymi usługami —
-              kalendarzem, Slackiem, GitHubem i wieloma innymi.
+              {t('settings.mcp.description')}
             </p>
 
             {/* Hub Stats */}
             {mcpStatus && (
               <div className={s.section}>
-                <h3 className={s.sectionTitle}>Status Hub</h3>
+                <h3 className={s.sectionTitle}>{t('settings.mcp.hubStatus')}</h3>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '12px' }}>
                   <div className={s.statCard}>
                     <div className={s.statCardValue}>{mcpStatus.connectedCount}</div>
-                    <div className={s.statCardLabel}>Połączonych</div>
+                    <div className={s.statCardLabel}>{t('settings.mcp.connectedLabel')}</div>
                   </div>
                   <div className={s.statCard}>
                     <div className={s.statCardValue}>{mcpStatus.servers.length}</div>
-                    <div className={s.statCardLabel}>Serwerów</div>
+                    <div className={s.statCardLabel}>{t('settings.mcp.serversLabel')}</div>
                   </div>
                   <div className={s.statCard}>
                     <div className={s.statCardValue}>{mcpStatus.totalTools}</div>
-                    <div className={s.statCardLabel}>Narzędzi</div>
+                    <div className={s.statCardLabel}>{t('settings.mcp.toolsLabel')}</div>
                   </div>
                 </div>
               </div>
@@ -795,10 +807,10 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
             {/* Connected Servers */}
             <div className={s.section}>
-              <h3 className={s.sectionTitle}>Skonfigurowane serwery</h3>
+              <h3 className={s.sectionTitle}>{t('settings.mcp.configuredServers')}</h3>
 
               {mcpStatus && mcpStatus.servers.length === 0 && (
-                <p className={s.hint}>Brak skonfigurowanych serwerów. Dodaj z rejestru poniżej lub ręcznie.</p>
+                <p className={s.hint}>{t('settings.mcp.noServers')}</p>
               )}
 
               {mcpStatus?.servers.map((server) => {
@@ -816,7 +828,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                           <button
                             className={s.mcpBtnSmall}
                             onClick={() => handleMcpDisconnect(server.id)}
-                            title="Rozłącz"
+                            title={t('settings.mcp.disconnect')}
                           >
                             ⏹
                           </button>
@@ -824,7 +836,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                           <button
                             className={s.mcpBtnSmallAccent}
                             onClick={() => handleMcpConnect(server.id)}
-                            title="Połącz"
+                            title={t('settings.mcp.connect')}
                           >
                             ▶
                           </button>
@@ -844,14 +856,14 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                               setMcpEnvInput(envStr);
                             });
                           }}
-                          title="Edytuj env vars"
+                          title={t('settings.mcp.editEnv')}
                         >
                           ⚙
                         </button>
                         <button
                           className={s.folderItemRemove}
                           onClick={() => handleMcpRemove(server.id, server.name)}
-                          title="Usuń"
+                          title={t('settings.mcp.remove')}
                         >
                           ✕
                         </button>
@@ -874,7 +886,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     {/* Env editor */}
                     {mcpEnvEditing === server.id && (
                       <div className={s.mcpEnvEditor}>
-                        <label className={s.label}>Zmienne środowiskowe (KEY=value, po jednej na linię)</label>
+                        <label className={s.label}>{t('settings.mcp.envLabel')}</label>
                         <textarea
                           className={s.mcpEnvTextarea}
                           value={mcpEnvInput}
@@ -884,10 +896,10 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                         />
                         <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
                           <button className={s.mcpBtnSmallAccent} onClick={() => handleMcpUpdateEnv(server.id)}>
-                            Zapisz
+                            {t('settings.mcp.save')}
                           </button>
                           <button className={s.mcpBtnSmall} onClick={() => setMcpEnvEditing(null)}>
-                            Anuluj
+                            {t('settings.mcp.cancel')}
                           </button>
                         </div>
                       </div>
@@ -904,12 +916,12 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 onClick={() => setMcpShowAddForm(!mcpShowAddForm)}
                 style={{ marginBottom: '12px' }}
               >
-                {mcpShowAddForm ? '✕ Anuluj' : '➕ Dodaj serwer ręcznie'}
+                                {mcpShowAddForm ? t('settings.mcp.addManualCancel') : t('settings.mcp.addManualOpen')}
               </button>
 
               {mcpShowAddForm && (
                 <div className={s.mcpAddForm}>
-                  <label className={s.label}>Nazwa</label>
+                  <label className={s.label}>{t('settings.mcp.formName')}</label>
                   <input
                     className={s.input}
                     value={mcpNewServer.name}
@@ -917,7 +929,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     placeholder="np. moj-serwer"
                   />
 
-                  <label className={s.label}>Transport</label>
+                  <label className={s.label}>{t('settings.mcp.formTransport')}</label>
                   <select
                     className={s.select}
                     value={mcpNewServer.transport}
@@ -928,21 +940,21 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       }))
                     }
                   >
-                    <option value="stdio">stdio (lokalny proces)</option>
-                    <option value="streamable-http">Streamable HTTP</option>
-                    <option value="sse">SSE (Server-Sent Events)</option>
+                    <option value="stdio">{t('settings.mcp.transportStdio')}</option>
+                    <option value="streamable-http">{t('settings.mcp.transportHttp')}</option>
+                    <option value="sse">{t('settings.mcp.transportSse')}</option>
                   </select>
 
                   {mcpNewServer.transport === 'stdio' ? (
                     <>
-                      <label className={s.label}>Komenda</label>
+                      <label className={s.label}>{t('settings.mcp.formCommand')}</label>
                       <input
                         className={s.input}
                         value={mcpNewServer.command}
                         onChange={(e) => setMcpNewServer((prev) => ({ ...prev, command: e.target.value }))}
                         placeholder="npx, node, python..."
                       />
-                      <label className={s.label}>Argumenty (spacja)</label>
+                      <label className={s.label}>{t('settings.mcp.formArgs')}</label>
                       <input
                         className={s.input}
                         value={mcpNewServer.args}
@@ -952,7 +964,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     </>
                   ) : (
                     <>
-                      <label className={s.label}>URL</label>
+                      <label className={s.label}>{t('settings.mcp.formUrl')}</label>
                       <input
                         className={s.input}
                         value={mcpNewServer.url}
@@ -962,7 +974,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     </>
                   )}
 
-                  <label className={s.label}>Zmienne środowiskowe (KEY=value)</label>
+                  <label className={s.label}>{t('settings.mcp.envLabel')}</label>
                   <textarea
                     className={s.mcpEnvTextarea}
                     value={mcpNewServer.env}
@@ -986,7 +998,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       checked={mcpNewServer.autoConnect}
                       onChange={(e) => setMcpNewServer((prev) => ({ ...prev, autoConnect: e.target.checked }))}
                     />
-                    Auto-connect przy starcie
+                    {t('settings.mcp.autoConnect')}
                   </label>
 
                   <button
@@ -995,7 +1007,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     disabled={mcpAddingServer || !mcpNewServer.name}
                     style={{ marginTop: '12px' }}
                   >
-                    {mcpAddingServer ? '⏳ Dodawanie...' : '✅ Dodaj serwer'}
+                    {mcpAddingServer ? t('settings.mcp.adding') : t('settings.mcp.addServer')}
                   </button>
                 </div>
               )}
@@ -1003,9 +1015,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
             {/* Registry */}
             <div className={s.section}>
-              <h3 className={s.sectionTitle}>📦 Rejestr integracji</h3>
+              <h3 className={s.sectionTitle}>{t('settings.mcp.registry')}</h3>
               <p className={s.hint}>
-                Gotowe integracje MCP. Kliknij aby dodać — agent automatycznie zyska nowe narzędzia.
+                {t('settings.mcp.registryHint')}
               </p>
 
               {mcpRegistry.map((entry) => {
@@ -1017,14 +1029,14 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       <div>
                         <div className={s.mcpRegistryName}>{entry.name}</div>
                         <div className={s.mcpRegistryDesc}>{entry.description}</div>
-                        {entry.requiresSetup && <span className={s.mcpRequiresSetup}>⚙ Wymaga konfiguracji</span>}
+                        {entry.requiresSetup && <span className={s.mcpRequiresSetup}>{t('settings.mcp.requiresSetup')}</span>}
                       </div>
                     </div>
                     <button
                       className={alreadyAdded ? s.mcpBtnSmall : s.mcpBtnSmallAccent}
                       onClick={() => !alreadyAdded && handleMcpAddFromRegistry(entry)}
                       disabled={alreadyAdded || mcpAddingServer}
-                      title={alreadyAdded ? 'Już dodany' : 'Dodaj i połącz'}
+                      title={alreadyAdded ? t('settings.mcp.alreadyAdded') : t('settings.mcp.addAndConnect')}
                     >
                       {alreadyAdded ? '✓' : '+'}
                     </button>
@@ -1038,13 +1050,12 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         {activeTab === 'calendar' && (
           <div className="fade-in">
             <div className={s.section}>
-              <h3 className={s.sectionTitle}>📅 Połączenia kalendarzy (CalDAV)</h3>
+              <h3 className={s.sectionTitle}>{t('settings.calendar.title')}</h3>
               <p className={s.hint}>
-                Połącz kalendarze Google, iCloud, Nextcloud lub dowolny serwer CalDAV. Agent będzie mógł sprawdzać
-                wydarzenia, tworzyć przypomnienia i proaktywnie informować o spotkaniach.
+                {t('settings.calendar.description')}
               </p>
 
-              {calLoading && <div className={s.mcpLoading}>Ładowanie...</div>}
+              {calLoading && <div className={s.mcpLoading}>{t('settings.calendar.loading')}</div>}
 
               {/* Connection list */}
               {calStatus?.connections.map((conn) => {
@@ -1064,7 +1075,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                           </div>
                           {conn.lastSync && (
                             <div className={s.mcpServerTransport}>
-                              Ostatnia sync: {new Date(conn.lastSync).toLocaleString('pl-PL')}
+                              {t('settings.calendar.lastSync')} {new Date(conn.lastSync).toLocaleString('pl-PL')}
                             </div>
                           )}
                         </div>
@@ -1073,11 +1084,11 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                         <span className={badge.cls}>{badge.text}</span>
                         {conn.status === 'connected' ? (
                           <button className={s.mcpBtnSmall} onClick={() => handleCalendarDisconnect(conn.id)}>
-                            Rozłącz
+                            {t('settings.calendar.disconnect')}
                           </button>
                         ) : (
                           <button className={s.mcpBtnSmallAccent} onClick={() => handleCalendarConnect(conn.id)}>
-                            Połącz
+                            {t('settings.calendar.connect')}
                           </button>
                         )}
                         <button className={s.mcpBtnSmall} onClick={() => handleCalendarLoadCalendars(conn.id)}>
@@ -1092,7 +1103,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     {/* Calendars list (when loaded) */}
                     {connCalendars && connCalendars.length > 0 && (
                       <div style={{ padding: '8px 12px', borderTop: '1px solid var(--border)' }}>
-                        <div className={s.hint}>Kalendarze:</div>
+                        <div className={s.hint}>{t('settings.calendar.calendarsLabel')}</div>
                         {connCalendars.map((cal) => (
                           <div
                             key={cal.url}
@@ -1119,13 +1130,13 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               {/* Add connection form */}
               {!calShowAddForm ? (
                 <button className={s.mcpBtnPrimary} onClick={() => setCalShowAddForm(true)}>
-                  + Dodaj połączenie
+                  {t('settings.calendar.addConnection')}
                 </button>
               ) : (
                 <div className={s.mcpAddForm}>
-                  <h4>Nowe połączenie CalDAV</h4>
+                  <h4>{t('settings.calendar.newConnection')}</h4>
 
-                  <label className={s.label}>Dostawca</label>
+                  <label className={s.label}>{t('settings.calendar.provider')}</label>
                   <select
                     className={s.input}
                     value={calNewConn.provider}
@@ -1142,23 +1153,23 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       })
                     }
                   >
-                    <option value="caldav">CalDAV (ogólny)</option>
-                    <option value="nextcloud">Nextcloud</option>
-                    <option value="icloud">iCloud</option>
-                    <option value="google">Google Calendar</option>
+                    <option value="caldav">{t('settings.calendar.providerCaldav')}</option>
+                    <option value="nextcloud">{t('settings.calendar.providerNextcloud')}</option>
+                    <option value="icloud">{t('settings.calendar.providerIcloud')}</option>
+                    <option value="google">{t('settings.calendar.providerGoogle')}</option>
                   </select>
 
-                  <label className={s.label}>Nazwa</label>
+                  <label className={s.label}>{t('settings.calendar.formName')}</label>
                   <input
                     className={s.input}
                     value={calNewConn.name}
                     onChange={(e) => setCalNewConn({ ...calNewConn, name: e.target.value })}
-                    placeholder="np. Mój kalendarz"
+                    placeholder={t('settings.calendar.formNamePlaceholder')}
                   />
 
                   {calNewConn.provider !== 'google' && (
                     <>
-                      <label className={s.label}>URL serwera CalDAV</label>
+                      <label className={s.label}>{t('settings.calendar.formServerUrl')}</label>
                       <input
                         className={s.input}
                         value={calNewConn.serverUrl}
@@ -1168,7 +1179,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     </>
                   )}
 
-                  <label className={s.label}>Użytkownik</label>
+                  <label className={s.label}>{t('settings.calendar.formUsername')}</label>
                   <input
                     className={s.input}
                     value={calNewConn.username}
@@ -1177,7 +1188,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   />
 
                   <label className={s.label}>
-                    {calNewConn.provider === 'icloud' ? 'Hasło aplikacji (app-specific password)' : 'Hasło'}
+                    {calNewConn.provider === 'icloud' ? t('settings.calendar.formAppPassword') : t('settings.calendar.formPassword')}
                   </label>
                   <input
                     className={s.input}
@@ -1189,8 +1200,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
                   {calNewConn.provider === 'google' && (
                     <p className={s.hint}>
-                      ⚠️ Google Calendar wymaga OAuth 2.0. Funkcja w przygotowaniu — na razie użyj CalDAV z innym
-                      dostawcą.
+                      {t('settings.calendar.googleOauthHint')}
                     </p>
                   )}
 
@@ -1200,10 +1210,10 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       onClick={handleCalendarAdd}
                       disabled={calLoading || !calNewConn.name || !calNewConn.serverUrl}
                     >
-                      Dodaj i połącz
+                      {t('settings.calendar.addAndConnect')}
                     </button>
                     <button className={s.mcpBtnSmall} onClick={() => setCalShowAddForm(false)}>
-                      Anuluj
+                      {t('settings.calendar.cancel')}
                     </button>
                   </div>
                 </div>

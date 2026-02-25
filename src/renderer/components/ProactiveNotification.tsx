@@ -3,6 +3,7 @@ import { speak, stopSpeaking } from '../utils/tts';
 import type { ProactiveMessage } from '../types';
 import s from './ProactiveNotification.module.css';
 import { cn } from '../utils/cn';
+import { useTranslation } from '../i18n';
 
 interface ProactiveNotificationProps {
   message: ProactiveMessage;
@@ -11,6 +12,7 @@ interface ProactiveNotificationProps {
 }
 
 export function ProactiveNotification({ message, onDismiss, onReply }: ProactiveNotificationProps) {
+  const { t } = useTranslation();
   const [isSpeaking, setIsSpeaking] = useState(false);
 
   const handleSpeak = async () => {
@@ -36,7 +38,7 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
         <div className={s.headerLeft}>
           <span>💡</span>
           <span className={s.label}>
-            Obserwacja KxAI
+            {t('proactive.label')}
           </span>
         </div>
         <button
@@ -64,7 +66,7 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
         <button
           onClick={handleSpeak}
           className={isSpeaking ? s.btnSpeakActive : s.btnSpeak}
-          title="Czytaj na głos"
+          title={t('proactive.speakTitle')}
         >
           {isSpeaking ? '⏹️' : '🔊'}
         </button>
@@ -72,13 +74,13 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
           onClick={onDismiss}
           className={s.btnDismiss}
         >
-          Zamknij
+          {t('proactive.dismiss')}
         </button>
         <button
           onClick={() => onReply(message.message)}
           className={s.btnReply}
         >
-          Odpowiedz
+          {t('proactive.reply')}
         </button>
       </div>
     </div>

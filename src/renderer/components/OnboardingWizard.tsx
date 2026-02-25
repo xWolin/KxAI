@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import type { OnboardingData } from '../types';
 import s from './OnboardingWizard.module.css';
 import { cn } from '../utils/cn';
+import { useTranslation } from '../i18n';
 
 interface OnboardingWizardProps {
   onComplete: () => void;
@@ -27,6 +28,7 @@ const MODELS = {
 };
 
 export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
+  const { t } = useTranslation();
   const [step, setStep] = useState(0);
   const [data, setData] = useState<OnboardingData>({
     userName: '',
@@ -42,12 +44,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
   const [error, setError] = useState<string | null>(null);
 
   const steps = [
-    { title: 'Witaj!', subtitle: 'Skonfigurujmy Twojego osobistego agenta AI' },
-    { title: 'Kim jesteś?', subtitle: 'Powiedz mi o sobie' },
-    { title: 'Twój Agent', subtitle: 'Spersonalizuj swojego asystenta' },
-    { title: 'AI Provider', subtitle: 'Wybierz dostawcę AI i model' },
-    { title: 'Klucz API', subtitle: 'Podaj klucz API do wybranego dostawcy' },
-    { title: 'Gotowe!', subtitle: 'Wszystko jest skonfigurowane' },
+    { title: t('onboarding.step0.title'), subtitle: t('onboarding.step0.subtitle') },
+    { title: t('onboarding.step1.title'), subtitle: t('onboarding.step1.subtitle') },
+    { title: t('onboarding.step2.title'), subtitle: t('onboarding.step2.subtitle') },
+    { title: t('onboarding.step3.title'), subtitle: t('onboarding.step3.subtitle') },
+    { title: t('onboarding.step4.title'), subtitle: t('onboarding.step4.subtitle') },
+    { title: t('onboarding.step5.title'), subtitle: t('onboarding.step5.subtitle') },
   ];
 
   const canProceed = (): boolean => {
@@ -71,7 +73,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       try {
         await window.kxai.setApiKey(data.aiProvider, apiKey);
       } catch (e: any) {
-        setError(`Nie udało się zapisać klucza API: ${e.message || 'Nieznany błąd'}`);
+        setError(t('onboarding.apiKey.saveError', { error: e.message || t('onboarding.apiKey.unknownError') }));
         setIsLoading(false);
         return;
       }
@@ -100,7 +102,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
         onComplete();
       } catch (e: any) {
-        setError(`Nie udało się zakończyć konfiguracji: ${e.message || 'Nieznany błąd'}`);
+        setError(t('onboarding.done.completeError', { error: e.message || t('onboarding.apiKey.unknownError') }));
         setIsLoading(false);
         return;
       }
@@ -139,51 +141,51 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {step === 0 && (
           <div className={cn('fade-in', s.welcome)}>
             <p className={s.welcomeDesc}>
-              <strong>KxAI</strong> to Twój osobisty asystent AI, który:
+              <strong>KxAI</strong> {t('onboarding.welcome.desc')}
             </p>
             <ul className={s.welcomeFeatures}>
-              <li>👁️ Obserwuje Twój ekran i proaktywnie pomaga</li>
-              <li>💬 Analizuje konwersacje (WhatsApp, Slack, etc.)</li>
-              <li>💻 Pomaga w kodowaniu i debugowaniu</li>
-              <li>🧠 Pamięta Twoje decyzje i preferencje</li>
-              <li>📂 Może organizować Twoje pliki</li>
-              <li>🔒 Wszystko działa lokalnie z szyfrowanymi kluczami</li>
+              <li>{t('onboarding.welcome.feature1')}</li>
+              <li>{t('onboarding.welcome.feature2')}</li>
+              <li>{t('onboarding.welcome.feature3')}</li>
+              <li>{t('onboarding.welcome.feature4')}</li>
+              <li>{t('onboarding.welcome.feature5')}</li>
+              <li>{t('onboarding.welcome.feature6')}</li>
             </ul>
           </div>
         )}
 
         {step === 1 && (
           <div className="fade-in">
-            <label className={s.label}>Jak masz na imię?</label>
+            <label className={s.label}>{t('onboarding.user.nameLabel')}</label>
             <input
               className={s.input}
               value={data.userName}
               onChange={(e) => setData({ ...data, userName: e.target.value })}
-              placeholder="np. Kacper"
+              placeholder={t('onboarding.user.namePlaceholder')}
               autoFocus
             />
 
-            <label className={s.label}>Czym się zajmujesz?</label>
+            <label className={s.label}>{t('onboarding.user.roleLabel')}</label>
             <input
               className={s.input}
               value={data.userRole}
               onChange={(e) => setData({ ...data, userRole: e.target.value })}
-              placeholder="np. Fullstack Developer, CTO, Przedsiębiorca"
+              placeholder={t('onboarding.user.rolePlaceholder')}
             />
 
-            <label className={s.label}>Opisz czym się zajmujesz i w czym chcesz pomocy</label>
+            <label className={s.label}>{t('onboarding.user.descLabel')}</label>
             <textarea
               className={s.textarea}
               value={data.userDescription}
               onChange={(e) => setData({ ...data, userDescription: e.target.value })}
-              placeholder="np. Prowadzę software house, koduję w React/Node, dużo rozmawiam z klientami na WhatsApp, potrzebuję pomocy z analizą konwersacji i kodowaniem..."
+              placeholder={t('onboarding.user.descPlaceholder')}
             />
           </div>
         )}
 
         {step === 2 && (
           <div className="fade-in">
-            <label className={s.label}>Nazwa agenta</label>
+            <label className={s.label}>{t('onboarding.agent.nameLabel')}</label>
             <input
               className={s.input}
               value={data.agentName}
@@ -192,7 +194,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               autoFocus
             />
 
-            <label className={s.label}>Emoji agenta</label>
+            <label className={s.label}>{t('onboarding.agent.emojiLabel')}</label>
             <div className={s.emojiGrid}>
               {['🤖', '🧠', '⚡', '🔮', '🦾', '🎯', '💡', '🚀', '🛸', '🐙'].map((emoji) => (
                 <button
@@ -211,7 +213,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                 {data.agentName}
               </div>
               <div className={s.previewSubtitle}>
-                Twój osobisty agent AI
+                {t('onboarding.agent.previewSubtitle')}
               </div>
             </div>
           </div>
@@ -219,7 +221,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
         {step === 3 && (
           <div className="fade-in">
-            <label className={s.label}>Dostawca AI</label>
+            <label className={s.label}>{t('onboarding.provider.label')}</label>
             <div className={s.providers}>
               {(['openai', 'anthropic'] as const).map((provider) => (
                 <button
@@ -241,12 +243,12 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               ))}
             </div>
 
-            <label className={s.label}>Model</label>
+            <label className={s.label}>{t('onboarding.provider.modelLabel')}</label>
             <select
               className={s.select}
               value={data.aiModel}
               onChange={(e) => setData({ ...data, aiModel: e.target.value })}
-              title="Wybierz model AI"
+              title={t('onboarding.provider.modelTitle')}
             >
               {MODELS[data.aiProvider].map((model) => (
                 <option key={model.value} value={model.value}>
@@ -260,12 +262,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {step === 4 && (
           <div className="fade-in">
             <div className={s.securityNotice}>
-              🔒 Klucz API jest szyfrowany i przechowywany lokalnie.
-              Nigdzie nie jest wysyłany poza oficjalne API {data.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'}.
+              {t('onboarding.apiKey.securityNotice', { provider: data.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic' })}
             </div>
 
             <label className={s.label}>
-              Klucz API {data.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic'}
+              {t('onboarding.apiKey.label', { provider: data.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic' })}
             </label>
             <input
               type="password"
@@ -278,8 +279,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
             <p className={s.keyHint}>
               {data.aiProvider === 'openai'
-                ? 'Wygeneruj klucz na platform.openai.com → API Keys'
-                : 'Wygeneruj klucz na console.anthropic.com → API Keys'}
+                ? t('onboarding.apiKey.hintOpenai')
+                : t('onboarding.apiKey.hintAnthropic')}
             </p>
           </div>
         )}
@@ -288,18 +289,16 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           <div className={cn('fade-in', s.done)}>
             <div className={s.doneEmoji}>{data.agentEmoji}</div>
             <h3 className={s.doneTitle}>
-              {data.agentName} jest gotowy!
+              {t('onboarding.done.title', { name: data.agentName ?? '' })}
             </h3>
             <p className={s.doneDesc}>
-              Hej <strong>{data.userName}</strong>! Twój agent jest skonfigurowany.<br/>
-              Możesz zacząć czatować, włączyć tryb proaktywny (👁️)<br/>
-              lub kliknąć 📸 żeby przeanalizować ekran.
+              {t('onboarding.done.desc', { userName: data.userName ?? '' })}
             </p>
             <div className={s.shortcuts}>
-              <div><strong>Skróty:</strong></div>
-              <div className={s.shortcutsItem}>• <kbd>Alt+K</kbd> — pokaż/ukryj agenta</div>
-              <div>• <kbd>Enter</kbd> — wyślij wiadomość</div>
-              <div>• <kbd>Shift+Enter</kbd> — nowa linia</div>
+              <div><strong>{t('onboarding.done.shortcuts')}</strong></div>
+              <div className={s.shortcutsItem}>• <kbd>Alt+K</kbd> — {t('onboarding.done.shortcutToggle')}</div>
+              <div>• <kbd>Enter</kbd> — {t('onboarding.done.shortcutSend')}</div>
+              <div>• <kbd>Shift+Enter</kbd> — {t('onboarding.done.shortcutNewline')}</div>
             </div>
           </div>
         )}
@@ -319,7 +318,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             onClick={() => setStep(step - 1)}
             className={s.btnBack}
           >
-            Wstecz
+            {t('onboarding.back')}
           </button>
         )}
         <button
@@ -327,7 +326,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
           disabled={!canProceed() || isLoading}
           className={canProceed() && !isLoading ? s.btnNextEnabled : s.btnNextDisabled}
         >
-          {isLoading ? '...' : step === 5 ? 'Zacznijmy!' : 'Dalej →'}
+          {isLoading ? '...' : step === 5 ? t('onboarding.start') : t('onboarding.next')}
         </button>
       </div>
     </div>
