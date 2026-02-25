@@ -462,11 +462,11 @@ src/
 - [x] ChatPanel — agentStatus i ragProgress z global store ✅
 - [x] IPC event listeners scentralizowane w useStoreInit ✅
 
-### Krok 4.4 — Dashboard SPA refactor
-> **Problem**: Dashboard to single HTML file (dashboard-spa.html) z inline JS.
+### Krok 4.4 — Dashboard SPA refactor ✅
+> **Zaimplementowano**: `DashboardPanel.tsx` (~480 LOC) z 6 zakładkami (Overview, Tools, Cron, System, MCP, Activity). Direct IPC calls zamiast REST API — zero HTTP/WebSocket potrzebnych w app. CSS Module z grid layout, tablicami, metrykami. 33 klucze i18n (PL+EN). Nawigacja: widok 'dashboard' z szerszym oknem 560px. ChatPanel: przycisk dashboardu nawiguje in-app zamiast window.open. Zewnętrzny dashboard-server zachowany dla dostępu z przeglądarki.
 
-- [ ] Przenieś dashboard do osobnego React view lub web component
-- [ ] WebSocket client rewrite — reconnection, buffering
+- [x] Przenieś dashboard do osobnego React view ✅ (DashboardPanel.tsx z 6 zakładkami)
+- [x] Direct IPC zamiast REST API — brak potrzeby WebSocket/HTTP w app ✅
 - [ ] Responsive design (mobile-friendly — do przyszłego mobile companion)
 
 ### Krok 4.5 — Rich interactions ✅
@@ -712,7 +712,7 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-### ✅ Ukończone (40/47)
+### ✅ Ukończone (41/47)
 
 | # | Zadanie | Faza | Status |
 |---|---------|------|--------|
@@ -755,13 +755,13 @@ src/
 | 41 | Accessibility (a11y) | 7.3 | ✅ |
 | 39 | MCP Server Discovery | 8.5 | ✅ |
 | 31 | Rich interactions (D&D, highlight) | 4.5 | ✅ |
+| 30 | Dashboard SPA refactor | 4.4 | ✅ |
 
-### ⬜ Remaining (7 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (6 tasks) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
 | 25 | E2E tests (Playwright Test) | 5.3 | 🟢 Medium | 2 sesje | P4 |
-| 30 | Dashboard SPA refactor | 4.4 | 🟢 Medium | 1-2 sesje | P4 |
 | 33 | Workflow Automator (Macro Recorder) | 6.2 | 🟡 High | 3-4 sesje | P4 |
 | 34 | Knowledge Graph | 6.3 | 🟡 High | 3-4 sesje | P4 |
 | 35 | Proactive Intelligence Engine | 6.4 | 🟡 High | 3-4 sesje | P4 |
