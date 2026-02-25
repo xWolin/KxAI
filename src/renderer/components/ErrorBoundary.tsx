@@ -88,7 +88,7 @@ function DefaultErrorFallback({ error, label, onReset }: DefaultErrorFallbackPro
   const [showDetails, setShowDetails] = React.useState(false);
 
   return (
-    <div className={s.root}>
+    <div className={s.root} role="alert">
       <div className={s.icon}>⚠️</div>
       <h3 className={s.title}>{t('error.title')}</h3>
       <p className={s.message}>
@@ -107,6 +107,7 @@ function DefaultErrorFallback({ error, label, onReset }: DefaultErrorFallbackPro
         <button
           className={s.btnSecondary}
           onClick={() => setShowDetails((v) => !v)}
+          aria-expanded={showDetails}
         >
           {showDetails ? t('error.hideDetails') : t('error.showDetails')}
         </button>

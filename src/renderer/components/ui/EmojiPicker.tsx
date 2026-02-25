@@ -14,13 +14,15 @@ export interface EmojiPickerProps {
 }
 
 export const EmojiPicker: React.FC<EmojiPickerProps> = ({ emojis, selected, onChange, className }) => (
-  <div className={cn(s.emojiGrid, className)}>
+  <div className={cn(s.emojiGrid, className)} role="radiogroup">
     {emojis.map((emoji) => (
       <button
         key={emoji}
         type="button"
         className={selected === emoji ? s.emojiBtnSelected : s.emojiBtn}
         onClick={() => onChange(emoji)}
+        role="radio"
+        aria-checked={selected === emoji}
       >
         {emoji}
       </button>

@@ -65,7 +65,7 @@ function MessageContent({ content }: { content: string }) {
   if (!html) return null;
   return (
     <div className={s.bubbleWrapper}>
-      <button className={copied ? s.copyBtnCopied : s.copyBtn} onClick={handleCopy} title={t('chat.copyMessage')}>
+      <button className={copied ? s.copyBtnCopied : s.copyBtn} onClick={handleCopy} title={t('chat.copyMessage')} aria-label={t('chat.copyMessage')}>
         {copied ? '✓' : '📋'}
       </button>
       <div className={s.markdown} dangerouslySetInnerHTML={{ __html: html }} />
@@ -405,7 +405,7 @@ export function ChatPanel({
             <div className={s.headerName}>
               {config.agentName || 'KxAI'}
               {agentStatus.state !== 'idle' && (
-                <span className={s.statusBadge} title={agentStatus.detail || agentStatus.state}>
+                <span className={s.statusBadge} title={agentStatus.detail || agentStatus.state} aria-hidden="true">
                   {agentStatus.state === 'thinking'
                     ? '🧠'
                     : agentStatus.state === 'tool-calling'
@@ -452,38 +452,39 @@ export function ChatPanel({
           <button
             onClick={toggleProactive}
             title={proactiveEnabled ? t('chat.proactive.disable') : t('chat.proactive.enable')}
+            aria-label={proactiveEnabled ? t('chat.proactive.disable') : t('chat.proactive.enable')}
             className={proactiveEnabled ? s.btnActive : s.btn}
           >
             👁️
           </button>
 
           {/* Screenshot */}
-          <button onClick={captureAndAnalyze} title={t('chat.screenshot.title')} className={s.btn}>
+          <button onClick={captureAndAnalyze} title={t('chat.screenshot.title')} aria-label={t('chat.screenshot.title')} className={s.btn}>
             📸
           </button>
 
           {/* Cron Jobs */}
-          <button onClick={onOpenCron} title="Cron Jobs" className={s.btn}>
+          <button onClick={onOpenCron} title="Cron Jobs" aria-label="Cron Jobs" className={s.btn}>
             ⏰
           </button>
 
           {/* Dashboard */}
-          <button onClick={openDashboard} title={t('chat.dashboard.title')} className={s.btn}>
+          <button onClick={openDashboard} title={t('chat.dashboard.title')} aria-label={t('chat.dashboard.title')} className={s.btn}>
             📊
           </button>
 
           {/* Meeting Coach */}
-          <button onClick={onOpenMeeting} title="Meeting Coach" className={s.btn}>
+          <button onClick={onOpenMeeting} title="Meeting Coach" aria-label="Meeting Coach" className={s.btn}>
             🎙️
           </button>
 
           {/* Settings */}
-          <button onClick={onOpenSettings} title={t('chat.settings.title')} className={s.btn}>
+          <button onClick={onOpenSettings} title={t('chat.settings.title')} aria-label={t('chat.settings.title')} className={s.btn}>
             ⚙️
           </button>
 
           {/* Close */}
-          <button onClick={onClose} title={t('chat.minimize')} className={s.btn}>
+          <button onClick={onClose} title={t('chat.minimize')} aria-label={t('chat.minimize')} className={s.btn}>
             ✕
           </button>
         </div>
@@ -520,7 +521,7 @@ export function ChatPanel({
       )}
 
       {/* Messages */}
-      <div className={s.messages}>
+      <div className={s.messages} role="log" aria-live="polite">
         {messages.length === 0 && !isStreaming && (
           <div className={s.empty}>
             <div className={s.emptyEmoji}>{config.agentEmoji || '🤖'}</div>
@@ -540,7 +541,7 @@ export function ChatPanel({
 
         {/* Streaming message */}
         {isStreaming && (
-          <div className={cn('fade-in', s.streaming)}>
+          <div className={cn('fade-in', s.streaming)} aria-live="polite">
             <div className={s.bubbleAssistant}>
               {streamingContent ? (
                 <MessageContent content={streamingContent} />
@@ -567,6 +568,7 @@ export function ChatPanel({
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
             placeholder={t('chat.input.placeholder')}
+            aria-label={t('chat.input.placeholder')}
             disabled={isStreaming}
             className={s.textarea}
             rows={1}
@@ -574,6 +576,7 @@ export function ChatPanel({
           <button
             onClick={toggleVoiceInput}
             title={isRecording ? t('chat.voice.stopRecording') : t('chat.voice.startRecording')}
+            aria-label={isRecording ? t('chat.voice.stopRecording') : t('chat.voice.startRecording')}
             className={isRecording ? s.voiceRecording : s.voice}
             disabled={isStreaming}
           >
@@ -586,6 +589,7 @@ export function ChatPanel({
                 setIsStreaming(false);
               }}
               title={t('chat.stopAgent')}
+              aria-label={t('chat.stopAgent')}
               className={s.sendStop}
             >
               ■
@@ -594,6 +598,7 @@ export function ChatPanel({
             <button
               onClick={sendMessage}
               disabled={!input.trim()}
+              aria-label="Send message"
               className={input.trim() ? s.sendEnabled : s.sendDisabled}
             >
               ➤

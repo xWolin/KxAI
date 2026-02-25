@@ -156,8 +156,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
         {step === 1 && (
           <div className="fade-in">
-            <label className={s.label}>{t('onboarding.user.nameLabel')}</label>
+            <label className={s.label} htmlFor="userName">{t('onboarding.user.nameLabel')}</label>
             <input
+              id="userName"
               className={s.input}
               value={data.userName}
               onChange={(e) => setData({ ...data, userName: e.target.value })}
@@ -165,16 +166,18 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               autoFocus
             />
 
-            <label className={s.label}>{t('onboarding.user.roleLabel')}</label>
+            <label className={s.label} htmlFor="userRole">{t('onboarding.user.roleLabel')}</label>
             <input
+              id="userRole"
               className={s.input}
               value={data.userRole}
               onChange={(e) => setData({ ...data, userRole: e.target.value })}
               placeholder={t('onboarding.user.rolePlaceholder')}
             />
 
-            <label className={s.label}>{t('onboarding.user.descLabel')}</label>
+            <label className={s.label} htmlFor="userDescription">{t('onboarding.user.descLabel')}</label>
             <textarea
+              id="userDescription"
               className={s.textarea}
               value={data.userDescription}
               onChange={(e) => setData({ ...data, userDescription: e.target.value })}
@@ -185,8 +188,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
         {step === 2 && (
           <div className="fade-in">
-            <label className={s.label}>{t('onboarding.agent.nameLabel')}</label>
+            <label className={s.label} htmlFor="agentName">{t('onboarding.agent.nameLabel')}</label>
             <input
+              id="agentName"
               className={s.input}
               value={data.agentName}
               onChange={(e) => setData({ ...data, agentName: e.target.value })}
@@ -232,6 +236,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
                     aiModel: MODELS[provider][0].value,
                   })}
                   className={data.aiProvider === provider ? s.providerBtnSelected : s.providerBtn}
+                  aria-pressed={data.aiProvider === provider}
                 >
                   <div className={s.providerIcon}>
                     {provider === 'openai' ? '🟢' : '🟠'}
@@ -265,10 +270,11 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               {t('onboarding.apiKey.securityNotice', { provider: data.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic' })}
             </div>
 
-            <label className={s.label}>
+            <label className={s.label} htmlFor="apiKey">
               {t('onboarding.apiKey.label', { provider: data.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic' })}
             </label>
             <input
+              id="apiKey"
               type="password"
               className={s.input}
               value={apiKey}
@@ -306,7 +312,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
       {/* Error display */}
       {error && (
-        <div className={s.error}>
+        <div className={s.error} role="alert">
           ❌ {error}
         </div>
       )}

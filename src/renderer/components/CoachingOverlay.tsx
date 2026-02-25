@@ -454,11 +454,11 @@ export function CoachingOverlay({ config, onBack }: Props) {
             <span className={s.barLines}>💬 {meetingState.transcriptLineCount}</span>
           </div>
           <div className={s.barActions}>
-            <button className={s.barBtnExpand} onClick={() => setExpanded(!expanded)} title={expanded ? t('meeting.bar.collapse') : t('meeting.bar.expand')}>
+            <button className={s.barBtnExpand} onClick={() => setExpanded(!expanded)} title={expanded ? t('meeting.bar.collapse') : t('meeting.bar.expand')} aria-expanded={expanded} aria-label={expanded ? t('meeting.bar.collapse') : t('meeting.bar.expand')}>
               {expanded ? '▲' : '▼'}
             </button>
-            <button className={s.barBtnDashboard} onClick={handleOpenDashboard} title={t('meeting.bar.dashboard')}>📊</button>
-            <button className={s.barBtnStop} onClick={handleStop} disabled={isStopping}>
+            <button className={s.barBtnDashboard} onClick={handleOpenDashboard} title={t('meeting.bar.dashboard')} aria-label={t('meeting.bar.dashboard')}>📊</button>
+            <button className={s.barBtnStop} onClick={handleStop} disabled={isStopping} aria-label={t('meeting.bar.stop')}>
               {isStopping ? '⏳' : '⏹'} {t('meeting.bar.stop')}
             </button>
           </div>
@@ -488,7 +488,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
               </div>
               <div className={s.barTipTextWrap}>
                 <div className={s.barTipText}>{coachingTips[coachingTips.length - 1].tip}</div>
-                <button className={s.barBtnCopy} onClick={() => handleCopyTip(coachingTips[coachingTips.length - 1].tip)} title={t('meeting.bar.copy')}>📋</button>
+                <button className={s.barBtnCopy} onClick={() => handleCopyTip(coachingTips[coachingTips.length - 1].tip)} title={t('meeting.bar.copy')} aria-label={t('meeting.bar.copy')}>📋</button>
               </div>
             </div>
           ) : meetingState.isCoaching ? (
@@ -552,10 +552,10 @@ export function CoachingOverlay({ config, onBack }: Props) {
   return (
     <div className={s.overlay}>
       <div className={s.header}>
-        <button className={s.back} onClick={onBack} title={t('meeting.setup.back')}>←</button>
+        <button className={s.back} onClick={onBack} title={t('meeting.setup.back')} aria-label={t('meeting.setup.back')}>←</button>
         <span className={s.title}>{t('meeting.setup.title')}</span>
         <div className={s.actions}>
-          <button className={s.btnDashboard} onClick={handleOpenDashboard} title={t('meeting.bar.dashboard')}>📊</button>
+          <button className={s.btnDashboard} onClick={handleOpenDashboard} title={t('meeting.bar.dashboard')} aria-label={t('meeting.bar.dashboard')}>📊</button>
         </div>
       </div>
 
@@ -596,7 +596,7 @@ export function CoachingOverlay({ config, onBack }: Props) {
                     <span className={s.briefingParticipantInfo}>
                       <strong>{p.name}</strong>{p.role && ` — ${p.role}`}{p.company && ` (${p.company})`}
                     </span>
-                    <button className={s.briefingRemove} onClick={() => handleRemoveParticipant(i)}>✗</button>
+                    <button className={s.briefingRemove} onClick={() => handleRemoveParticipant(i)} aria-label="Remove participant">✗</button>
                   </div>
                 ))}
               </div>

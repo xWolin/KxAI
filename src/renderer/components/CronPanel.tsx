@@ -93,10 +93,10 @@ export function CronPanel({ onBack }: CronPanelProps) {
           </div>
         </div>
         <div className={s.headerActions}>
-          <button onClick={() => setShowAdd(true)} className={s.btn} title={t('cron.addJob')}>
+          <button onClick={() => setShowAdd(true)} className={s.btn} title={t('cron.addJob')} aria-label={t('cron.addJob')}>
             ➕
           </button>
-          <button onClick={onBack} className={s.btn} title={t('cron.back')}>
+          <button onClick={onBack} className={s.btn} title={t('cron.back')} aria-label={t('cron.back')}>
             ✕
           </button>
         </div>
@@ -178,10 +178,13 @@ export function CronPanel({ onBack }: CronPanelProps) {
                   onClick={() => toggleJob(job.id, job.enabled)}
                   className={job.enabled ? s.toggleOn : s.toggle}
                   title={job.enabled ? t('cron.disable') : t('cron.enable')}
+                  role="switch"
+                  aria-checked={job.enabled}
+                  aria-label={job.enabled ? t('cron.disable') : t('cron.enable')}
                 >
                   {job.enabled ? '✓' : '○'}
                 </button>
-                <button onClick={() => removeJob(job.id)} className={s.delete} title={t('cron.delete')}>
+                <button onClick={() => removeJob(job.id)} className={s.delete} title={t('cron.delete')} aria-label={t('cron.delete')}>
                   🗑️
                 </button>
               </div>

@@ -32,7 +32,7 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
   };
 
   return (
-    <div className={cn('slide-in', s.root)}>
+    <div className={cn('slide-in', s.root)} role="alertdialog" aria-live="assertive">
       {/* Header */}
       <div className={s.header}>
         <div className={s.headerLeft}>
@@ -44,6 +44,7 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
         <button
           onClick={onDismiss}
           className={s.close}
+          aria-label="Close"
         >
           ✕
         </button>
@@ -67,6 +68,7 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
           onClick={handleSpeak}
           className={isSpeaking ? s.btnSpeakActive : s.btnSpeak}
           title={t('proactive.speakTitle')}
+          aria-label={t('proactive.speakTitle')}
         >
           {isSpeaking ? '⏹️' : '🔊'}
         </button>

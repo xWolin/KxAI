@@ -105,9 +105,20 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
     }
   }, []);
 
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
+  }, [onClick]);
+
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-label="Open KxAI"
       onMouseDown={handleMouseDown}
+      onKeyDown={handleKeyDown}
       onMouseEnter={handleMouseEnter}
       onMouseLeave={handleMouseLeave}
       className={cn(s.widget, stateClass)}
@@ -117,7 +128,7 @@ export function FloatingWidget({ emoji, name, onClick, hasNotification, controlA
       
       {/* Notification badge */}
       {(hasNotification || hasSuggestion || wantsToSpeak) && (
-        <div className={s.badge} />
+        <div className={s.badge} aria-hidden="true" />
       )}
 
       {/* Control active indicator */}

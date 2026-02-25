@@ -113,6 +113,7 @@
 }
 
 .input:focus { border-color: rgba(0, 240, 255, 0.3); }
+.input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .inputSchedule {
   composes: input;
@@ -130,6 +131,11 @@
   outline: none;
   cursor: pointer;
   min-width: 130px;
+}
+
+.select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .select option {
@@ -151,6 +157,7 @@
 }
 
 .textarea:focus { border-color: rgba(0, 240, 255, 0.3); }
+.textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .formActions {
   display: flex;

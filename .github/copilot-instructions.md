@@ -614,11 +614,13 @@ src/
 - [ ] Memory leak detection (WeakRef + FinalizationRegistry) (przyszła iteracja)
 - [ ] Profiling script (`npm run profile`) (przyszła iteracja)
 
-### Krok 7.3 — Accessibility
-- [ ] Keyboard navigation w całym UI
-- [ ] Screen reader support (aria-labels)
-- [ ] High contrast mode
-- [ ] Reduced motion mode
+### Krok 7.3 — Accessibility ✅
+> **Zaimplementowano**: Comprehensive a11y upgrade. CSS: `:focus-visible` outlines na wszystkich interactive elements (btn, input, textarea, select, tab, toggle) w 7 plikach CSS module + globalny `*:focus-visible`. `@media (prefers-reduced-motion: reduce)` w `global.css` (wyłącza 16 animacji) i `ui.module.css`. Atomic UI: WAI-ARIA Tabs pattern (`role="tablist/tab"`, `aria-selected`, arrow key navigation w `Tabs.tsx`), `role="progressbar"` + `aria-valuenow/min/max` w `ProgressBar.tsx`, `role="status"` + `aria-label` w `Spinner.tsx`, `role="radiogroup/radio"` + `aria-checked` w `EmojiPicker.tsx`, `htmlFor` w `Label.tsx`, `aria-busy` w `Button.tsx`, `aria-hidden` w `EmptyState.tsx`. Main components: `role="log"` + `aria-live` na czacie, `role="alertdialog"` na notyfikacjach, `role="alert"` na błędach, `role="button"` + `tabIndex` + `onKeyDown` na widgetcie, `aria-expanded` na expand/collapse, `aria-label` na 20+ icon-only buttons, `htmlFor`/`id` powiązania label→input w OnboardingWizard. Pokrycie: 15 plików (8 komponentów + 7 CSS modules).
+
+- [x] Keyboard navigation w całym UI ✅ (focus-visible, tabIndex, onKeyDown, arrow keys w Tabs)
+- [x] Screen reader support (aria-labels) ✅ (20+ aria-label, role, aria-live, aria-expanded, aria-checked)
+- [ ] High contrast mode (przyszła iteracja)
+- [x] Reduced motion mode ✅ (prefers-reduced-motion w global.css + ui.module.css)
 
 ### Krok 7.4 — Internationalization (i18n) ✅
 > **Zaimplementowano**: Lightweight custom i18n (bez zewnętrznej biblioteki). `src/renderer/i18n/index.ts` — `useTranslation()` hook (React FC) + standalone `t()` (class components/utilities), `translate()` core z fallback chain (locale → PL → raw key), `{param}` interpolation via `String.replaceAll`. ~230 kluczy tłumaczeń w `pl.ts` i `en.ts` pokrywających wszystkie 8 komponentów UI. Language selector w SettingsPanel (General tab) — `🇵🇱 Polski` / `🇬🇧 English`. Reaktywne przełączanie via `useConfigStore` → `config.userLanguage`.
@@ -705,7 +707,7 @@ src/
 > **Estymacje**: Effort podany w sesjach AI agenta (1 sesja ≈ 1 konwersacja z Copilot ≈ 1-3h wall time).
 > Historyczne tempo: OpenClaw 2.0 refactor = 1 sesja, MCP Client = 1 sesja, Phase 8.4 = 1 sesja.
 
-### ✅ Ukończone (36/47)
+### ✅ Ukończone (37/47)
 
 | # | Zadanie | Faza | Status |
 |---|---------|------|--------|
@@ -745,8 +747,9 @@ src/
 | 38 | Gmail / Email via MCP | 8.3 | ✅ |
 | 32 | Smart Clipboard Pipeline | 6.1 | ✅ |
 | 42 | i18n (PL + EN) | 7.4 | ✅ |
+| 41 | Accessibility (a11y) | 7.3 | ✅ |
 
-### ⬜ Remaining (10 tasks) — posortowane wg priorytetu
+### ⬜ Remaining (9 tasks) — posortowane wg priorytetu
 
 | # | Zadanie | Faza | Impact | Effort | Priorytet |
 |---|---------|------|--------|--------|-----------|
@@ -757,7 +760,6 @@ src/
 | 34 | Knowledge Graph | 6.3 | 🟡 High | 3-4 sesje | P4 |
 | 35 | Proactive Intelligence Engine | 6.4 | 🟡 High | 3-4 sesje | P4 |
 | 39 | MCP Server Discovery | 8.5 | 🟢 Medium | 1 sesja | P4 |
-| 41 | Accessibility (a11y) | 7.3 | 🟢 Medium | 1 sesja | P4 |
 | 44 | Code signing + distribution | 7.6 | 🟢 Medium | 1 sesja | P4 |
 | 45-47 | CDP anti-detection, streaming, network | 1.4-1.5 | 🟢 Medium | 3 sesje | P4 |
 

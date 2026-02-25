@@ -41,6 +41,7 @@ export const PanelHeader: React.FC<PanelHeaderProps> = ({
         onClick={onBack}
         className={s.btnGhost}
         style={{ fontSize: 16, WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        aria-label="Back"
       >
         ←
       </button>

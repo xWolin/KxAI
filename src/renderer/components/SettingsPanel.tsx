@@ -480,30 +480,30 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     <div className={s.panel}>
       {/* Header */}
       <div className={s.header}>
-        <button onClick={onBack} className={s.headerBack}>
+        <button onClick={onBack} className={s.headerBack} aria-label="Back">
           ←
         </button>
         <span className={s.headerTitle}>{t('settings.title')}</span>
       </div>
 
       {/* Tabs */}
-      <div className={s.tabs}>
-        <button className={activeTab === 'general' ? s.tabActive : s.tab} onClick={() => setActiveTab('general')}>
+      <div className={s.tabs} role="tablist">
+        <button className={activeTab === 'general' ? s.tabActive : s.tab} onClick={() => setActiveTab('general')} role="tab" aria-selected={activeTab === 'general'}>
           {t('settings.tabs.general')}
         </button>
-        <button className={activeTab === 'persona' ? s.tabActive : s.tab} onClick={() => setActiveTab('persona')}>
+        <button className={activeTab === 'persona' ? s.tabActive : s.tab} onClick={() => setActiveTab('persona')} role="tab" aria-selected={activeTab === 'persona'}>
           {t('settings.tabs.persona')}
         </button>
-        <button className={activeTab === 'memory' ? s.tabActive : s.tab} onClick={() => setActiveTab('memory')}>
+        <button className={activeTab === 'memory' ? s.tabActive : s.tab} onClick={() => setActiveTab('memory')} role="tab" aria-selected={activeTab === 'memory'}>
           {t('settings.tabs.memory')}
         </button>
-        <button className={activeTab === 'knowledge' ? s.tabActive : s.tab} onClick={() => setActiveTab('knowledge')}>
+        <button className={activeTab === 'knowledge' ? s.tabActive : s.tab} onClick={() => setActiveTab('knowledge')} role="tab" aria-selected={activeTab === 'knowledge'}>
           {t('settings.tabs.knowledge')}
         </button>
-        <button className={activeTab === 'mcp' ? s.tabActive : s.tab} onClick={() => setActiveTab('mcp')}>
+        <button className={activeTab === 'mcp' ? s.tabActive : s.tab} onClick={() => setActiveTab('mcp')} role="tab" aria-selected={activeTab === 'mcp'}>
           {t('settings.tabs.mcp')}
         </button>
-        <button className={activeTab === 'calendar' ? s.tabActive : s.tab} onClick={() => setActiveTab('calendar')}>
+        <button className={activeTab === 'calendar' ? s.tabActive : s.tab} onClick={() => setActiveTab('calendar')} role="tab" aria-selected={activeTab === 'calendar'}>
           {t('settings.tabs.calendar')}
         </button>
       </div>
@@ -757,6 +757,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       className={s.folderItemRemove}
                       onClick={() => handleRemoveFolder(folder.path)}
                       title={t('settings.knowledge.removeFolder')}
+                      aria-label={t('settings.knowledge.removeFolder')}
                     >
                       ✕
                     </button>
@@ -864,6 +865,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                           className={s.folderItemRemove}
                           onClick={() => handleMcpRemove(server.id, server.name)}
                           title={t('settings.mcp.remove')}
+                          aria-label={t('settings.mcp.remove')}
                         >
                           ✕
                         </button>

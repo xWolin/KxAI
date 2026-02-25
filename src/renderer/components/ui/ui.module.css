@@ -21,6 +21,11 @@
   line-height: 1.4;
 }
 
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .btn:disabled {
   cursor: not-allowed;
   opacity: 0.5;
@@ -131,6 +136,11 @@
 
 .input:focus {
   border-color: rgba(0, 240, 255, 0.3);
+}
+
+.input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .input:disabled {
@@ -514,4 +524,34 @@
   composes: tab;
   background: var(--accent-glow);
   color: var(--accent);
+}
+
+.tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ─── Reduced motion ─── */
+
+@media (prefers-reduced-motion: reduce) {
+  .btn,
+  .input,
+  .textarea,
+  .select,
+  .tab,
+  .toggle,
+  .toggleOn::after,
+  .progressFill {
+    transition: none !important;
+  }
+
+  .spinnerDot {
+    animation: none !important;
+    opacity: 1;
+  }
 }
