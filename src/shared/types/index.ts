@@ -88,6 +88,41 @@ export type {
   McpRegistryEntry,
 } from './mcp';
 
+// File Intelligence
+export type {
+  SupportedFileFormat,
+  FileMetadata,
+  FileExtractionResult,
+  FileSearchMatch,
+  FileSearchResult,
+  FolderAnalysis,
+} from './file-intelligence';
+
+// Calendar (CalDAV)
+export type {
+  CalendarProvider,
+  CalendarAuthMethod,
+  CalendarConfig,
+  CalendarInfo,
+  CalendarEvent,
+  CalendarConnectionStatus,
+  CalendarStatus,
+  FetchEventsOptions,
+  CreateEventOptions,
+  CalendarOperationResult,
+} from './calendar';
+
 // Errors
 export { KxAIError, ErrorCode } from './errors';
 export type { ErrorSeverity } from './errors';
+
+// Privacy & GDPR
+export type {
+  PrivacyDataCategory,
+  PrivacyDataSummary,
+  PrivacyCategorySummary,
+  PrivacyExportResult,
+  PrivacyDeleteResult,
+  PrivacyExportOptions,
+  PrivacyDeleteOptions,
+} from './privacy';

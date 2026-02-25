@@ -14,7 +14,9 @@ export type ToolCategory =
   | 'coding'
   | 'agent'
   | 'observation'
-  | 'mcp';
+  | 'mcp'
+  | 'calendar'
+  | 'privacy';
 
 export interface ToolDefinition {
   name: string;
