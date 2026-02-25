@@ -347,7 +347,7 @@ src/
 
 - [x] Rozbij na modularną architekturę ✅ (6 modułów wyodrębnionych)
 - [ ] EventEmitter-based communication między modułami (przyszła iteracja)
-- [ ] Cancellation via `AbortController` (zamiast custom `cancelProcessing` flag) ✅ częściowo (AbortController dodany, refaktor w toku)
+- [x] Cancellation via `AbortController` — signal propagated to AI SDKs, processWithTools, heartbeat, take-control ✅
 - [x] Parallel tool execution gdy AI requestuje multiple tools ✅ (via native FC)
 
 ---
@@ -681,7 +681,7 @@ src/
 | — | — **REMAINING** — | — | — | — | — | — |
 | 19 | Multi-provider AI abstraction | 2.5 | 🟡 High | 1-2 sesje | P2 | ✅ Done |
 | 20 | Configuration v2 (Zod + reactive + typed) | 3.6 | 🟡 High | 1 sesja | P2 | ✅ Done |
-| 21 | AbortController cancellation | 2.6 | 🟢 Medium | 1 sesja | P2 | ⬜ |
+| 21 | AbortController cancellation | 2.6 | 🟢 Medium | 1 sesja | P2 | ✅ Done |
 | 22 | IPC runtime validation (zod) | 3.1 | 🟢 Medium | 1 sesja | P3 | ✅ Done |
 | 23 | ToolLoopDetector tests | 5.1 | 🟡 High | 1 sesja | P2 | ✅ Done (43) |
 | 24 | Integration tests | 5.2 | 🟡 High | 2 sesje | P3 | ✅ Done (45) |
