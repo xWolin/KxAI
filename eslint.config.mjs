@@ -44,6 +44,10 @@ export default tseslint.config(
     },
     rules: {
       ...reactHooks.configs.recommended.rules,
+      // react-hooks v7 introduced overly strict new rules that conflict with valid
+      // existing patterns in this codebase. Disable until incremental migration.
+      'react-hooks/immutability': 'off', // flags function-before-hook ordering
+      'react-hooks/set-state-in-effect': 'off', // flags valid async setState in effects
       'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
     },
   },

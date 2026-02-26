@@ -457,17 +457,21 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
         return [];
       }
 
-      if (!fs.existsSync(resolved)) return [];
-      const stat = fs.statSync(resolved);
+      try {
+        await fs.promises.access(resolved);
+      } catch {
+        return [];
+      }
+      const stat = await fs.promises.stat(resolved);
       if (!stat.isDirectory()) return [];
 
-      const items = fs.readdirSync(resolved, { withFileTypes: true });
+      const items = await fs.promises.readdir(resolved, { withFileTypes: true });
       return items.map((item: any) => ({
         name: item.name,
         isDirectory: item.isDirectory(),
         path: path.join(resolved, item.name),
       }));
-    } catch (error: any) {
+    } catch {
       return [];
     }
   });
@@ -979,12 +983,12 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
       }
       // Read audio file and return as base64 data URL (file:// protocol blocked by Electron security)
       const fs = await import('fs');
-      const audioBuffer = fs.readFileSync(audioPath);
+      const audioBuffer = await fs.promises.readFile(audioPath);
       const base64 = audioBuffer.toString('base64');
       const dataUrl = `data:audio/mpeg;base64,${base64}`;
       // Clean up temp file
       try {
-        fs.unlinkSync(audioPath);
+        await fs.promises.unlink(audioPath);
       } catch {
         /* non-critical */
       }

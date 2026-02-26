@@ -557,7 +557,7 @@ export class FileIntelligenceService {
       worksheet.eachRow((row) => {
         const values = row.values as any[];
         // row.values is 1-indexed (index 0 is undefined), slice it
-        const cells = values.slice(1).map((v) => (v != null ? String(v) : ''));
+        const cells = values.slice(1).map((v) => (v !== null && v !== undefined ? String(v) : ''));
         csvLines.push(cells.join(','));
       });
 

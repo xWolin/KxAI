@@ -13,13 +13,13 @@ import { ScreenCaptureService, ComputerUseScreenshot } from './screen-capture';
 import { PromptService } from './prompt-service';
 import { ToolLoopDetector, LoopCheckResult } from './tool-loop-detector';
 import { IntentDetector } from './intent-detector';
-import { SubAgentManager, SubAgentResult, SubAgentInfo } from './sub-agent';
+import { SubAgentManager, SubAgentResult } from './sub-agent';
 
 // ─── Extracted Modules (Phase 2.6) ───
 import { ToolExecutor } from './tool-executor';
 import { ResponseProcessor } from './response-processor';
 import { ContextBuilder } from './context-builder';
-import type { ContextHint, StructuredContext } from './context-builder';
+import type { StructuredContext } from './context-builder';
 import { HeartbeatEngine } from './heartbeat-engine';
 import { TakeControlEngine } from './take-control-engine';
 import { CronExecutor } from './cron-executor';
@@ -707,7 +707,7 @@ export class AgentLoop {
         feedbackSuffix = loopCheck.nudgeMessage + '\n' + feedbackSuffix;
       }
 
-      let toolResponse = '';
+      let _toolResponse = '';
       fullResponse = ''; // Reset for next iteration parsing
 
       try {
@@ -715,7 +715,7 @@ export class AgentLoop {
           `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${feedbackSuffix}`,
           undefined,
           (chunk) => {
-            toolResponse += chunk;
+            _toolResponse += chunk;
             fullResponse += chunk;
             // Don't stream intermediate tool responses to UI —
             // they contain [TOOL OUTPUT] data and internal AI reasoning.
@@ -1376,7 +1376,7 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
 
     // Check for scene continuity — is the user doing the same thing?
     const lastObs = this.observationHistory[this.observationHistory.length - 1];
-    const minutesAgo = Math.round((Date.now() - lastObs.timestamp) / 60000);
+    const _minutesAgo = Math.round((Date.now() - lastObs.timestamp) / 60000);
     const isSameScene = this.isSimilarScene(currentWindowTitle, lastObs.windowTitle);
 
     // Count how long the user has been doing the same thing
