@@ -452,4 +452,18 @@ export const pl: TranslationDict = {
   'settings.privacy.clipboardDisabled': 'Monitoring schowka wyłączony',
   'settings.privacy.clipboardToggle': 'Włącz monitoring schowka',
   'settings.privacy.entries': 'wpisów',
+
+  // SettingsPanel — Updates
+  'settings.general.updatesTitle': '🔄 Aktualizacje',
+  'settings.general.currentVersion': 'Wersja: {v}',
+  'settings.general.updateCheck': 'Sprawdź aktualizacje',
+  'settings.general.updateChecking': 'Sprawdzam...',
+  'settings.general.updateAvailable': '✨ dostępna',
+  'settings.general.updateNotAvailable': 'Masz najnowszą wersję.',
+  'settings.general.updateDownload': '⬇️ Pobierz aktualizację',
+  'settings.general.updateDownloading': 'Pobieranie... {pct}%',
+  'settings.general.updateReadyInstall': '⬇️ Gotowa do instalacji',
+  'settings.general.updateInstall': '🚀 Zainstaluj i uruchom ponownie',
+  'settings.general.updateReleaseNotes': 'Notatki do wydania',
+  'settings.general.updateError': 'Błąd podczas sprawdzania aktualizacji.',
 };

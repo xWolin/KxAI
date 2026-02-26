@@ -401,4 +401,7 @@ contextBridge.exposeInMainWorld('kxai', {
   kgDeleteRelation: (id: string) => ipcRenderer.invoke(Ch.KG_DELETE_RELATION, id),
   kgGetGraph: (entityId?: string, depth?: number) => ipcRenderer.invoke(Ch.KG_GET_GRAPH, entityId, depth),
   kgGetStats: () => ipcRenderer.invoke(Ch.KG_GET_STATS),
+
+  // App version (injected at build time via npm_package_version)
+  appVersion: process.env['npm_package_version'] ?? '',
 });

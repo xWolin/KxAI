@@ -209,6 +209,7 @@ export interface KxAIBridge {
   updateInstall: () => Promise<{ success: boolean }>;
   updateGetState: () => Promise<UpdateState>;
   onUpdateState: (callback: (state: UpdateState) => void) => () => void;
+  appVersion: string;
 
   // MCP Hub
   mcpListServers: () => Promise<import('@shared/types').McpServerConfig[]>;

@@ -449,4 +449,18 @@ export const en: TranslationDict = {
   'settings.privacy.clipboardDisabled': 'Clipboard monitoring disabled',
   'settings.privacy.clipboardToggle': 'Enable clipboard monitoring',
   'settings.privacy.entries': 'entries',
+
+  // SettingsPanel — Updates
+  'settings.general.updatesTitle': '🔄 Updates',
+  'settings.general.currentVersion': 'Version: {v}',
+  'settings.general.updateCheck': 'Check for updates',
+  'settings.general.updateChecking': 'Checking...',
+  'settings.general.updateAvailable': '✨ available',
+  'settings.general.updateNotAvailable': "You're on the latest version.",
+  'settings.general.updateDownload': '⬇️ Download update',
+  'settings.general.updateDownloading': 'Downloading... {pct}%',
+  'settings.general.updateReadyInstall': '⬇️ Ready to install',
+  'settings.general.updateInstall': '🚀 Install and restart',
+  'settings.general.updateReleaseNotes': 'Release notes',
+  'settings.general.updateError': 'Error checking for updates.',
 };

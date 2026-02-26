@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import type { KxAIConfig, RAGFolderInfo } from '../types';
+import type { KxAIConfig, RAGFolderInfo, UpdateState } from '../types';
 import type { McpServerConfig, McpHubStatus, McpRegistryEntry, McpCategory } from '@shared/types/mcp';
 import type { CalendarStatus, CalendarInfo, CalendarProvider } from '@shared/types/calendar';
 import s from './SettingsPanel.module.css';
@@ -226,6 +226,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     embeddingDimension?: number;
   } | null>(null);
   const [reindexing, setReindexing] = useState(false);
+  const [updateState, setUpdateState] = useState<UpdateState | null>(null);
 
   // MCP state
   const [mcpStatus, setMcpStatus] = useState<McpHubStatus | null>(null);
@@ -473,6 +474,41 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
       console.error('Reindex failed:', err);
     } finally {
       setReindexing(false);
+    }
+  }
+
+  // ─── Auto-update ───
+  useEffect(() => {
+    window.kxai
+      .updateGetState()
+      .then(setUpdateState)
+      .catch(() => {});
+    const unsub = window.kxai.onUpdateState(setUpdateState);
+    return unsub;
+  }, []);
+
+  async function checkForUpdates() {
+    try {
+      const state = await window.kxai.updateCheck();
+      setUpdateState(state);
+    } catch (err) {
+      console.error('Update check error:', err);
+    }
+  }
+
+  async function downloadUpdate() {
+    try {
+      await window.kxai.updateDownload();
+    } catch (err) {
+      console.error('Update download error:', err);
+    }
+  }
+
+  async function installUpdate() {
+    try {
+      await window.kxai.updateInstall();
+    } catch (err) {
+      console.error('Update install error:', err);
     }
   }
 
@@ -1046,6 +1082,135 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     chunks: String(ragStats.totalChunks),
                     files: String(ragStats.totalFiles),
                   })}
+                </p>
+              )}
+            </div>
+
+            {/* Updates */}
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>{t('settings.general.updatesTitle')}</h3>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                  {t('settings.general.currentVersion', { v: window.kxai.appVersion || '—' })}
+                </span>
+                {updateState?.status === 'available' && updateState.version && (
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      background: 'rgba(0,255,136,0.15)',
+                      color: 'var(--success)',
+                      fontWeight: 600,
+                    }}
+                  >
+                    v{updateState.version} {t('settings.general.updateAvailable')}
+                  </span>
+                )}
+                {updateState?.status === 'downloaded' && (
+                  <span
+                    style={{
+                      fontSize: '11px',
+                      padding: '2px 6px',
+                      borderRadius: '4px',
+                      background: 'rgba(99,179,237,0.15)',
+                      color: 'var(--accent)',
+                      fontWeight: 600,
+                    }}
+                  >
+                    {t('settings.general.updateReadyInstall')}
+                  </span>
+                )}
+              </div>
+
+              {/* Progress bar when downloading */}
+              {updateState?.status === 'downloading' && updateState.progress && (
+                <div style={{ marginBottom: '8px' }}>
+                  <div style={{ height: '4px', borderRadius: '2px', background: 'var(--border)', overflow: 'hidden' }}>
+                    <div
+                      style={{
+                        height: '100%',
+                        width: `${updateState.progress.percent}%`,
+                        background: 'var(--accent)',
+                        transition: 'width 0.3s',
+                      }}
+                    />
+                  </div>
+                  <p className={s.hint} style={{ marginTop: '4px' }}>
+                    {t('settings.general.updateDownloading', { pct: Math.round(updateState.progress.percent) })}
+                  </p>
+                </div>
+              )}
+
+              {/* Error */}
+              {updateState?.status === 'error' && (
+                <p style={{ fontSize: '11px', color: 'var(--error)', marginBottom: '8px' }}>
+                  ❌ {updateState.error || t('settings.general.updateError')}
+                </p>
+              )}
+
+              {/* Release notes */}
+              {updateState?.releaseNotes && (
+                <details style={{ marginBottom: '8px' }}>
+                  <summary style={{ fontSize: '11px', color: 'var(--text-muted)', cursor: 'pointer' }}>
+                    {t('settings.general.updateReleaseNotes')}
+                  </summary>
+                  <pre
+                    style={{
+                      fontSize: '10px',
+                      color: 'var(--text-secondary)',
+                      whiteSpace: 'pre-wrap',
+                      marginTop: '4px',
+                      maxHeight: '80px',
+                      overflow: 'auto',
+                    }}
+                  >
+                    {updateState.releaseNotes}
+                  </pre>
+                </details>
+              )}
+
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  className={s.btnSave}
+                  onClick={checkForUpdates}
+                  disabled={updateState?.status === 'checking' || updateState?.status === 'downloading'}
+                  style={{ flex: 'none' }}
+                >
+                  {updateState?.status === 'checking'
+                    ? t('settings.general.updateChecking')
+                    : t('settings.general.updateCheck')}
+                </button>
+
+                {updateState?.status === 'available' && (
+                  <button className={s.btnSave} onClick={downloadUpdate} style={{ flex: 'none' }}>
+                    {t('settings.general.updateDownload')}
+                  </button>
+                )}
+
+                {updateState?.status === 'downloaded' && (
+                  <button
+                    onClick={installUpdate}
+                    style={{
+                      flex: 'none',
+                      background: 'var(--accent)',
+                      color: '#000',
+                      border: 'none',
+                      borderRadius: 'var(--radius-sm)',
+                      padding: '8px 16px',
+                      cursor: 'pointer',
+                      fontWeight: 600,
+                      fontSize: '12px',
+                    }}
+                  >
+                    {t('settings.general.updateInstall')}
+                  </button>
+                )}
+              </div>
+
+              {updateState?.status === 'not-available' && (
+                <p className={s.hint} style={{ marginTop: '6px' }}>
+                  ✅ {t('settings.general.updateNotAvailable')}
                 </p>
               )}
             </div>
