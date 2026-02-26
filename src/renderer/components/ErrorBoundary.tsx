@@ -91,34 +91,23 @@ function DefaultErrorFallback({ error, label, onReset }: DefaultErrorFallbackPro
     <div className={s.root} role="alert">
       <div className={s.icon}>⚠️</div>
       <h3 className={s.title}>{t('error.title')}</h3>
-      <p className={s.message}>
-        {label
-          ? t('error.messageWithLabel', { label })
-          : t('error.messageGeneric')}
-      </p>
+      <p className={s.message}>{label ? t('error.messageWithLabel', { label }) : t('error.messageGeneric')}</p>
 
       <div className={s.actions}>
-        <button
-          className={s.btnPrimary}
-          onClick={onReset}
-        >
+        <button className={s.btnPrimary} onClick={onReset}>
           {t('error.retry')}
         </button>
-        <button
-          className={s.btnSecondary}
-          onClick={() => setShowDetails((v) => !v)}
-          aria-expanded={showDetails}
-        >
+        <button className={s.btnSecondary} onClick={() => setShowDetails((v) => !v)} aria-expanded={showDetails}>
           {showDetails ? t('error.hideDetails') : t('error.showDetails')}
         </button>
       </div>
 
       {showDetails && (
         <div className={s.details}>
-          <p className={s.errorName}>{error.name}: {error.message}</p>
-          {error.stack && (
-            <pre className={s.stack}>{error.stack}</pre>
-          )}
+          <p className={s.errorName}>
+            {error.name}: {error.message}
+          </p>
+          {error.stack && <pre className={s.stack}>{error.stack}</pre>}
         </div>
       )}
     </div>

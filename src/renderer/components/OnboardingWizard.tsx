@@ -54,13 +54,20 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
   const canProceed = (): boolean => {
     switch (step) {
-      case 0: return true;
-      case 1: return data.userName.trim().length > 0 && data.userRole.trim().length > 0;
-      case 2: return data.agentName!.trim().length > 0;
-      case 3: return data.aiProvider !== undefined;
-      case 4: return apiKey.trim().length > 10;
-      case 5: return true;
-      default: return false;
+      case 0:
+        return true;
+      case 1:
+        return data.userName.trim().length > 0 && data.userRole.trim().length > 0;
+      case 2:
+        return data.agentName!.trim().length > 0;
+      case 3:
+        return data.aiProvider !== undefined;
+      case 4:
+        return apiKey.trim().length > 10;
+      case 5:
+        return true;
+      default:
+        return false;
     }
   };
 
@@ -118,20 +125,13 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       {/* Header */}
       <div className={s.header}>
         <div className={s.icon}>🤖</div>
-        <h2 className={s.title}>
-          {steps[step].title}
-        </h2>
-        <p className={s.subtitle}>
-          {steps[step].subtitle}
-        </p>
+        <h2 className={s.title}>{steps[step].title}</h2>
+        <p className={s.subtitle}>{steps[step].subtitle}</p>
 
         {/* Progress dots */}
         <div className={s.dots}>
           {steps.map((_, i) => (
-            <div
-              key={i}
-              className={i <= step ? s.dotActive : s.dot}
-            />
+            <div key={i} className={i <= step ? s.dotActive : s.dot} />
           ))}
         </div>
       </div>
@@ -156,7 +156,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
         {step === 1 && (
           <div className="fade-in">
-            <label className={s.label} htmlFor="userName">{t('onboarding.user.nameLabel')}</label>
+            <label className={s.label} htmlFor="userName">
+              {t('onboarding.user.nameLabel')}
+            </label>
             <input
               id="userName"
               className={s.input}
@@ -166,7 +168,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               autoFocus
             />
 
-            <label className={s.label} htmlFor="userRole">{t('onboarding.user.roleLabel')}</label>
+            <label className={s.label} htmlFor="userRole">
+              {t('onboarding.user.roleLabel')}
+            </label>
             <input
               id="userRole"
               className={s.input}
@@ -175,7 +179,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               placeholder={t('onboarding.user.rolePlaceholder')}
             />
 
-            <label className={s.label} htmlFor="userDescription">{t('onboarding.user.descLabel')}</label>
+            <label className={s.label} htmlFor="userDescription">
+              {t('onboarding.user.descLabel')}
+            </label>
             <textarea
               id="userDescription"
               className={s.textarea}
@@ -188,7 +194,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
         {step === 2 && (
           <div className="fade-in">
-            <label className={s.label} htmlFor="agentName">{t('onboarding.agent.nameLabel')}</label>
+            <label className={s.label} htmlFor="agentName">
+              {t('onboarding.agent.nameLabel')}
+            </label>
             <input
               id="agentName"
               className={s.input}
@@ -213,12 +221,8 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
 
             <div className={s.preview}>
               <div className={s.previewEmoji}>{data.agentEmoji}</div>
-              <div className={s.previewName}>
-                {data.agentName}
-              </div>
-              <div className={s.previewSubtitle}>
-                {t('onboarding.agent.previewSubtitle')}
-              </div>
+              <div className={s.previewName}>{data.agentName}</div>
+              <div className={s.previewSubtitle}>{t('onboarding.agent.previewSubtitle')}</div>
             </div>
           </div>
         )}
@@ -230,20 +234,18 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
               {(['openai', 'anthropic'] as const).map((provider) => (
                 <button
                   key={provider}
-                  onClick={() => setData({
-                    ...data,
-                    aiProvider: provider,
-                    aiModel: MODELS[provider][0].value,
-                  })}
+                  onClick={() =>
+                    setData({
+                      ...data,
+                      aiProvider: provider,
+                      aiModel: MODELS[provider][0].value,
+                    })
+                  }
                   className={data.aiProvider === provider ? s.providerBtnSelected : s.providerBtn}
                   aria-pressed={data.aiProvider === provider}
                 >
-                  <div className={s.providerIcon}>
-                    {provider === 'openai' ? '🟢' : '🟠'}
-                  </div>
-                  <div className={s.providerName}>
-                    {provider === 'openai' ? 'OpenAI' : 'Anthropic'}
-                  </div>
+                  <div className={s.providerIcon}>{provider === 'openai' ? '🟢' : '🟠'}</div>
+                  <div className={s.providerName}>{provider === 'openai' ? 'OpenAI' : 'Anthropic'}</div>
                 </button>
               ))}
             </div>
@@ -267,7 +269,9 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {step === 4 && (
           <div className="fade-in">
             <div className={s.securityNotice}>
-              {t('onboarding.apiKey.securityNotice', { provider: data.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic' })}
+              {t('onboarding.apiKey.securityNotice', {
+                provider: data.aiProvider === 'openai' ? 'OpenAI' : 'Anthropic',
+              })}
             </div>
 
             <label className={s.label} htmlFor="apiKey">
@@ -284,9 +288,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
             />
 
             <p className={s.keyHint}>
-              {data.aiProvider === 'openai'
-                ? t('onboarding.apiKey.hintOpenai')
-                : t('onboarding.apiKey.hintAnthropic')}
+              {data.aiProvider === 'openai' ? t('onboarding.apiKey.hintOpenai') : t('onboarding.apiKey.hintAnthropic')}
             </p>
           </div>
         )}
@@ -294,17 +296,21 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
         {step === 5 && (
           <div className={cn('fade-in', s.done)}>
             <div className={s.doneEmoji}>{data.agentEmoji}</div>
-            <h3 className={s.doneTitle}>
-              {t('onboarding.done.title', { name: data.agentName ?? '' })}
-            </h3>
-            <p className={s.doneDesc}>
-              {t('onboarding.done.desc', { userName: data.userName ?? '' })}
-            </p>
+            <h3 className={s.doneTitle}>{t('onboarding.done.title', { name: data.agentName ?? '' })}</h3>
+            <p className={s.doneDesc}>{t('onboarding.done.desc', { userName: data.userName ?? '' })}</p>
             <div className={s.shortcuts}>
-              <div><strong>{t('onboarding.done.shortcuts')}</strong></div>
-              <div className={s.shortcutsItem}>• <kbd>Alt+K</kbd> — {t('onboarding.done.shortcutToggle')}</div>
-              <div>• <kbd>Enter</kbd> — {t('onboarding.done.shortcutSend')}</div>
-              <div>• <kbd>Shift+Enter</kbd> — {t('onboarding.done.shortcutNewline')}</div>
+              <div>
+                <strong>{t('onboarding.done.shortcuts')}</strong>
+              </div>
+              <div className={s.shortcutsItem}>
+                • <kbd>Alt+K</kbd> — {t('onboarding.done.shortcutToggle')}
+              </div>
+              <div>
+                • <kbd>Enter</kbd> — {t('onboarding.done.shortcutSend')}
+              </div>
+              <div>
+                • <kbd>Shift+Enter</kbd> — {t('onboarding.done.shortcutNewline')}
+              </div>
             </div>
           </div>
         )}
@@ -320,10 +326,7 @@ export function OnboardingWizard({ onComplete }: OnboardingWizardProps) {
       {/* Footer */}
       <div className={s.footer}>
         {step > 0 && (
-          <button
-            onClick={() => setStep(step - 1)}
-            className={s.btnBack}
-          >
+          <button onClick={() => setStep(step - 1)} className={s.btnBack}>
             {t('onboarding.back')}
           </button>
         )}

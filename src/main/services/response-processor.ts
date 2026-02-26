@@ -13,11 +13,7 @@
 import { CronService, CronJob } from './cron-service';
 import { MemoryService } from './memory';
 import { createLogger } from './logger';
-import {
-  CronSuggestionSchema,
-  TakeControlSchema,
-  MemoryUpdateSchema,
-} from '../../shared/schemas/ai-responses';
+import { CronSuggestionSchema, TakeControlSchema, MemoryUpdateSchema } from '../../shared/schemas/ai-responses';
 
 const log = createLogger('ResponseProcessor');
 
@@ -53,10 +49,7 @@ export class ResponseProcessor {
    * @param response - The AI response text
    * @param onChunk - Optional UI feedback callback
    */
-  async postProcess(
-    response: string,
-    onChunk?: (chunk: string) => void,
-  ): Promise<PostProcessResult> {
+  async postProcess(response: string, onChunk?: (chunk: string) => void): Promise<PostProcessResult> {
     const result: PostProcessResult = {
       cronSuggestion: null,
       takeControlTask: null,

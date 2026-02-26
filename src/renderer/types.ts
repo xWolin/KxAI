@@ -55,7 +55,10 @@ export interface KxAIBridge {
   // Proactive
   setProactiveMode: (enabled: boolean) => Promise<{ success: boolean }>;
   getProactiveMode: () => Promise<boolean>;
-  sendProactiveFeedback: (ruleId: string, action: 'accepted' | 'dismissed' | 'replied') => Promise<{ success: boolean }>;
+  sendProactiveFeedback: (
+    ruleId: string,
+    action: 'accepted' | 'dismissed' | 'replied',
+  ) => Promise<{ success: boolean }>;
   getProactiveStats: () => Promise<any>;
 
   // Cron jobs
@@ -218,10 +221,7 @@ export interface KxAIBridge {
   mcpReconnect: (id: string) => Promise<{ success: boolean }>;
   mcpGetStatus: () => Promise<import('@shared/types').McpHubStatus>;
   mcpGetRegistry: () => Promise<import('@shared/types').McpRegistryEntry[]>;
-  mcpSearchRegistry: (
-    query?: string,
-    category?: string,
-  ) => Promise<import('@shared/types').McpRegistryEntry[]>;
+  mcpSearchRegistry: (query?: string, category?: string) => Promise<import('@shared/types').McpRegistryEntry[]>;
   mcpGetCategories: () => Promise<import('@shared/types').McpCategory[]>;
   mcpCallTool: (serverId: string, toolName: string, args: any) => Promise<import('@shared/types').ToolResult>;
   onMcpStatus: (callback: (status: import('@shared/types').McpHubStatus) => void) => () => void;
@@ -269,12 +269,15 @@ export interface KxAIBridge {
     confidence?: number;
     source?: import('@shared/types').KGSource;
   }) => Promise<import('@shared/types').KGEntity>;
-  kgUpdateEntity: (id: string, updates: {
-    name?: string;
-    properties?: Record<string, any>;
-    confidence?: number;
-    active?: boolean;
-  }) => Promise<import('@shared/types').KGEntity | null>;
+  kgUpdateEntity: (
+    id: string,
+    updates: {
+      name?: string;
+      properties?: Record<string, any>;
+      confidence?: number;
+      active?: boolean;
+    },
+  ) => Promise<import('@shared/types').KGEntity | null>;
   kgDeleteEntity: (id: string) => Promise<boolean>;
   kgAddRelation: (data: {
     sourceId: string;

@@ -62,24 +62,24 @@ interface PendingRequest {
 // ═══════════════════════════════════════════════════════
 
 const KEY_MAP: Record<string, { key: string; code: string; keyCode: number }> = {
-  Enter:      { key: 'Enter',      code: 'Enter',      keyCode: 13 },
-  Tab:        { key: 'Tab',        code: 'Tab',        keyCode: 9 },
-  Escape:     { key: 'Escape',     code: 'Escape',     keyCode: 27 },
-  Backspace:  { key: 'Backspace',  code: 'Backspace',  keyCode: 8 },
-  Delete:     { key: 'Delete',     code: 'Delete',     keyCode: 46 },
-  ArrowUp:    { key: 'ArrowUp',    code: 'ArrowUp',    keyCode: 38 },
-  ArrowDown:  { key: 'ArrowDown',  code: 'ArrowDown',  keyCode: 40 },
-  ArrowLeft:  { key: 'ArrowLeft',  code: 'ArrowLeft',  keyCode: 37 },
+  Enter: { key: 'Enter', code: 'Enter', keyCode: 13 },
+  Tab: { key: 'Tab', code: 'Tab', keyCode: 9 },
+  Escape: { key: 'Escape', code: 'Escape', keyCode: 27 },
+  Backspace: { key: 'Backspace', code: 'Backspace', keyCode: 8 },
+  Delete: { key: 'Delete', code: 'Delete', keyCode: 46 },
+  ArrowUp: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38 },
+  ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40 },
+  ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 },
   ArrowRight: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
-  Home:       { key: 'Home',       code: 'Home',       keyCode: 36 },
-  End:        { key: 'End',        code: 'End',        keyCode: 35 },
-  PageUp:     { key: 'PageUp',     code: 'PageUp',     keyCode: 33 },
-  PageDown:   { key: 'PageDown',   code: 'PageDown',   keyCode: 34 },
-  Space:      { key: ' ',          code: 'Space',      keyCode: 32 },
-  Control:    { key: 'Control',    code: 'ControlLeft', keyCode: 17 },
-  Shift:      { key: 'Shift',      code: 'ShiftLeft',  keyCode: 16 },
-  Alt:        { key: 'Alt',        code: 'AltLeft',    keyCode: 18 },
-  Meta:       { key: 'Meta',       code: 'MetaLeft',   keyCode: 91 },
+  Home: { key: 'Home', code: 'Home', keyCode: 36 },
+  End: { key: 'End', code: 'End', keyCode: 35 },
+  PageUp: { key: 'PageUp', code: 'PageUp', keyCode: 33 },
+  PageDown: { key: 'PageDown', code: 'PageDown', keyCode: 34 },
+  Space: { key: ' ', code: 'Space', keyCode: 32 },
+  Control: { key: 'Control', code: 'ControlLeft', keyCode: 17 },
+  Shift: { key: 'Shift', code: 'ShiftLeft', keyCode: 16 },
+  Alt: { key: 'Alt', code: 'AltLeft', keyCode: 18 },
+  Meta: { key: 'Meta', code: 'MetaLeft', keyCode: 91 },
 };
 
 // F1-F12
@@ -194,7 +194,11 @@ export class CDPConnection {
             const handlers = this.listeners.get(msg.method);
             if (handlers) {
               for (const h of handlers) {
-                try { h(msg.params || {}); } catch { /* handler error */ }
+                try {
+                  h(msg.params || {});
+                } catch {
+                  /* handler error */
+                }
               }
             }
           }
@@ -262,7 +266,11 @@ export class CDPConnection {
     }
     this.pending.clear();
     this.listeners.clear();
-    try { this.ws?.close(); } catch { /* ignore */ }
+    try {
+      this.ws?.close();
+    } catch {
+      /* ignore */
+    }
     this.ws = null;
   }
 }
@@ -302,10 +310,7 @@ export class CDPPage {
 
   /** Enable required CDP domains after connection */
   async init(): Promise<void> {
-    await Promise.all([
-      this.cdp.send('Page.enable'),
-      this.cdp.send('Runtime.enable'),
-    ]);
+    await Promise.all([this.cdp.send('Page.enable'), this.cdp.send('Runtime.enable')]);
 
     // Apply stealth scripts before any navigation (Faza 1.4)
     await this.applyStealthScripts();
@@ -345,7 +350,11 @@ export class CDPPage {
       await this.cdp.send('Page.navigateToHistoryEntry', {
         entryId: entries[currentIndex - 1].id,
       });
-      try { await loadPromise; } catch { /* BFCache may skip events */ }
+      try {
+        await loadPromise;
+      } catch {
+        /* BFCache may skip events */
+      }
       await this.refreshInfo();
     }
   }
@@ -357,7 +366,11 @@ export class CDPPage {
       await this.cdp.send('Page.navigateToHistoryEntry', {
         entryId: entries[currentIndex + 1].id,
       });
-      try { await loadPromise; } catch { /* BFCache may skip events */ }
+      try {
+        await loadPromise;
+      } catch {
+        /* BFCache may skip events */
+      }
       await this.refreshInfo();
     }
   }
@@ -372,8 +385,7 @@ export class CDPPage {
     });
 
     if (exceptionDetails) {
-      const msg =
-        exceptionDetails.exception?.description || exceptionDetails.text || 'Evaluation failed';
+      const msg = exceptionDetails.exception?.description || exceptionDetails.text || 'Evaluation failed';
       throw new Error(msg);
     }
 
@@ -397,9 +409,7 @@ export class CDPPage {
 
   async refreshInfo(): Promise<void> {
     try {
-      const info = await this.evaluate<string>(
-        'JSON.stringify({ url: location.href, title: document.title })',
-      );
+      const info = await this.evaluate<string>('JSON.stringify({ url: location.href, title: document.title })');
       const parsed = JSON.parse(info);
       this._url = parsed.url;
       this._title = parsed.title;
@@ -412,9 +422,7 @@ export class CDPPage {
 
   /** Count elements matching a CSS selector */
   async queryCount(selector: string): Promise<number> {
-    return this.evaluate<number>(
-      `document.querySelectorAll(${JSON.stringify(selector)}).length`,
-    );
+    return this.evaluate<number>(`document.querySelectorAll(${JSON.stringify(selector)}).length`);
   }
 
   /** Check if the first matching element is visible */
@@ -430,9 +438,7 @@ export class CDPPage {
   }
 
   /** Get bounding box center of the first matching element */
-  private async getElementCenter(
-    selector: string,
-  ): Promise<{ x: number; y: number }> {
+  private async getElementCenter(selector: string): Promise<{ x: number; y: number }> {
     const box = await this.evaluate<{
       x: number;
       y: number;
@@ -533,11 +539,7 @@ export class CDPPage {
   // ── Keyboard Actions ────────────────────────────────
 
   /** Fill input by selector (focus → clear → set value → fire events) */
-  async fill(
-    selector: string,
-    text: string,
-    opts?: { timeout?: number },
-  ): Promise<void> {
+  async fill(selector: string, text: string, opts?: { timeout?: number }): Promise<void> {
     await this.waitForSelector(selector, opts?.timeout ?? 10_000);
     await this.evaluate(`(() => {
       const el = document.querySelector(${JSON.stringify(selector)});
@@ -678,11 +680,7 @@ export class CDPPage {
   // ── Form Interactions ───────────────────────────────
 
   /** Select option(s) from a <select> element */
-  async selectOption(
-    selector: string,
-    values: string | string[],
-    opts?: { timeout?: number },
-  ): Promise<void> {
+  async selectOption(selector: string, values: string | string[], opts?: { timeout?: number }): Promise<void> {
     await this.waitForSelector(selector, opts?.timeout ?? 10_000);
     const valArray = Array.isArray(values) ? values : [values];
     await this.evaluate(`(() => {
@@ -696,31 +694,19 @@ export class CDPPage {
 
   /** Get the tag name of the first matching element */
   async tagName(selector: string): Promise<string> {
-    return this.evaluate<string>(
-      `(document.querySelector(${JSON.stringify(selector)})?.tagName || '').toLowerCase()`,
-    );
+    return this.evaluate<string>(`(document.querySelector(${JSON.stringify(selector)})?.tagName || '').toLowerCase()`);
   }
 
   /** Get innerText of the first matching element */
-  async innerText(
-    selector: string,
-    opts?: { timeout?: number },
-  ): Promise<string> {
+  async innerText(selector: string, opts?: { timeout?: number }): Promise<string> {
     await this.waitForSelector(selector, opts?.timeout ?? 10_000);
-    return this.evaluate<string>(
-      `document.querySelector(${JSON.stringify(selector)}).innerText`,
-    );
+    return this.evaluate<string>(`document.querySelector(${JSON.stringify(selector)}).innerText`);
   }
 
   /** Scroll element into view */
-  async scrollIntoView(
-    selector: string,
-    opts?: { timeout?: number },
-  ): Promise<void> {
+  async scrollIntoView(selector: string, opts?: { timeout?: number }): Promise<void> {
     await this.waitForSelector(selector, opts?.timeout ?? 5_000);
-    await this.evaluate(
-      `document.querySelector(${JSON.stringify(selector)}).scrollIntoViewIfNeeded()`,
-    );
+    await this.evaluate(`document.querySelector(${JSON.stringify(selector)}).scrollIntoViewIfNeeded()`);
   }
 
   // ── Screenshot ──────────────────────────────────────
@@ -1099,7 +1085,9 @@ export class CDPPage {
           timestamp: event.timestamp,
           data: { mutations },
         });
-      } catch { /* ignore parse errors */ }
+      } catch {
+        /* ignore parse errors */
+      }
       return; // Don't also emit as regular console event
     }
     this._monitorCallback?.(event);

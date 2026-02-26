@@ -17,8 +17,26 @@ import { exec } from 'child_process';
  */
 
 // Re-export from shared types (canonical source)
-export type { SystemSnapshot, CpuInfo, MemoryInfo, DiskInfo, BatteryInfo, NetworkInfo, SystemInfo, ProcessInfo } from '../../shared/types/system';
-import type { SystemSnapshot, CpuInfo, MemoryInfo, DiskInfo, BatteryInfo, NetworkInfo, SystemInfo, ProcessInfo } from '../../shared/types/system';
+export type {
+  SystemSnapshot,
+  CpuInfo,
+  MemoryInfo,
+  DiskInfo,
+  BatteryInfo,
+  NetworkInfo,
+  SystemInfo,
+  ProcessInfo,
+} from '../../shared/types/system';
+import type {
+  SystemSnapshot,
+  CpuInfo,
+  MemoryInfo,
+  DiskInfo,
+  BatteryInfo,
+  NetworkInfo,
+  SystemInfo,
+  ProcessInfo,
+} from '../../shared/types/system';
 
 // Cache for expensive operations
 interface CacheEntry<T> {
@@ -67,7 +85,9 @@ export class SystemMonitor {
     const parts: string[] = [];
 
     parts.push(`CPU: ${snap.cpu.usagePercent.toFixed(0)}% (${snap.cpu.cores} rdzeni)`);
-    parts.push(`RAM: ${snap.memory.usedGB.toFixed(1)}/${snap.memory.totalGB.toFixed(1)} GB (${snap.memory.usagePercent.toFixed(0)}%)`);
+    parts.push(
+      `RAM: ${snap.memory.usedGB.toFixed(1)}/${snap.memory.totalGB.toFixed(1)} GB (${snap.memory.usagePercent.toFixed(0)}%)`,
+    );
 
     if (snap.disk.length > 0) {
       const mainDisk = snap.disk[0];
@@ -100,11 +120,15 @@ export class SystemMonitor {
       warnings.push(`⚠️ CPU obciążone w ${snap.cpu.usagePercent.toFixed(0)}%`);
     }
     if (snap.memory.usagePercent > 85) {
-      warnings.push(`⚠️ RAM: ${snap.memory.usagePercent.toFixed(0)}% użyte (${snap.memory.freeGB.toFixed(1)} GB wolne)`);
+      warnings.push(
+        `⚠️ RAM: ${snap.memory.usagePercent.toFixed(0)}% użyte (${snap.memory.freeGB.toFixed(1)} GB wolne)`,
+      );
     }
     for (const disk of snap.disk) {
       if (disk.usagePercent > 90) {
-        warnings.push(`⚠️ Dysk ${disk.mount}: ${disk.usagePercent.toFixed(0)}% pełny (${disk.freeGB.toFixed(1)} GB wolne)`);
+        warnings.push(
+          `⚠️ Dysk ${disk.mount}: ${disk.usagePercent.toFixed(0)}% pełny (${disk.freeGB.toFixed(1)} GB wolne)`,
+        );
       }
     }
     if (snap.battery && snap.battery.percent < 15 && !snap.battery.charging) {
@@ -153,7 +177,7 @@ export class SystemMonitor {
       this.previousCpuTimes = { idle, total };
 
       if (totalDelta === 0) return 0;
-      return ((1 - idleDelta / totalDelta) * 100);
+      return (1 - idleDelta / totalDelta) * 100;
     }
 
     this.previousCpuTimes = { idle, total };
@@ -173,9 +197,9 @@ export class SystemMonitor {
     const usedBytes = totalBytes - freeBytes;
 
     const result: MemoryInfo = {
-      totalGB: totalBytes / (1024 ** 3),
-      usedGB: usedBytes / (1024 ** 3),
-      freeGB: freeBytes / (1024 ** 3),
+      totalGB: totalBytes / 1024 ** 3,
+      usedGB: usedBytes / 1024 ** 3,
+      freeGB: freeBytes / 1024 ** 3,
       usagePercent: (usedBytes / totalBytes) * 100,
     };
 
@@ -200,7 +224,7 @@ export class SystemMonitor {
       if (isWin) {
         // Use PowerShell Get-CimInstance (wmic is deprecated/removed in modern Windows)
         result = await this.execCommand(
-          'powershell -NoProfile -Command "Get-CimInstance Win32_LogicalDisk | Select-Object Caption,Size,FreeSpace | ConvertTo-Csv -NoTypeInformation"'
+          'powershell -NoProfile -Command "Get-CimInstance Win32_LogicalDisk | Select-Object Caption,Size,FreeSpace | ConvertTo-Csv -NoTypeInformation"',
         );
       } else {
         try {
@@ -224,8 +248,12 @@ export class SystemMonitor {
 
     if (process.platform === 'win32') {
       // Parse wmic CSV output (always bytes)
-      const lines = output.trim().split('\n').filter((l) => l.trim());
-      for (const line of lines.slice(1)) { // Skip header
+      const lines = output
+        .trim()
+        .split('\n')
+        .filter((l) => l.trim());
+      for (const line of lines.slice(1)) {
+        // Skip header
         const parts = line.trim().split(',');
         if (parts.length >= 3) {
           const mount = parts[1]?.trim();
@@ -234,9 +262,9 @@ export class SystemMonitor {
           if (mount && size > 0) {
             disks.push({
               mount,
-              totalGB: size / (1024 ** 3),
-              usedGB: (size - freeSpace) / (1024 ** 3),
-              freeGB: freeSpace / (1024 ** 3),
+              totalGB: size / 1024 ** 3,
+              usedGB: (size - freeSpace) / 1024 ** 3,
+              freeGB: freeSpace / 1024 ** 3,
               usagePercent: ((size - freeSpace) / size) * 100,
             });
           }
@@ -244,7 +272,10 @@ export class SystemMonitor {
       }
     } else {
       // Parse df output — unitMultiplier converts to bytes (1 for -B1, 1024 for -k)
-      const lines = output.trim().split('\n').filter((l) => l.trim());
+      const lines = output
+        .trim()
+        .split('\n')
+        .filter((l) => l.trim());
       for (const line of lines.slice(1)) {
         const parts = line.trim().split(/\s+/);
         if (parts.length >= 3) {
@@ -256,9 +287,9 @@ export class SystemMonitor {
             const freeBytes = rawAvail * unitMultiplier;
             disks.push({
               mount,
-              totalGB: totalBytes / (1024 ** 3),
-              usedGB: (totalBytes - freeBytes) / (1024 ** 3),
-              freeGB: freeBytes / (1024 ** 3),
+              totalGB: totalBytes / 1024 ** 3,
+              usedGB: (totalBytes - freeBytes) / 1024 ** 3,
+              freeGB: freeBytes / 1024 ** 3,
               usagePercent: ((totalBytes - freeBytes) / totalBytes) * 100,
             });
           }
@@ -278,9 +309,12 @@ export class SystemMonitor {
     try {
       if (process.platform === 'win32') {
         const output = await this.execCommand(
-          'powershell -NoProfile -Command "Get-CimInstance Win32_Battery | Select-Object BatteryStatus,EstimatedChargeRemaining | ConvertTo-Csv -NoTypeInformation"'
+          'powershell -NoProfile -Command "Get-CimInstance Win32_Battery | Select-Object BatteryStatus,EstimatedChargeRemaining | ConvertTo-Csv -NoTypeInformation"',
         );
-        const lines = output.trim().split('\n').filter((l) => l.trim());
+        const lines = output
+          .trim()
+          .split('\n')
+          .filter((l) => l.trim());
         if (lines.length > 1) {
           const parts = lines[1].trim().split(',');
           if (parts.length >= 3) {
@@ -310,7 +344,9 @@ export class SystemMonitor {
         }
       } else {
         // Linux
-        const output = await this.execCommand('cat /sys/class/power_supply/BAT0/capacity 2>/dev/null && cat /sys/class/power_supply/BAT0/status 2>/dev/null');
+        const output = await this.execCommand(
+          'cat /sys/class/power_supply/BAT0/capacity 2>/dev/null && cat /sys/class/power_supply/BAT0/status 2>/dev/null',
+        );
         const lines = output.trim().split('\n');
         if (lines.length >= 2) {
           const result: BatteryInfo = {
@@ -365,13 +401,14 @@ export class SystemMonitor {
       let output: string;
       if (process.platform === 'win32') {
         output = await this.execCommand(
-          `powershell -NoProfile -Command "Get-Process | Where-Object {$_.Id -ne 0} | Sort-Object CPU -Descending | Select-Object -First ${limit} Name,Id,@{N='CpuPct';E={if($_.StartTime){[math]::Round(($_.CPU / ((Get-Date) - $_.StartTime).TotalSeconds) / [Environment]::ProcessorCount * 100, 1)}else{0}}},@{N='MemMB';E={[math]::Round($_.WorkingSet64/1MB,1)}} | ConvertTo-Csv -NoTypeInformation"`
+          `powershell -NoProfile -Command "Get-Process | Where-Object {$_.Id -ne 0} | Sort-Object CPU -Descending | Select-Object -First ${limit} Name,Id,@{N='CpuPct';E={if($_.StartTime){[math]::Round(($_.CPU / ((Get-Date) - $_.StartTime).TotalSeconds) / [Environment]::ProcessorCount * 100, 1)}else{0}}},@{N='MemMB';E={[math]::Round($_.WorkingSet64/1MB,1)}} | ConvertTo-Csv -NoTypeInformation"`,
         );
       } else {
         // macOS ps doesn't support --sort; use -r for CPU sort
-        const psCmd = process.platform === 'darwin'
-          ? `ps aux -r | head -n ${limit + 1}`
-          : `ps aux --sort=-%cpu | head -n ${limit + 1}`;
+        const psCmd =
+          process.platform === 'darwin'
+            ? `ps aux -r | head -n ${limit + 1}`
+            : `ps aux --sort=-%cpu | head -n ${limit + 1}`;
         output = await this.execCommand(psCmd);
       }
 
@@ -385,11 +422,15 @@ export class SystemMonitor {
 
   private parseProcessOutput(output: string, limit: number): ProcessInfo[] {
     const processes: ProcessInfo[] = [];
-    const lines = output.trim().split('\n').filter((l) => l.trim());
+    const lines = output
+      .trim()
+      .split('\n')
+      .filter((l) => l.trim());
 
     if (process.platform === 'win32') {
       // Parse CSV from PowerShell
-      for (const line of lines.slice(1)) { // Skip header
+      for (const line of lines.slice(1)) {
+        // Skip header
         const match = line.match(/"([^"]*)","(\d+)","([^"]*)","([^"]*)"/);
         if (match) {
           processes.push({

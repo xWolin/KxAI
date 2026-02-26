@@ -99,13 +99,16 @@ export class OpenAIProvider implements AIProvider {
   async chat(messages: ChatMessage[], options: ChatOptions): Promise<ChatResponse> {
     if (!this.client) throw new Error('OpenAI client not initialized');
 
-    const response = await this.client.chat.completions.create({
-      model: options.model,
-      messages,
-      ...this.tokenParam(options.maxTokens ?? 4096),
-      temperature: options.temperature ?? 0.7,
-      ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
-    }, { signal: options.signal });
+    const response = await this.client.chat.completions.create(
+      {
+        model: options.model,
+        messages,
+        ...this.tokenParam(options.maxTokens ?? 4096),
+        temperature: options.temperature ?? 0.7,
+        ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
+      },
+      { signal: options.signal },
+    );
 
     const usage = response.usage;
     if (usage) {
@@ -131,13 +134,16 @@ export class OpenAIProvider implements AIProvider {
   ): Promise<ChatResponse> {
     if (!this.client) throw new Error('OpenAI client not initialized');
 
-    const stream = await this.client.chat.completions.create({
-      model: options.model,
-      messages,
-      ...this.tokenParam(options.maxTokens ?? 4096),
-      temperature: options.temperature ?? 0.7,
-      stream: true,
-    }, { signal: options.signal });
+    const stream = await this.client.chat.completions.create(
+      {
+        model: options.model,
+        messages,
+        ...this.tokenParam(options.maxTokens ?? 4096),
+        temperature: options.temperature ?? 0.7,
+        stream: true,
+      },
+      { signal: options.signal },
+    );
 
     let fullText = '';
     for await (const chunk of stream) {
@@ -173,19 +179,22 @@ export class OpenAIProvider implements AIProvider {
       },
     }));
 
-    const response = await this.client.chat.completions.create({
-      model: options.model,
-      messages: [
-        { role: systemRole, content: systemPrompt },
-        {
-          role: 'user',
-          content: [{ type: 'text', text: userMessage }, ...imageContents],
-        },
-      ],
-      ...this.tokenParam(options.maxTokens ?? 1024),
-      temperature: options.temperature ?? 0.3,
-      ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
-    }, { signal: options.signal });
+    const response = await this.client.chat.completions.create(
+      {
+        model: options.model,
+        messages: [
+          { role: systemRole, content: systemPrompt },
+          {
+            role: 'user',
+            content: [{ type: 'text', text: userMessage }, ...imageContents],
+          },
+        ],
+        ...this.tokenParam(options.maxTokens ?? 1024),
+        temperature: options.temperature ?? 0.3,
+        ...(options.responseFormat ? { response_format: options.responseFormat } : {}),
+      },
+      { signal: options.signal },
+    );
 
     const usage = response.usage;
     if (usage) {
@@ -216,16 +225,19 @@ export class OpenAIProvider implements AIProvider {
 
     const openaiTools = toOpenAITools(tools);
 
-    const stream = await this.client.chat.completions.create({
-      model: options.model,
-      messages,
-      tools: openaiTools.length > 0 ? openaiTools : undefined,
-      tool_choice: openaiTools.length > 0 ? 'auto' : undefined,
-      parallel_tool_calls: true,
-      ...this.tokenParam(options.maxTokens ?? 4096),
-      temperature: options.temperature ?? 0.7,
-      stream: true,
-    }, { signal: options.signal });
+    const stream = await this.client.chat.completions.create(
+      {
+        model: options.model,
+        messages,
+        tools: openaiTools.length > 0 ? openaiTools : undefined,
+        tool_choice: openaiTools.length > 0 ? 'auto' : undefined,
+        parallel_tool_calls: true,
+        ...this.tokenParam(options.maxTokens ?? 4096),
+        temperature: options.temperature ?? 0.7,
+        stream: true,
+      },
+      { signal: options.signal },
+    );
 
     let text = '';
     const toolCalls: Array<{ id: string; name: string; arguments: Record<string, any> }> = [];

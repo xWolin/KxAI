@@ -37,7 +37,7 @@ export const en: TranslationDict = {
   'chat.rag.saving': 'Saving index',
   'chat.rag.files': 'files',
   'chat.rag.chunks': 'chunks',
-  'chat.empty.title': 'Hi! I\'m {name}',
+  'chat.empty.title': "Hi! I'm {name}",
   'chat.empty.subtitle': 'Type something or click 📸 to analyze your screen',
   'chat.input.placeholder': 'Type a message... (Shift+Enter = new line)',
   'chat.voice.stopRecording': 'Stop recording',
@@ -72,13 +72,11 @@ export const en: TranslationDict = {
   'cron.category.reminder': '🔔 Reminder',
   'cron.category.cleanup': '🧹 Cleanup',
   'cron.category.healthCheck': '💚 Health Check',
-  'cron.actionPlaceholder':
-    'What should the agent do? (e.g. Check my emails and summarize the most important ones)',
+  'cron.actionPlaceholder': 'What should the agent do? (e.g. Check my emails and summarize the most important ones)',
   'cron.add': 'Add',
   'cron.cancel': 'Cancel',
   'cron.empty.title': 'No cron jobs',
-  'cron.empty.subtitle':
-    'Add a job or ask the agent in chat to create an automatic task.',
+  'cron.empty.subtitle': 'Add a job or ask the agent in chat to create an automatic task.',
   'cron.badge.auto': '🤖 auto',
   'cron.disable': 'Disable',
   'cron.enable': 'Enable',
@@ -111,8 +109,7 @@ export const en: TranslationDict = {
   'settings.general.apiKeyPlaceholder': 'Paste API key',
   'settings.general.proactiveSection': 'Proactive mode',
   'settings.general.proactiveInterval': 'Screen analysis interval (seconds)',
-  'settings.general.proactiveHint':
-    'How often the agent analyzes the screen (min. 5s). Lower value = more API calls.',
+  'settings.general.proactiveHint': 'How often the agent analyzes the screen (min. 5s). Lower value = more API calls.',
   'settings.general.meetingCoach': '🎙️ Meeting Coach (Deepgram)',
   'settings.general.deepgramKey': 'Deepgram API Key',
   'settings.general.deepgramKeyPlaceholder': 'Paste Deepgram API key',
@@ -122,8 +119,7 @@ export const en: TranslationDict = {
   'settings.general.embeddingKey': 'OpenAI API Key (embeddings)',
   'settings.general.embeddingKeyShared': '🔗 (main)',
   'settings.general.embeddingKeyPlaceholder': 'Separate OpenAI key for embeddings (optional)',
-  'settings.general.embeddingHint':
-    'Separate OpenAI key for generating embeddings. If empty, uses the main key.',
+  'settings.general.embeddingHint': 'Separate OpenAI key for generating embeddings. If empty, uses the main key.',
   'settings.general.embeddingModel': 'Embedding model',
   'settings.general.embeddingModelSmall': 'text-embedding-3-small (cheap, fast)',
   'settings.general.embeddingModelLarge': 'text-embedding-3-large (more accurate)',
@@ -163,8 +159,7 @@ export const en: TranslationDict = {
   'settings.knowledge.reindexAll': '🔄 Reindex all',
 
   // SettingsPanel — MCP
-  'settings.mcp.description':
-    'Manage MCP (Model Context Protocol) servers. Add integrations with external services.',
+  'settings.mcp.description': 'Manage MCP (Model Context Protocol) servers. Add integrations with external services.',
   'settings.mcp.hubStatus': 'Hub Status',
   'settings.mcp.connectedLabel': 'Connected',
   'settings.mcp.serversLabel': 'Servers',
@@ -198,8 +193,7 @@ export const en: TranslationDict = {
   'settings.mcp.addServerAdding': '⏳ Adding...',
   'settings.mcp.addServerButton': '✅ Add server',
   'settings.mcp.registry': '📦 Integration registry',
-  'settings.mcp.registryHint':
-    'Ready-made MCP integrations — 50 popular servers. Search or filter by category.',
+  'settings.mcp.registryHint': 'Ready-made MCP integrations — 50 popular servers. Search or filter by category.',
   'settings.mcp.requiresSetup': '⚙ Requires setup',
   'settings.mcp.alreadyAdded': 'Already added',
   'settings.mcp.addAndConnect': 'Add and connect',
@@ -210,8 +204,7 @@ export const en: TranslationDict = {
 
   // SettingsPanel — Calendar
   'settings.calendar.title': '📅 Calendar connections (CalDAV)',
-  'settings.calendar.description':
-    'Connect Google Calendar, iCloud, Nextcloud, or other CalDAV server.',
+  'settings.calendar.description': 'Connect Google Calendar, iCloud, Nextcloud, or other CalDAV server.',
   'settings.calendar.loading': 'Loading...',
   'settings.calendar.lastSync': 'Last sync:',
   'settings.calendar.disconnect': 'Disconnect',
@@ -240,7 +233,7 @@ export const en: TranslationDict = {
   // OnboardingWizard
   // ═══════════════════════════════════════
   'onboarding.step0.title': 'Welcome!',
-  'onboarding.step0.subtitle': 'Let\'s set up your personal AI agent',
+  'onboarding.step0.subtitle': "Let's set up your personal AI agent",
   'onboarding.step1.title': 'Who are you?',
   'onboarding.step1.subtitle': 'Tell me about yourself',
   'onboarding.step2.title': 'Your Agent',
@@ -258,7 +251,7 @@ export const en: TranslationDict = {
   'onboarding.welcome.feature4': '🧠 Remembers your decisions and preferences',
   'onboarding.welcome.feature5': '📂 Can organize your files',
   'onboarding.welcome.feature6': '🔒 Everything runs locally with encrypted keys',
-  'onboarding.user.nameLabel': 'What\'s your name?',
+  'onboarding.user.nameLabel': "What's your name?",
   'onboarding.user.namePlaceholder': 'e.g. John',
   'onboarding.user.roleLabel': 'What do you do?',
   'onboarding.user.rolePlaceholder': 'e.g. Fullstack Developer, CTO, Entrepreneur',
@@ -279,15 +272,14 @@ export const en: TranslationDict = {
   'onboarding.apiKey.saveError': 'Failed to save API key: {error}',
   'onboarding.apiKey.unknownError': 'Unknown error',
   'onboarding.done.title': '{name} is ready!',
-  'onboarding.done.desc':
-    'Hey {userName}! Your agent is configured and ready to work. You can start chatting.',
+  'onboarding.done.desc': 'Hey {userName}! Your agent is configured and ready to work. You can start chatting.',
   'onboarding.done.shortcuts': 'Shortcuts:',
   'onboarding.done.shortcutToggle': 'show/hide agent',
   'onboarding.done.shortcutSend': 'send message',
   'onboarding.done.shortcutNewline': 'new line',
   'onboarding.done.completeError': 'Failed to complete setup: {error}',
   'onboarding.back': 'Back',
-  'onboarding.start': 'Let\'s go!',
+  'onboarding.start': "Let's go!",
   'onboarding.next': 'Next →',
 
   // ═══════════════════════════════════════

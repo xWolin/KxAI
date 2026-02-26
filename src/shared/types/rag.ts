@@ -4,15 +4,15 @@
 
 export interface RAGChunk {
   id: string;
-  filePath: string;        // Relative path within source folder
+  filePath: string; // Relative path within source folder
   fileName: string;
   section: string;
   content: string;
   embedding?: number[];
   charCount: number;
-  sourceFolder?: string;   // Which indexed folder this came from
-  fileType?: string;       // Extension: 'md', 'ts', 'py', etc.
-  mtime?: number;          // File modification time for incremental reindex
+  sourceFolder?: string; // Which indexed folder this came from
+  fileType?: string; // Extension: 'md', 'ts', 'py', etc.
+  mtime?: number; // File modification time for incremental reindex
 }
 
 /** Internal search result (used in main process) */

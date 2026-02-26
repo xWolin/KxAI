@@ -5,7 +5,7 @@
 /** Agent status for UI feedback */
 export interface AgentStatus {
   state: 'idle' | 'thinking' | 'tool-calling' | 'streaming' | 'heartbeat' | 'take-control' | 'sub-agent';
-  detail?: string;        // e.g., tool name, sub-agent task
+  detail?: string; // e.g., tool name, sub-agent task
   toolName?: string;
   subAgentCount?: number;
 }

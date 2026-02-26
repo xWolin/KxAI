@@ -62,10 +62,7 @@ export class UpdaterService {
     }, 10_000);
 
     // Periodic check every 4 hours
-    this.checkInterval = setInterval(
-      () => this.checkForUpdates(),
-      4 * 60 * 60 * 1000,
-    );
+    this.checkInterval = setInterval(() => this.checkForUpdates(), 4 * 60 * 60 * 1000);
 
     log.info('Updater initialized — auto-check every 4h');
   }
@@ -152,11 +149,12 @@ export class UpdaterService {
 
     autoUpdater.on('update-available', (info: UpdateInfo) => {
       log.info(`Update available: v${info.version}`);
-      const releaseNotes = typeof info.releaseNotes === 'string'
-        ? info.releaseNotes
-        : Array.isArray(info.releaseNotes)
-          ? info.releaseNotes.map((n) => n.note).join('\n')
-          : undefined;
+      const releaseNotes =
+        typeof info.releaseNotes === 'string'
+          ? info.releaseNotes
+          : Array.isArray(info.releaseNotes)
+            ? info.releaseNotes.map((n) => n.note).join('\n')
+            : undefined;
 
       this.setState({
         status: 'available',
@@ -186,11 +184,12 @@ export class UpdaterService {
       log.info(`Update downloaded: v${info.version}`);
       this.updateDownloaded = true;
 
-      const releaseNotes = typeof info.releaseNotes === 'string'
-        ? info.releaseNotes
-        : Array.isArray(info.releaseNotes)
-          ? info.releaseNotes.map((n) => n.note).join('\n')
-          : undefined;
+      const releaseNotes =
+        typeof info.releaseNotes === 'string'
+          ? info.releaseNotes
+          : Array.isArray(info.releaseNotes)
+            ? info.releaseNotes.map((n) => n.note).join('\n')
+            : undefined;
 
       this.setState({
         status: 'downloaded',

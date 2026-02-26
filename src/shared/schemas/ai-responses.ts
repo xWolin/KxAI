@@ -24,10 +24,7 @@ export type ScreenAnalysisResult = z.infer<typeof ScreenAnalysisSchema>;
 
 export const CronSuggestionSchema = z.object({
   name: z.string().min(1).max(100).describe('Human-readable cron job name'),
-  schedule: z
-    .string()
-    .min(5)
-    .describe('Cron expression (e.g. "0 9 * * 1-5")'),
+  schedule: z.string().min(5).describe('Cron expression (e.g. "0 9 * * 1-5")'),
   action: z.string().min(1).max(500).describe('Action description for the AI to execute'),
   category: z
     .enum(['routine', 'workflow', 'reminder', 'cleanup', 'health-check', 'custom'])
@@ -41,9 +38,7 @@ export type CronSuggestionParsed = z.infer<typeof CronSuggestionSchema>;
 // ─── Memory Update ───
 
 export const MemoryUpdateSchema = z.object({
-  file: z
-    .enum(['soul', 'user', 'memory'])
-    .describe('Target memory file (soul/user/memory)'),
+  file: z.enum(['soul', 'user', 'memory']).describe('Target memory file (soul/user/memory)'),
   section: z.string().min(1).max(100).describe('Section heading in the memory file'),
   content: z.string().min(1).max(2000).describe('Content to write under the section'),
 });

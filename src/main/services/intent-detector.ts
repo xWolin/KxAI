@@ -45,7 +45,8 @@ interface IntentPattern {
 const INTENT_PATTERNS: IntentPattern[] = [
   // ─── Screen Look — user wants agent to see their screen ───
   {
-    regex: /(?:zobacz|popatrz|spójrz|patrz|zerknij|sprawdź|obejrzyj|obczaj|ogarnij|pokaż\s+ci|pokażę\s+ci)\s+(?:co\s+(?:robię|mam|widzę|się\s+dzieje)|na\s+(?:ekran|monitor|pulpit|to)|sobie|tutaj|teraz|ten\s+ekran)/i,
+    regex:
+      /(?:zobacz|popatrz|spójrz|patrz|zerknij|sprawdź|obejrzyj|obczaj|ogarnij|pokaż\s+ci|pokażę\s+ci)\s+(?:co\s+(?:robię|mam|widzę|się\s+dzieje)|na\s+(?:ekran|monitor|pulpit|to)|sobie|tutaj|teraz|ten\s+ekran)/i,
     intent: 'screen_look',
     confidence: 0.95,
     autoAction: 'screenshot',
@@ -61,14 +62,14 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     regex: /(?:widzisz|widzisz\s+to|widzisz\s+co|co\s+widzisz|potrzebuję?\s+(?:twojej\s+)?pomocy\s+z\s+tym)/i,
     intent: 'screen_look',
-    confidence: 0.90,
+    confidence: 0.9,
     autoAction: 'screenshot',
     label: 'can-you-see-this',
   },
   {
     regex: /(?:pomóż|pomoc|help)\s+(?:mi\s+)?(?:z\s+tym|z\s+te[mn]|with\s+this)/i,
     intent: 'screen_help',
-    confidence: 0.80,
+    confidence: 0.8,
     autoAction: 'screenshot',
     label: 'help-with-this',
   },
@@ -80,7 +81,8 @@ const INTENT_PATTERNS: IntentPattern[] = [
     label: 'what-do-you-think',
   },
   {
-    regex: /(?:mam\s+(?:problem|błąd|error|bug)|coś\s+(?:nie\s+działa|się\s+(?:zepsuło|popsulo))|something\s+(?:is\s+)?(?:wrong|broken))/i,
+    regex:
+      /(?:mam\s+(?:problem|błąd|error|bug)|coś\s+(?:nie\s+działa|się\s+(?:zepsuło|popsulo))|something\s+(?:is\s+)?(?:wrong|broken))/i,
     intent: 'screen_help',
     confidence: 0.85,
     autoAction: 'screenshot',
@@ -89,14 +91,14 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     regex: /(?:ten\s+(?:kod|plik|program|okno|błąd|komunikat|error)|this\s+(?:code|file|error|window|message))/i,
     intent: 'screen_help',
-    confidence: 0.70,
+    confidence: 0.7,
     autoAction: 'screenshot',
     label: 'this-thing-reference',
   },
   {
     regex: /(?:pokaż|pokażę|poka[zż])\s+(?:ci|tobie|screen)/i,
     intent: 'screen_look',
-    confidence: 0.90,
+    confidence: 0.9,
     autoAction: 'screenshot',
     label: 'let-me-show-you',
   },
@@ -108,9 +110,10 @@ const INTENT_PATTERNS: IntentPattern[] = [
     label: 'explicit-screenshot',
   },
   {
-    regex: /(?:nie\s+(?:wiem|rozumiem|ogarniam)\s+co\s+(?:tu\s+jest|się\s+(?:stało|dzieje))|(?:I\s+)?(?:don'?t|cant?'?t)\s+(?:understand|figure\s+out))/i,
+    regex:
+      /(?:nie\s+(?:wiem|rozumiem|ogarniam)\s+co\s+(?:tu\s+jest|się\s+(?:stało|dzieje))|(?:I\s+)?(?:don'?t|cant?'?t)\s+(?:understand|figure\s+out))/i,
     intent: 'screen_help',
-    confidence: 0.80,
+    confidence: 0.8,
     autoAction: 'screenshot',
     label: 'confused-about-screen',
   },
@@ -119,14 +122,15 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     regex: /(?:^|\s)(?:tutaj|here|tam|there|tu\b)(?:\s|$|[.!?,])/i,
     intent: 'screen_look',
-    confidence: 0.50,
+    confidence: 0.5,
     autoAction: 'screenshot',
     label: 'deictic-reference',
   },
 
   // ─── File Context — user mentions specific files ───
   {
-    regex: /(?:w\s+pliku|w\s+(?:tym|moim)\s+(?:pliku|kodzie|skrypcie)|in\s+(?:the\s+|my\s+)?(?:file|code|script))\s+(\S+)/i,
+    regex:
+      /(?:w\s+pliku|w\s+(?:tym|moim)\s+(?:pliku|kodzie|skrypcie)|in\s+(?:the\s+|my\s+)?(?:file|code|script))\s+(\S+)/i,
     intent: 'file_context',
     confidence: 0.85,
     autoAction: 'screenshot',
@@ -134,9 +138,10 @@ const INTENT_PATTERNS: IntentPattern[] = [
     captureGroup: 1,
   },
   {
-    regex: /(?:otwórz|otwieram|otworzyłem|edytuj[eę]?|opened?|editing)\s+(\S+\.(?:ts|tsx|js|jsx|py|java|cpp|cs|go|rs|md|json|html|css))/i,
+    regex:
+      /(?:otwórz|otwieram|otworzyłem|edytuj[eę]?|opened?|editing)\s+(\S+\.(?:ts|tsx|js|jsx|py|java|cpp|cs|go|rs|md|json|html|css))/i,
     intent: 'file_context',
-    confidence: 0.80,
+    confidence: 0.8,
     autoAction: 'screenshot',
     label: 'opened-file',
     captureGroup: 1,
@@ -169,7 +174,7 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     regex: /(?:wyszukaj|szukaj|znajd[źz]|google|search)\s+(?:mi\s+)?(?:w\s+)?(?:internecie|necie|sieci|online|web)/i,
     intent: 'web_search',
-    confidence: 0.90,
+    confidence: 0.9,
     autoAction: 'web_search',
     label: 'web-search-explicit',
   },
@@ -191,14 +196,16 @@ const INTENT_PATTERNS: IntentPattern[] = [
 
   // ─── Memory Recall ───
   {
-    regex: /(?:pamięt(?:asz|aj)|pamiętam.*powiedział|mówił(?:em|am)\s+(?:ci|że)|wcześniej|earlier|remember\s+when|you\s+said)/i,
+    regex:
+      /(?:pamięt(?:asz|aj)|pamiętam.*powiedział|mówił(?:em|am)\s+(?:ci|że)|wcześniej|earlier|remember\s+when|you\s+said)/i,
     intent: 'memory_recall',
-    confidence: 0.80,
+    confidence: 0.8,
     autoAction: 'memory_search',
     label: 'memory-recall',
   },
   {
-    regex: /(?:co\s+(?:ci\s+)?(?:pisałem|mówiłem|mówił(?:em|am))\s+(?:o|na\s+temat|wcześniej)|what\s+(?:did\s+)?I\s+(?:say|tell|write)\s+(?:about|earlier))/i,
+    regex:
+      /(?:co\s+(?:ci\s+)?(?:pisałem|mówiłem|mówił(?:em|am))\s+(?:o|na\s+temat|wcześniej)|what\s+(?:did\s+)?I\s+(?:say|tell|write)\s+(?:about|earlier))/i,
     intent: 'memory_recall',
     confidence: 0.85,
     autoAction: 'memory_search',
@@ -209,13 +216,13 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     regex: /(?:uruchom|odpal|wykonaj|run|execute)\s+(?:ten\s+)?(?:kod|skrypt|script|program|komendę?|command)/i,
     intent: 'code_exec',
-    confidence: 0.90,
+    confidence: 0.9,
     label: 'code-exec-explicit',
   },
   {
     regex: /(?:napisz|stwórz|zrób)\s+(?:mi\s+)?(?:skrypt|script|program|narzędzie|tool)/i,
     intent: 'code_exec',
-    confidence: 0.80,
+    confidence: 0.8,
     label: 'create-script',
   },
 
@@ -230,7 +237,7 @@ const INTENT_PATTERNS: IntentPattern[] = [
   {
     regex: /(?:click|press|type|open)\s+(?:on|the|in)\s+/i,
     intent: 'automation',
-    confidence: 0.80,
+    confidence: 0.8,
     autoAction: 'screenshot',
     label: 'automation-action-en',
   },
@@ -276,7 +283,7 @@ export class IntentDetector {
     const best = matches[0];
 
     // Boost confidence if multiple patterns matched the same intent
-    const sameIntentMatches = matches.filter(m => m.intent === best.intent);
+    const sameIntentMatches = matches.filter((m) => m.intent === best.intent);
     let boostedConfidence = best.confidence;
     if (sameIntentMatches.length > 1) {
       boostedConfidence = Math.min(1.0, best.confidence + sameIntentMatches.length * 0.05);
@@ -284,17 +291,16 @@ export class IntentDetector {
 
     // Contextual boost: if recent messages were about the same topic, increase confidence
     if (this.recentMessages.length > 0) {
-      const recentIntents: IntentType[] = this.recentMessages
-        .flatMap(msg => {
-          const found: IntentType[] = [];
-          for (const p of INTENT_PATTERNS) {
-            if (msg.match(p.regex)) found.push(p.intent);
-          }
-          return found;
-        });
+      const recentIntents: IntentType[] = this.recentMessages.flatMap((msg) => {
+        const found: IntentType[] = [];
+        for (const p of INTENT_PATTERNS) {
+          if (msg.match(p.regex)) found.push(p.intent);
+        }
+        return found;
+      });
 
       if (recentIntents.includes(best.intent)) {
-        boostedConfidence = Math.min(1.0, boostedConfidence + 0.10);
+        boostedConfidence = Math.min(1.0, boostedConfidence + 0.1);
       }
     }
 
@@ -307,7 +313,7 @@ export class IntentDetector {
     return {
       type: best.intent,
       confidence: boostedConfidence,
-      matchedPatterns: sameIntentMatches.map(m => m.label),
+      matchedPatterns: sameIntentMatches.map((m) => m.label),
       autoAction: best.autoAction,
       extractedContext,
     };
@@ -318,10 +324,7 @@ export class IntentDetector {
    */
   shouldAutoScreenshot(message: string): boolean {
     const intent = this.detect(message);
-    return (
-      intent.autoAction === 'screenshot' &&
-      intent.confidence >= 0.70
-    );
+    return intent.autoAction === 'screenshot' && intent.confidence >= 0.7;
   }
 
   /**
@@ -329,7 +332,7 @@ export class IntentDetector {
    */
   shouldAutoWebSearch(message: string): boolean {
     const intent = this.detect(message);
-    return intent.autoAction === 'web_search' && intent.confidence >= 0.80;
+    return intent.autoAction === 'web_search' && intent.confidence >= 0.8;
   }
 
   /**
@@ -337,7 +340,7 @@ export class IntentDetector {
    */
   shouldAutoMemorySearch(message: string): boolean {
     const intent = this.detect(message);
-    return intent.autoAction === 'memory_search' && intent.confidence >= 0.70;
+    return intent.autoAction === 'memory_search' && intent.confidence >= 0.7;
   }
 
   /**
@@ -345,13 +348,13 @@ export class IntentDetector {
    */
   shouldTakeControl(message: string): boolean {
     const intent = this.detect(message);
-    return intent.autoAction === 'take_control' && intent.confidence >= 0.80;
+    return intent.autoAction === 'take_control' && intent.confidence >= 0.8;
   }
 
   /**
    * Get all detected intents above a threshold (for multi-intent messages).
    */
-  detectAll(message: string, minConfidence: number = 0.50): DetectedIntent[] {
+  detectAll(message: string, minConfidence: number = 0.5): DetectedIntent[] {
     const seen = new Set<IntentType>();
     const results: DetectedIntent[] = [];
 

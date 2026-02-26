@@ -70,7 +70,7 @@ export class ScreenCaptureService {
     for (let i = 0; i < sources.length; i++) {
       const source = sources[i];
       const display = displays[i] || displays[0];
-      
+
       const thumbnail = source.thumbnail;
       if (thumbnail && !thumbnail.isEmpty()) {
         screenshots.push({
@@ -92,28 +92,28 @@ export class ScreenCaptureService {
     return screenshots[displayIndex] || null;
   }
 
-  startWatching(
-    intervalMs: number,
-    callback: (screenshots: ScreenshotData[]) => void
-  ): void {
+  startWatching(intervalMs: number, callback: (screenshots: ScreenshotData[]) => void): void {
     if (this.isWatching) {
       this.stopWatching();
     }
 
     this.isWatching = true;
-    
+
     // Initial capture
     this.captureAllScreens().then(callback).catch(console.error);
 
     // Periodic capture
-    this.watchInterval = setInterval(async () => {
-      try {
-        const screenshots = await this.captureAllScreens();
-        callback(screenshots);
-      } catch (error) {
-        console.error('Screen capture error:', error);
-      }
-    }, Math.max(intervalMs, 5000)); // Minimum 5 second interval for safety
+    this.watchInterval = setInterval(
+      async () => {
+        try {
+          const screenshots = await this.captureAllScreens();
+          callback(screenshots);
+        } catch (error) {
+          console.error('Screen capture error:', error);
+        }
+      },
+      Math.max(intervalMs, 5000),
+    ); // Minimum 5 second interval for safety
   }
 
   stopWatching(): void {
@@ -164,7 +164,7 @@ export class ScreenCaptureService {
   /**
    * Capture screenshot scaled to XGA (1024x768) for Computer Use API.
    * Returns the screenshot + scale factors to map AI coordinates back to native resolution.
-   * 
+   *
    * Anthropic & OpenAI recommend XGA resolution for best accuracy.
    * Coordinates from AI are in the scaled space and must be converted back.
    */
@@ -230,13 +230,13 @@ export class ScreenCaptureService {
  * Screenshot data with coordinate scaling info for Computer Use API.
  */
 export interface ComputerUseScreenshot {
-  base64: string;        // Raw base64 (no data: prefix) for API
-  dataUrl: string;       // Full data URL for OpenAI
-  width: number;         // Scaled width (≤1024)
-  height: number;        // Scaled height (≤768)
-  nativeWidth: number;   // Native screen width
-  nativeHeight: number;  // Native screen height
-  scaleX: number;        // Multiply AI x-coord by this to get native x
-  scaleY: number;        // Multiply AI y-coord by this to get native y
+  base64: string; // Raw base64 (no data: prefix) for API
+  dataUrl: string; // Full data URL for OpenAI
+  width: number; // Scaled width (≤1024)
+  height: number; // Scaled height (≤768)
+  nativeWidth: number; // Native screen width
+  nativeHeight: number; // Native screen height
+  scaleX: number; // Multiply AI x-coord by this to get native x
+  scaleY: number; // Multiply AI y-coord by this to get native y
   timestamp: number;
 }

@@ -24,7 +24,7 @@ const SCHEMA_VERSION = 2;
 
 // ─── Embedding dimensions ───
 const EMBEDDING_DIM_OPENAI = 1536; // text-embedding-3-small
-const EMBEDDING_DIM_TFIDF = 256;   // TF-IDF fallback
+const EMBEDDING_DIM_TFIDF = 256; // TF-IDF fallback
 
 // ─── Retention defaults ───
 const DEFAULT_ARCHIVE_DAYS = 30;
@@ -90,8 +90,8 @@ export interface HybridSearchResult {
   sourceFolder: string;
   fileType: string;
   mtime: number;
-  vectorScore: number;   // 0-1 (converted from distance)
-  keywordScore: number;  // 0-1 (from FTS5 rank)
+  vectorScore: number; // 0-1 (converted from distance)
+  keywordScore: number; // 0-1 (from FTS5 rank)
   combinedScore: number; // weighted fusion
 }
 
@@ -169,8 +169,9 @@ export class DatabaseService {
       );
     `);
 
-    const currentVersion =
-      this.db.prepare('SELECT MAX(version) as v FROM schema_version').get() as { v: number | null };
+    const currentVersion = this.db.prepare('SELECT MAX(version) as v FROM schema_version').get() as {
+      v: number | null;
+    };
     const version = currentVersion?.v ?? 0;
 
     if (version < 1) {
@@ -669,7 +670,10 @@ export class DatabaseService {
   /**
    * Apply retention policy: archive old sessions, delete very old ones.
    */
-  applyRetentionPolicy(archiveDays: number = DEFAULT_ARCHIVE_DAYS, deleteDays: number = DEFAULT_DELETE_DAYS): { archived: number; deleted: number } {
+  applyRetentionPolicy(
+    archiveDays: number = DEFAULT_ARCHIVE_DAYS,
+    deleteDays: number = DEFAULT_DELETE_DAYS,
+  ): { archived: number; deleted: number } {
     if (!this.db) return { archived: 0, deleted: 0 };
 
     const now = new Date();
@@ -749,7 +753,9 @@ export class DatabaseService {
 
     try {
       const messages = this.db.prepare('SELECT COUNT(*) as count FROM messages').get() as { count: number };
-      const sessions = this.db.prepare('SELECT COUNT(DISTINCT session_date) as count FROM messages').get() as { count: number };
+      const sessions = this.db.prepare('SELECT COUNT(DISTINCT session_date) as count FROM messages').get() as {
+        count: number;
+      };
 
       let dbSize = 0;
       if (fs.existsSync(this.dbPath)) {
@@ -857,20 +863,24 @@ export class DatabaseService {
     if (!this.db) return;
 
     try {
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT OR REPLACE INTO rag_chunks (id, file_path, file_name, section, content, char_count, source_folder, file_type, mtime)
         VALUES (@id, @file_path, @file_name, @section, @content, @char_count, @source_folder, @file_type, @mtime)
-      `).run({
-        id: chunk.id,
-        file_path: chunk.filePath,
-        file_name: chunk.fileName,
-        section: chunk.section,
-        content: chunk.content,
-        char_count: chunk.charCount,
-        source_folder: chunk.sourceFolder ?? 'workspace',
-        file_type: chunk.fileType ?? '',
-        mtime: chunk.mtime ?? 0,
-      });
+      `,
+        )
+        .run({
+          id: chunk.id,
+          file_path: chunk.filePath,
+          file_name: chunk.fileName,
+          section: chunk.section,
+          content: chunk.content,
+          char_count: chunk.charCount,
+          source_folder: chunk.sourceFolder ?? 'workspace',
+          file_type: chunk.fileType ?? '',
+          mtime: chunk.mtime ?? 0,
+        });
     } catch (err) {
       log.error(`Failed to upsert chunk ${chunk.id}:`, err);
     }
@@ -918,10 +928,14 @@ export class DatabaseService {
     if (!this.db || !this.vec0Loaded) return;
 
     try {
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT OR REPLACE INTO rag_embeddings (chunk_id, embedding)
         VALUES (?, ?)
-      `).run(chunkId, new Float32Array(embedding));
+      `,
+        )
+        .run(chunkId, new Float32Array(embedding));
     } catch (err) {
       log.error(`Failed to upsert embedding for chunk ${chunkId}:`, err);
     }
@@ -960,15 +974,19 @@ export class DatabaseService {
     if (!this.db || !this.vec0Loaded) return [];
 
     try {
-      const rows = this.db.prepare(`
+      const rows = this.db
+        .prepare(
+          `
         SELECT chunk_id, distance
         FROM rag_embeddings
         WHERE embedding MATCH ?
           AND k = ?
         ORDER BY distance
-      `).all(new Float32Array(queryEmbedding), topK) as Array<{ chunk_id: string; distance: number }>;
+      `,
+        )
+        .all(new Float32Array(queryEmbedding), topK) as Array<{ chunk_id: string; distance: number }>;
 
-      return rows.map(r => ({ chunkId: r.chunk_id, distance: r.distance }));
+      return rows.map((r) => ({ chunkId: r.chunk_id, distance: r.distance }));
     } catch (err) {
       log.error('Vector search failed:', err);
       return [];
@@ -986,16 +1004,20 @@ export class DatabaseService {
       const sanitized = query.replace(/['"*()]/g, ' ').trim();
       if (!sanitized) return [];
 
-      const rows = this.db.prepare(`
+      const rows = this.db
+        .prepare(
+          `
         SELECT rc.id as chunk_id, fts.rank
         FROM rag_chunks_fts fts
         JOIN rag_chunks rc ON rc.rowid = fts.rowid
         WHERE rag_chunks_fts MATCH ?
         ORDER BY fts.rank
         LIMIT ?
-      `).all(sanitized, limit) as Array<{ chunk_id: string; rank: number }>;
+      `,
+        )
+        .all(sanitized, limit) as Array<{ chunk_id: string; rank: number }>;
 
-      return rows.map(r => ({ chunkId: r.chunk_id, rank: r.rank }));
+      return rows.map((r) => ({ chunkId: r.chunk_id, rank: r.rank }));
     } catch (err) {
       log.error('FTS chunk search failed:', err);
       return [];
@@ -1067,14 +1089,18 @@ export class DatabaseService {
 
     // ─── Fetch full chunk data ───
     const placeholders = topIds.map(() => '?').join(',');
-    const chunkRows = this.db.prepare(`
+    const chunkRows = this.db
+      .prepare(
+        `
       SELECT * FROM rag_chunks WHERE id IN (${placeholders})
-    `).all(...topIds.map(s => s.chunkId)) as RAGChunkRow[];
+    `,
+      )
+      .all(...topIds.map((s) => s.chunkId)) as RAGChunkRow[];
 
-    const chunkMap = new Map(chunkRows.map(r => [r.id, r]));
+    const chunkMap = new Map(chunkRows.map((r) => [r.id, r]));
 
     return topIds
-      .map(s => {
+      .map((s) => {
         const row = chunkMap.get(s.chunkId);
         if (!row) return null;
         return {
@@ -1128,13 +1154,11 @@ export class DatabaseService {
     if (!this.db) return 0;
     try {
       // Get chunk IDs before deleting (for vec0 cleanup)
-      const ids = this.db.prepare(
-        'SELECT id FROM rag_chunks WHERE source_folder = ?'
-      ).all(sourceFolder) as Array<{ id: string }>;
+      const ids = this.db.prepare('SELECT id FROM rag_chunks WHERE source_folder = ?').all(sourceFolder) as Array<{
+        id: string;
+      }>;
 
-      const result = this.db.prepare(
-        'DELETE FROM rag_chunks WHERE source_folder = ?'
-      ).run(sourceFolder);
+      const result = this.db.prepare('DELETE FROM rag_chunks WHERE source_folder = ?').run(sourceFolder);
 
       // Delete from vec0 table
       if (this.vec0Loaded && ids.length > 0) {
@@ -1144,7 +1168,7 @@ export class DatabaseService {
             delStmt.run(id);
           }
         });
-        tx(ids.map(r => r.id));
+        tx(ids.map((r) => r.id));
       }
 
       return result.changes;
@@ -1160,13 +1184,11 @@ export class DatabaseService {
   deleteChunksByFile(filePath: string): number {
     if (!this.db) return 0;
     try {
-      const ids = this.db.prepare(
-        'SELECT id FROM rag_chunks WHERE file_path = ?'
-      ).all(filePath) as Array<{ id: string }>;
+      const ids = this.db.prepare('SELECT id FROM rag_chunks WHERE file_path = ?').all(filePath) as Array<{
+        id: string;
+      }>;
 
-      const result = this.db.prepare(
-        'DELETE FROM rag_chunks WHERE file_path = ?'
-      ).run(filePath);
+      const result = this.db.prepare('DELETE FROM rag_chunks WHERE file_path = ?').run(filePath);
 
       if (this.vec0Loaded && ids.length > 0) {
         const delStmt = this.db.prepare('DELETE FROM rag_embeddings WHERE chunk_id = ?');
@@ -1175,7 +1197,7 @@ export class DatabaseService {
             delStmt.run(id);
           }
         });
-        tx(ids.map(r => r.id));
+        tx(ids.map((r) => r.id));
       }
 
       return result.changes;
@@ -1222,7 +1244,10 @@ export class DatabaseService {
     if (!this.db) return [];
     try {
       return this.db.prepare('SELECT * FROM rag_folders').all() as Array<{
-        folder_path: string; file_count: number; chunk_count: number; last_indexed: number;
+        folder_path: string;
+        file_count: number;
+        chunk_count: number;
+        last_indexed: number;
       }>;
     } catch {
       return [];
@@ -1235,10 +1260,14 @@ export class DatabaseService {
   upsertFolderStats(folderPath: string, fileCount: number, chunkCount: number): void {
     if (!this.db) return;
     try {
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT OR REPLACE INTO rag_folders (folder_path, file_count, chunk_count, last_indexed)
         VALUES (?, ?, ?, unixepoch())
-      `).run(folderPath, fileCount, chunkCount);
+      `,
+        )
+        .run(folderPath, fileCount, chunkCount);
     } catch (err) {
       log.error(`Failed to update folder stats for ${folderPath}:`, err);
     }
@@ -1266,9 +1295,13 @@ export class DatabaseService {
   getCachedEmbedding(contentHash: string): number[] | null {
     if (!this.db) return null;
     try {
-      const row = this.db.prepare(`
+      const row = this.db
+        .prepare(
+          `
         SELECT embedding, dimension FROM embedding_cache WHERE content_hash = ?
-      `).get(contentHash) as { embedding: Buffer; dimension: number } | undefined;
+      `,
+        )
+        .get(contentHash) as { embedding: Buffer; dimension: number } | undefined;
 
       if (!row) return null;
 
@@ -1291,10 +1324,14 @@ export class DatabaseService {
     if (!this.db) return;
     try {
       const blob = Buffer.from(new Float32Array(embedding).buffer);
-      this.db.prepare(`
+      this.db
+        .prepare(
+          `
         INSERT OR REPLACE INTO embedding_cache (content_hash, embedding, dimension, model, last_used)
         VALUES (?, ?, ?, ?, unixepoch())
-      `).run(contentHash, blob, embedding.length, model);
+      `,
+        )
+        .run(contentHash, blob, embedding.length, model);
     } catch (err) {
       log.error(`Failed to cache embedding for ${contentHash}:`, err);
     }
@@ -1349,11 +1386,15 @@ export class DatabaseService {
       if (count <= maxEntries) return 0;
 
       const toDelete = count - maxEntries;
-      const result = this.db.prepare(`
+      const result = this.db
+        .prepare(
+          `
         DELETE FROM embedding_cache WHERE content_hash IN (
           SELECT content_hash FROM embedding_cache ORDER BY last_used ASC LIMIT ?
         )
-      `).run(toDelete);
+      `,
+        )
+        .run(toDelete);
 
       log.info(`Evicted ${result.changes} old embeddings from cache (kept ${maxEntries})`);
       return result.changes;

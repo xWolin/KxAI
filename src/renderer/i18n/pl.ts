@@ -72,13 +72,11 @@ export const pl: TranslationDict = {
   'cron.category.reminder': '🔔 Przypomnienie',
   'cron.category.cleanup': '🧹 Porządki',
   'cron.category.healthCheck': '💚 Health Check',
-  'cron.actionPlaceholder':
-    'Co agent ma robić? (np. Sprawdź moje maile i podsumuj najważniejsze)',
+  'cron.actionPlaceholder': 'Co agent ma robić? (np. Sprawdź moje maile i podsumuj najważniejsze)',
   'cron.add': 'Dodaj',
   'cron.cancel': 'Anuluj',
   'cron.empty.title': 'Brak zadań cron',
-  'cron.empty.subtitle':
-    'Dodaj zadanie lub poproś agenta w czacie o stworzenie automatycznego zadania.',
+  'cron.empty.subtitle': 'Dodaj zadanie lub poproś agenta w czacie o stworzenie automatycznego zadania.',
   'cron.badge.auto': '🤖 auto',
   'cron.disable': 'Wyłącz',
   'cron.enable': 'Włącz',
@@ -111,8 +109,7 @@ export const pl: TranslationDict = {
   'settings.general.apiKeyPlaceholder': 'Wklej klucz API',
   'settings.general.proactiveSection': 'Tryb proaktywny',
   'settings.general.proactiveInterval': 'Interwał analizy ekranu (sekundy)',
-  'settings.general.proactiveHint':
-    'Co ile sekund agent analizuje ekran (min. 5s). Niższa wartość = więcej API calls.',
+  'settings.general.proactiveHint': 'Co ile sekund agent analizuje ekran (min. 5s). Niższa wartość = więcej API calls.',
   'settings.general.meetingCoach': '🎙️ Meeting Coach (Deepgram)',
   'settings.general.deepgramKey': 'Klucz API Deepgram',
   'settings.general.deepgramKeyPlaceholder': 'Wklej klucz API Deepgram',
@@ -198,8 +195,7 @@ export const pl: TranslationDict = {
   'settings.mcp.addServerAdding': '⏳ Dodawanie...',
   'settings.mcp.addServerButton': '✅ Dodaj serwer',
   'settings.mcp.registry': '📦 Rejestr integracji',
-  'settings.mcp.registryHint':
-    'Gotowe integracje MCP — 50 popularnych serwerów. Szukaj lub filtruj wg kategorii.',
+  'settings.mcp.registryHint': 'Gotowe integracje MCP — 50 popularnych serwerów. Szukaj lub filtruj wg kategorii.',
   'settings.mcp.requiresSetup': '⚙ Wymaga konfiguracji',
   'settings.mcp.alreadyAdded': 'Już dodany',
   'settings.mcp.addAndConnect': 'Dodaj i połącz',
@@ -210,8 +206,7 @@ export const pl: TranslationDict = {
 
   // SettingsPanel — Calendar
   'settings.calendar.title': '📅 Połączenia kalendarzy (CalDAV)',
-  'settings.calendar.description':
-    'Połącz kalendarze Google, iCloud, Nextcloud lub inny serwer CalDAV.',
+  'settings.calendar.description': 'Połącz kalendarze Google, iCloud, Nextcloud lub inny serwer CalDAV.',
   'settings.calendar.loading': 'Ładowanie...',
   'settings.calendar.lastSync': 'Ostatnia sync:',
   'settings.calendar.disconnect': 'Rozłącz',

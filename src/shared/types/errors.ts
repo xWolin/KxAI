@@ -151,11 +151,7 @@ export class KxAIError extends Error {
   }
 
   /** Wrap any thrown value into a KxAIError */
-  static from(
-    error: unknown,
-    code: ErrorCode = ErrorCode.UNKNOWN_ERROR,
-    context?: Record<string, unknown>,
-  ): KxAIError {
+  static from(error: unknown, code: ErrorCode = ErrorCode.UNKNOWN_ERROR, context?: Record<string, unknown>): KxAIError {
     if (error instanceof KxAIError) return error;
 
     const originalError = error instanceof Error ? error : new Error(String(error));
