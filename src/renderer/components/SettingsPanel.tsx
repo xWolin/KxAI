@@ -59,9 +59,13 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     'general',
   );
   const [folderStats, setFolderStats] = useState<RAGFolderInfo[]>([]);
-  const [ragStats, setRagStats] = useState<{ totalChunks: number; totalFiles: number; embeddingType: string } | null>(
-    null,
-  );
+  const [ragStats, setRagStats] = useState<{
+    totalChunks: number;
+    totalFiles: number;
+    embeddingType: string;
+    embeddingModel?: string;
+    embeddingDimension?: number;
+  } | null>(null);
   const [reindexing, setReindexing] = useState(false);
 
   // MCP state
@@ -701,10 +705,29 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 title={t('settings.general.embeddingModel')}
                 onChange={(e) => setEmbeddingModel(e.target.value)}
               >
-                <option value="text-embedding-3-small">{t('settings.general.embeddingModelSmall')}</option>
-                <option value="text-embedding-3-large">{t('settings.general.embeddingModelLarge')}</option>
-                <option value="text-embedding-ada-002">{t('settings.general.embeddingModelAda')}</option>
+                <option value="text-embedding-3-small">
+                  text-embedding-3-small (1536D, {t('settings.general.embeddingModelSmall')})
+                </option>
+                <option value="text-embedding-3-large">
+                  text-embedding-3-large (3072D, {t('settings.general.embeddingModelLarge')})
+                </option>
+                <option value="text-embedding-ada-002">
+                  text-embedding-ada-002 (1536D, {t('settings.general.embeddingModelAda')})
+                </option>
               </select>
+              {embeddingModel !== (config.embeddingModel || 'text-embedding-3-small') && (
+                <p className={s.warningHint}>⚠️ {t('settings.general.embeddingModelChangeWarning')}</p>
+              )}
+              {ragStats && (
+                <p className={s.hint}>
+                  {t('settings.general.embeddingCurrentInfo', {
+                    model: ragStats.embeddingModel || ragStats.embeddingType,
+                    dim: String(ragStats.embeddingDimension || '?'),
+                    chunks: String(ragStats.totalChunks),
+                    files: String(ragStats.totalFiles),
+                  })}
+                </p>
+              )}
             </div>
 
             {/* Danger zone */}

@@ -5,7 +5,7 @@ import { Worker } from 'worker_threads';
 import { app } from 'electron';
 import { SecurityService } from './security';
 import { ConfigService } from './config';
-import { DatabaseService } from './database-service';
+import { DatabaseService, getModelDimension } from './database-service';
 import { createLogger } from './logger';
 
 const log = createLogger('EmbeddingService');
@@ -89,6 +89,21 @@ export class EmbeddingService {
    */
   hasOpenAI(): boolean {
     return this.openaiClient !== null;
+  }
+
+  /**
+   * Get the currently active embedding model name.
+   */
+  getModelName(): string {
+    return this.embeddingModel;
+  }
+
+  /**
+   * Get the expected embedding dimension for the active model.
+   */
+  getEmbeddingDimension(): number {
+    if (!this.openaiClient) return 256; // TF-IDF fallback dimension
+    return getModelDimension(this.embeddingModel);
   }
 
   /**

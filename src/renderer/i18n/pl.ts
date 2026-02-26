@@ -122,9 +122,12 @@ export const pl: TranslationDict = {
   'settings.general.embeddingHint':
     'Osobny klucz OpenAI do generowania embeddingów. Jeśli pusty, użyje głównego klucza.',
   'settings.general.embeddingModel': 'Model embeddingów',
-  'settings.general.embeddingModelSmall': 'text-embedding-3-small (tani, szybki)',
-  'settings.general.embeddingModelLarge': 'text-embedding-3-large (dokładniejszy)',
-  'settings.general.embeddingModelAda': 'text-embedding-ada-002 (legacy)',
+  'settings.general.embeddingModelSmall': 'tani, szybki',
+  'settings.general.embeddingModelLarge': 'dokładniejszy',
+  'settings.general.embeddingModelAda': 'legacy',
+  'settings.general.embeddingModelChangeWarning':
+    'Zmiana modelu embeddingów wymusi pełny reindex wszystkich plików RAG przy następnym uruchomieniu. Istniejące embeddingi zostaną usunięte.',
+  'settings.general.embeddingCurrentInfo': 'Aktualnie: {model} ({dim}D) — {chunks} chunków z {files} plików',
   'settings.general.dangerZone': 'Strefa niebezpieczna',
   'settings.general.clearHistory': '🗑️ Wyczyść historię konwersacji',
   'settings.general.clearHistoryConfirm': 'Czy na pewno chcesz wyczyścić historię konwersacji?',

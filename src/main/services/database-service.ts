@@ -23,8 +23,19 @@ const log = createLogger('DatabaseService');
 const SCHEMA_VERSION = 2;
 
 // ─── Embedding dimensions ───
-const EMBEDDING_DIM_OPENAI = 1536; // text-embedding-3-small
 const EMBEDDING_DIM_TFIDF = 256; // TF-IDF fallback
+
+/** Known OpenAI embedding model dimensions (native, without `dimensions` param). */
+export const EMBEDDING_MODEL_DIMS: Record<string, number> = {
+  'text-embedding-3-small': 1536,
+  'text-embedding-3-large': 3072,
+  'text-embedding-ada-002': 1536,
+};
+
+/** Get expected dimension for a given embedding model name. Falls back to 1536. */
+export function getModelDimension(model: string): number {
+  return EMBEDDING_MODEL_DIMS[model] ?? 1536;
+}
 
 // ─── Retention defaults ───
 const DEFAULT_ARCHIVE_DAYS = 30;
@@ -100,7 +111,7 @@ export class DatabaseService {
   private dbPath: string;
   private stmtCache: Map<string, Database.Statement> = new Map();
   private vec0Loaded = false;
-  private embeddingDim: number = EMBEDDING_DIM_OPENAI;
+  private embeddingDim: number = 1536;
 
   constructor() {
     const userDataPath = app.getPath('userData');
@@ -183,7 +194,20 @@ export class DatabaseService {
     }
 
     // Future migrations go here:
-    // if (version < 3) this.migrateV3();
+    if (version < 3) this.migrateV3();
+  }
+
+  private migrateV3(): void {
+    if (!this.db) return;
+    log.info('Running migration v3: rag_metadata table');
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS rag_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
+    `);
+    this.db.exec(`INSERT INTO schema_version (version) VALUES (3);`);
+    log.info('Migration v3 complete');
   }
 
   private migrateV1(): void {
@@ -324,19 +348,25 @@ export class DatabaseService {
         chunk_count INTEGER NOT NULL DEFAULT 0,
         last_indexed INTEGER NOT NULL DEFAULT 0
       );
+
+      -- RAG metadata (embedding model, dimension, etc.)
+      CREATE TABLE IF NOT EXISTS rag_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      );
     `);
 
     // ─── sqlite-vec virtual table for vector search ───
     if (this.vec0Loaded) {
       try {
-        // vec0 table with cosine distance metric for semantic search
+        // Create vec0 with current embedding dimension (default 1536)
         this.db.exec(`
           CREATE VIRTUAL TABLE IF NOT EXISTS rag_embeddings USING vec0(
             chunk_id TEXT PRIMARY KEY,
-            embedding float[${EMBEDDING_DIM_OPENAI}] distance_metric=cosine
+            embedding float[${this.embeddingDim}] distance_metric=cosine
           );
         `);
-        log.info('Created rag_embeddings vec0 table (cosine, float[1536])');
+        log.info(`Created rag_embeddings vec0 table (cosine, float[${this.embeddingDim}])`);
       } catch (err) {
         log.error('Failed to create vec0 table:', err);
       }
@@ -615,8 +645,8 @@ export class DatabaseService {
     if (!this.db || !query.trim()) return [];
 
     try {
-      // Sanitize FTS5 query — escape special characters
-      const sanitized = query.replace(/['"*()]/g, ' ').trim();
+      // Sanitize FTS5 query — strip all special characters that FTS5 interprets
+      const sanitized = query.replace(/['"*()\-?:^~{}\[\]@#$%&+=<>!\\/|]/g, ' ').trim();
       if (!sanitized) return [];
 
       const rows = this.getStmt('searchMessages').all(sanitized, limit) as (MessageRow & { rank: number })[];
@@ -1001,7 +1031,8 @@ export class DatabaseService {
     if (!this.db || !query.trim()) return [];
 
     try {
-      const sanitized = query.replace(/['"*()]/g, ' ').trim();
+      // Sanitize FTS5 query — strip all special characters that FTS5 interprets
+      const sanitized = query.replace(/['"*()\-?:^~{}\[\]@#$%&+=<>!\\/|]/g, ' ').trim();
       if (!sanitized) return [];
 
       const rows = this.db
@@ -1222,6 +1253,74 @@ export class DatabaseService {
     } catch (err) {
       log.error('Failed to clear RAG data:', err);
     }
+  }
+
+  // ─── RAG Metadata ───
+
+  /**
+   * Get a RAG metadata value by key.
+   */
+  getRAGMeta(key: string): string | null {
+    if (!this.db) return null;
+    try {
+      // rag_metadata may not exist in old DBs — try gracefully
+      const row = this.db.prepare('SELECT value FROM rag_metadata WHERE key = ?').get(key) as
+        | { value: string }
+        | undefined;
+      return row?.value ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Set a RAG metadata value.
+   */
+  setRAGMeta(key: string, value: string): void {
+    if (!this.db) return;
+    try {
+      this.db.prepare('INSERT OR REPLACE INTO rag_metadata (key, value) VALUES (?, ?)').run(key, value);
+    } catch (err) {
+      log.error(`Failed to set RAG meta ${key}:`, err);
+    }
+  }
+
+  /**
+   * Recreate the vec0 embeddings table with a new dimension.
+   * This drops all existing embeddings — a full reindex is required.
+   */
+  recreateEmbeddingsTable(newDim: number): boolean {
+    if (!this.db || !this.vec0Loaded) return false;
+    try {
+      log.info(`Recreating rag_embeddings vec0 table: float[${this.embeddingDim}] → float[${newDim}]`);
+      this.db.exec('DROP TABLE IF EXISTS rag_embeddings');
+      this.db.exec(`
+        CREATE VIRTUAL TABLE rag_embeddings USING vec0(
+          chunk_id TEXT PRIMARY KEY,
+          embedding float[${newDim}] distance_metric=cosine
+        );
+      `);
+      this.embeddingDim = newDim;
+      log.info(`rag_embeddings recreated with float[${newDim}]`);
+      return true;
+    } catch (err) {
+      log.error('Failed to recreate embeddings table:', err);
+      return false;
+    }
+  }
+
+  /**
+   * Set the embedding dimension (used during initialization before table creation).
+   */
+  setEmbeddingDim(dim: number): void {
+    this.embeddingDim = dim;
+  }
+
+  /**
+   * Get the current embedding dimension.
+   */
+  getEmbeddingDim(): number {
+    return this.embeddingDim;
   }
 
   /**
