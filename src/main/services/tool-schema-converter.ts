@@ -69,6 +69,10 @@ function convertParamType(internalType: string): OpenAIJsonSchemaProperty {
     const itemType = internalType.slice(0, -2);
     return { type: 'array', items: { type: itemType } };
   }
+  // Bare 'array' without item type — default to object items
+  if (internalType === 'array') {
+    return { type: 'array', items: { type: 'object' } };
+  }
   return { type: internalType };
 }
 

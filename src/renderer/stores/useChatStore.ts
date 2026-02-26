@@ -23,9 +23,16 @@ interface ChatState {
 
   /** Reset streaming state (call after stream ends) */
   resetStreaming: () => void;
+
+  /**
+   * Called when onAIStream receives {done:true}.
+   * Adds the streamed message to the messages list and resets streaming state.
+   * Registered globally in useStoreInit so it persists across ChatPanel mount/unmount.
+   */
+  finalizeStream: () => void;
 }
 
-export const useChatStore = create<ChatState>((set) => ({
+export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   input: '',
   isStreaming: false,
@@ -51,4 +58,26 @@ export const useChatStore = create<ChatState>((set) => ({
   },
 
   resetStreaming: () => set({ isStreaming: false, streamingContent: '' }),
+
+  finalizeStream: () => {
+    const content = get().streamingContent;
+    if (content) {
+      set((s) => ({
+        isStreaming: false,
+        streamingContent: '',
+        messages: [
+          ...s.messages,
+          {
+            id: `stream-${Date.now()}`,
+            role: 'assistant' as const,
+            content,
+            timestamp: Date.now(),
+            type: 'chat' as const,
+          },
+        ],
+      }));
+    } else {
+      set({ isStreaming: false, streamingContent: '' });
+    }
+  },
 }));

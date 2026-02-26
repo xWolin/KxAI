@@ -29,7 +29,7 @@ export function FloatingWidget({
   const moveHandlerRef = useRef<((ev: MouseEvent) => void) | null>(null);
   const upHandlerRef = useRef<(() => void) | null>(null);
 
-  // Cleanup drag listeners on unmount + restore click-through
+  // Cleanup drag listeners on unmount
   useEffect(() => {
     return () => {
       if (moveHandlerRef.current) {
@@ -38,8 +38,6 @@ export function FloatingWidget({
       if (upHandlerRef.current) {
         window.removeEventListener('mouseup', upHandlerRef.current);
       }
-      // Restore click-through when widget unmounts (e.g. switching to chat view)
-      window.kxai.setClickThrough(false);
     };
   }, []);
 
@@ -104,17 +102,9 @@ export function FloatingWidget({
         ? t('widget.titleWantsToSpeak', { name })
         : t('widget.titleDefault', { name });
 
-  // ─── Click-through toggle: disable when hovering widget, enable when leaving ───
-  const handleMouseEnter = useCallback(() => {
-    window.kxai.setClickThrough(false);
-  }, []);
-
-  const handleMouseLeave = useCallback(() => {
-    // Don't re-enable click-through during drag — mouse can leave widget area
-    if (!isDragging.current) {
-      window.kxai.setClickThrough(true);
-    }
-  }, []);
+  // ─── No click-through needed — window is exactly widget-sized (68x68) ───
+  const handleMouseEnter = useCallback(() => {}, []);
+  const handleMouseLeave = useCallback(() => {}, []);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {

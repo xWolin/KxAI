@@ -288,6 +288,11 @@ export class AgentLoop {
     this.proactiveEngine = engine;
   }
 
+  /** Returns true if the agent is currently processing a user message. Used by ReflectionEngine. */
+  isCurrentlyProcessing(): boolean {
+    return this.isProcessing;
+  }
+
   /**
    * Set callback for heartbeat/AFK results (so they can be sent to UI).
    */

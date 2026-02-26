@@ -15,6 +15,22 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
   const { t } = useTranslation();
   const [isSpeaking, setIsSpeaking] = useState(false);
 
+  // Icon and label depend on the message type so the user knows the source
+  const typeConfig: Record<string, { icon: string; labelKey: string }> = {
+    heartbeat: { icon: '🤖', labelKey: 'proactive.labelAutonomous' },
+    reflection: { icon: '🪞', labelKey: 'proactive.labelReflection' },
+    'screen-analysis': { icon: '💡', labelKey: 'proactive.labelObservation' },
+    'meeting-reminder': { icon: '📅', labelKey: 'proactive.labelReminder' },
+    'low-battery': { icon: '🔋', labelKey: 'proactive.labelSystem' },
+    'disk-full': { icon: '💾', labelKey: 'proactive.labelSystem' },
+    'high-cpu': { icon: '⚡', labelKey: 'proactive.labelSystem' },
+    'no-network': { icon: '📡', labelKey: 'proactive.labelSystem' },
+    'high-memory': { icon: '🧠', labelKey: 'proactive.labelSystem' },
+    'daily-briefing': { icon: '☀️', labelKey: 'proactive.labelBriefing' },
+    'evening-summary': { icon: '🌙', labelKey: 'proactive.labelBriefing' },
+  };
+  const { icon, labelKey } = typeConfig[message.type] || { icon: '💡', labelKey: 'proactive.label' };
+
   const sendFeedback = (action: 'accepted' | 'dismissed' | 'replied') => {
     if (message.ruleId) {
       window.kxai?.sendProactiveFeedback(message.ruleId, action).catch(() => {});
@@ -52,8 +68,8 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
       {/* Header */}
       <div className={s.header}>
         <div className={s.headerLeft}>
-          <span>💡</span>
-          <span className={s.label}>{t('proactive.label')}</span>
+          <span>{icon}</span>
+          <span className={s.label}>{t(labelKey)}</span>
         </div>
         <button onClick={handleDismiss} className={s.close} aria-label="Close">
           ✕

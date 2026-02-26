@@ -1,8 +1,8 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import { systemPreferences } from 'electron';
+import { systemPreferences, screen } from 'electron';
 
 const MAX_COORD = 32767; // Safe maximum screen coordinate
 
@@ -98,10 +98,10 @@ export class AutomationService {
             `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${sx}, ${sy})`,
         );
       } else if (this.platform === 'darwin') {
-        // macOS: use Python + Quartz CoreGraphics for real HID mouse move
-        // Requires: pyobjc-framework-Quartz + Accessibility permission
-        const pyScript = `import Quartz; Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, (${sx}, ${sy}), Quartz.kCGMouseButtonLeft))`;
-        return this.runCommand(`python3 -c "${pyScript.replace(/"/g, '\\"')}"`);
+        // macOS: use JXA (JavaScript for Automation) + CoreGraphics — no external deps
+        // Script piped via stdin to avoid shell injection
+        const jxa = `ObjC.import('CoreGraphics'); $.CGWarpMouseCursorPosition({x: ${sx}, y: ${sy}})`;
+        return this.runOsascriptViaStdin(jxa);
       } else {
         return this.runCommand(`xdotool mousemove ${sx} ${sy}`);
       }
@@ -109,6 +109,10 @@ export class AutomationService {
   }
 
   async mouseClick(x?: number, y?: number, button: 'left' | 'right' | 'middle' = 'left'): Promise<AutomationResult> {
+    // Validate button value (defense against unexpected runtime values from AI tool calls)
+    if (!['left', 'right', 'middle'].includes(button)) {
+      return { success: false, error: `Nieznany przycisk myszy: '${String(button)}'. Dozwolone: left, right, middle.` };
+    }
     if (x !== undefined && y !== undefined) {
       const check = this.validateCoords(x, y);
       if (!check.valid) return { success: false, error: check.error! };
@@ -139,15 +143,42 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
             `$mouse::mouse_event(${upFlag}, 0, 0, 0, 0)`,
         );
       } else if (this.platform === 'darwin') {
-        // macOS: use cliclick for coordinate-based clicking (brew install cliclick)
-        if (sx !== undefined && sy !== undefined) {
-          const btn = button === 'right' ? 'rc' : button === 'middle' ? 'mc' : 'c';
-          return this.runCommand(`cliclick ${btn}:${sx},${sy}`);
-        } else {
-          // Click at current position
-          const btn = button === 'right' ? 'rc' : button === 'middle' ? 'mc' : 'c';
-          return this.runCommand(`cliclick ${btn}:.`);
-        }
+        // macOS: use JXA (JavaScript for Automation) + CoreGraphics — no external deps
+        // Supports left, right, and middle mouse buttons via CGEvent API
+        const clickType =
+          button === 'right'
+            ? 'kCGEventRightMouseDown'
+            : button === 'middle'
+              ? 'kCGEventOtherMouseDown'
+              : 'kCGEventLeftMouseDown';
+        const clickUpType =
+          button === 'right'
+            ? 'kCGEventRightMouseUp'
+            : button === 'middle'
+              ? 'kCGEventOtherMouseUp'
+              : 'kCGEventLeftMouseUp';
+        const btnConst =
+          button === 'right'
+            ? 'kCGMouseButtonRight'
+            : button === 'middle'
+              ? 'kCGMouseButtonCenter'
+              : 'kCGMouseButtonLeft';
+        const pos =
+          sx !== undefined && sy !== undefined ? `{x: ${sx}, y: ${sy}}` : '$.CGEventGetLocation($.CGEventCreate(null))';
+        const jxa = [
+          `ObjC.import('CoreGraphics')`,
+          `var p = ${pos}`,
+          sx !== undefined ? `$.CGWarpMouseCursorPosition(p)` : '',
+          `var down = $.CGEventCreateMouseEvent(null, $.${clickType}, p, $.${btnConst})`,
+          `$.CGEventPost($.kCGHIDEventTap, down)`,
+          `delay(0.05)`,
+          `var up = $.CGEventCreateMouseEvent(null, $.${clickUpType}, p, $.${btnConst})`,
+          `$.CGEventPost($.kCGHIDEventTap, up)`,
+        ]
+          .filter(Boolean)
+          .join('; ');
+        // Script piped via stdin to avoid shell injection
+        return this.runOsascriptViaStdin(jxa);
       } else {
         const moveCmd = sx !== undefined && sy !== undefined ? `xdotool mousemove ${sx} ${sy} && ` : '';
         const btn = button === 'right' ? '3' : button === 'middle' ? '2' : '1';
@@ -223,7 +254,13 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         }
         const using = modifiers.length > 0 ? ` using {${modifiers.join(', ')}}` : '';
         const key = keyParts[0] || '';
-        return this.runCommand(`osascript -e 'tell application "System Events" to keystroke "${key}"${using}'`);
+        // Escape special chars to prevent malformed AppleScript
+        const escapedKey = key.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+        // Script piped via stdin to avoid shell injection
+        return this.runOsascriptViaStdin(
+          `tell application "System Events" to keystroke "${escapedKey}"${using}`,
+          'AppleScript',
+        );
       } else {
         const xdotoolKeys = keys.map((k) => {
           const map: Record<string, string> = {
@@ -257,7 +294,8 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         );
       } else if (this.platform === 'darwin') {
         const keyCode = this.keyToMacKeyCode(key);
-        return this.runCommand(`osascript -e 'tell application "System Events" to key code ${keyCode}'`);
+        // Script piped via stdin to avoid shell injection
+        return this.runOsascriptViaStdin(`tell application "System Events" to key code ${keyCode}`, 'AppleScript');
       } else {
         const xKey = this.keyToXdotool(key);
         return this.runCommand(`xdotool key ${xKey}`);
@@ -306,13 +344,10 @@ public class Win32Window {
         const [x, y] = result.trim().split(',').map(Number);
         return { x: x || 0, y: y || 0 };
       } else if (this.platform === 'darwin') {
-        // macOS: get mouse position via Python + Quartz CoreGraphics
+        // macOS: use Electron's cross-platform screen API — no external deps
         try {
-          const result = await this.runCommandRaw(
-            `python3 -c "import Quartz; e = Quartz.CGEventCreate(None); p = Quartz.CGEventGetLocation(e); print(f'{int(p.x)},{int(p.y)}')"`,
-          );
-          const [x, y] = result.trim().split(',').map(Number);
-          return { x: x || 0, y: y || 0 };
+          const point = screen.getCursorScreenPoint();
+          return { x: point.x, y: point.y };
         } catch {
           return { x: 0, y: 0 };
         }
@@ -398,6 +433,37 @@ public class Win32Window {
         if (error) reject(error);
         else resolve(stdout);
       });
+    });
+  }
+
+  /**
+   * Run osascript via stdin pipe — avoids shell injection from string interpolation.
+   * Script content is piped to osascript's stdin instead of passed via -e flag.
+   */
+  private runOsascriptViaStdin(
+    script: string,
+    language: 'JavaScript' | 'AppleScript' = 'JavaScript',
+  ): Promise<AutomationResult> {
+    return new Promise((resolve) => {
+      const child = spawn('osascript', ['-l', language], {
+        timeout: 10000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
+      child.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+      child.on('close', (code) => {
+        if (code !== 0) resolve({ success: false, error: stderr.trim() || `osascript exited with code ${code}` });
+        else resolve({ success: true, data: stdout.trim() || 'OK' });
+      });
+      child.on('error', (err) => resolve({ success: false, error: err.message }));
+      child.stdin.write(script);
+      child.stdin.end();
     });
   }
 

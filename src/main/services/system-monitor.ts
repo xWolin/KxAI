@@ -217,7 +217,7 @@ export class SystemMonitor {
       // df -B1 outputs bytes; df -k outputs kilobytes (macOS/BSD fallback)
       const isWin = process.platform === 'win32';
       const dfCmd = 'df -B1 --output=target,size,avail 2>/dev/null';
-      const dfFallback = 'df -k';
+      const dfFallback = 'df -Pk'; // -P for POSIX format (consistent columns across macOS/Linux)
       let unitMultiplier = 1; // bytes by default
 
       let result: string;
@@ -271,28 +271,42 @@ export class SystemMonitor {
         }
       }
     } else {
-      // Parse df output — unitMultiplier converts to bytes (1 for -B1, 1024 for -k)
+      // Parse df output — unitMultiplier converts to bytes (1 for -B1, 1024 for -k/-Pk)
       const lines = output
         .trim()
         .split('\n')
         .filter((l) => l.trim());
       for (const line of lines.slice(1)) {
         const parts = line.trim().split(/\s+/);
-        if (parts.length >= 3) {
-          const mount = parts[0];
-          const rawSize = parseInt(parts[1], 10);
-          const rawAvail = parseInt(parts[2], 10);
-          if (mount && rawSize > 0 && mount.startsWith('/')) {
-            const totalBytes = rawSize * unitMultiplier;
-            const freeBytes = rawAvail * unitMultiplier;
-            disks.push({
-              mount,
-              totalGB: totalBytes / 1024 ** 3,
-              usedGB: (totalBytes - freeBytes) / 1024 ** 3,
-              freeGB: freeBytes / 1024 ** 3,
-              usagePercent: ((totalBytes - freeBytes) / totalBytes) * 100,
-            });
-          }
+
+        let mount: string;
+        let rawSize: number;
+        let rawAvail: number;
+
+        if (parts.length >= 6) {
+          // Standard df -Pk output: Filesystem 1K-blocks Used Available Capacity% Mounted-on
+          mount = parts.slice(5).join(' ');
+          rawSize = parseInt(parts[1], 10);
+          rawAvail = parseInt(parts[3], 10);
+        } else if (parts.length >= 3) {
+          // df --output=target,size,avail (3 columns, Linux only)
+          mount = parts[0];
+          rawSize = parseInt(parts[1], 10);
+          rawAvail = parseInt(parts[2], 10);
+        } else {
+          continue;
+        }
+
+        if (mount && rawSize > 0 && mount.startsWith('/')) {
+          const totalBytes = rawSize * unitMultiplier;
+          const freeBytes = rawAvail * unitMultiplier;
+          disks.push({
+            mount,
+            totalGB: totalBytes / 1024 ** 3,
+            usedGB: (totalBytes - freeBytes) / 1024 ** 3,
+            freeGB: freeBytes / 1024 ** 3,
+            usagePercent: ((totalBytes - freeBytes) / totalBytes) * 100,
+          });
         }
       }
     }

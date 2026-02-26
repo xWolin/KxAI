@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { KxAIConfig, ProactiveMessage } from '../types';
+import { useNavigationStore } from './useNavigationStore';
 
 interface ConfigState {
   config: KxAIConfig | null;
@@ -66,7 +67,15 @@ export const useConfigStore = create<ConfigState>((set, get) => ({
     // Auto-dismiss after 15s
     const id = msgWithId.id;
     setTimeout(() => {
-      set((s) => ({ proactiveMessages: s.proactiveMessages.filter((m) => m.id !== id) }));
+      const remaining = get().proactiveMessages.filter((m) => m.id !== id);
+      set({ proactiveMessages: remaining });
+      // Shrink window back if we're in widget view and no more notifications
+      if (remaining.length === 0) {
+        const currentView = useNavigationStore.getState().view;
+        if (currentView === 'widget') {
+          window.kxai.setWindowSize(68, 68);
+        }
+      }
     }, 15000);
   },
 

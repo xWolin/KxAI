@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import type { ConversationMessage, KxAIConfig } from '../types';
-import { useAgentStore } from '../stores';
+import { useAgentStore, useChatStore } from '../stores';
 import s from './ChatPanel.module.css';
 import { cn } from '../utils/cn';
 import { useTranslation } from '../i18n';
@@ -122,7 +122,6 @@ interface ChatPanelProps {
   onOpenSettings: () => void;
   onOpenCron: () => void;
   onOpenMeeting: () => void;
-  onOpenDashboard: () => void;
   refreshTrigger?: number;
 }
 
@@ -132,18 +131,29 @@ export function ChatPanel({
   onOpenSettings,
   onOpenCron,
   onOpenMeeting,
-  onOpenDashboard,
   refreshTrigger,
 }: ChatPanelProps) {
-  const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  // ─── Local UI state (not persisted across panel open/close) ───
   const [input, setInput] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [streamingContent, setStreamingContent] = useState('');
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [highlighterReady, setHighlighterReady] = useState(false);
-  const [screenshotPreviews, setScreenshotPreviews] = useState<Record<string, string>>({});
+  const [screenshotPreviews, setScreenshotPreviews] = useState<Record<string, string[]>>({});
   const [isDragging, setIsDragging] = useState(false);
+
+  // ─── Chat state from global store — persists while panel is closed ───
+  // When the user presses Esc/X during an ongoing tool loop, streaming
+  // state stays alive in the store and is visible again on next open.
+  const {
+    messages,
+    isStreaming,
+    streamingContent,
+    addMessage,
+    setMessages: storeSetMessages,
+    setStreaming,
+    setStreamingContent: storeSetStreamingContent,
+    clearHistory,
+  } = useChatStore();
 
   // Agent status & RAG progress from global store (subscribed in useStoreInit)
   const agentStatus = useAgentStore((s) => s.agentStatus);
@@ -154,59 +164,35 @@ export function ChatPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
 
-  // Keep a ref to streaming content so the onAIStream callback can read the latest value
-  const streamingContentRef = useRef('');
-
   useEffect(() => {
     loadHistory();
     loadProactiveMode();
     initHighlighter().then(() => setHighlighterReady(true));
-
-    // Listen for streaming chunks
-    const cleanup = window.kxai.onAIStream((data) => {
-      if (data.takeControlStart) {
-        // Take-control mode starting — open a new stream to show output
-        setIsStreaming(true);
-        setStreamingContent(data.chunk || '');
-        streamingContentRef.current = data.chunk || '';
-        return;
-      }
-      if (data.done) {
-        // Capture the streamed content before clearing
-        const finalContent = streamingContentRef.current;
-        setIsStreaming(false);
-        setStreamingContent('');
-        streamingContentRef.current = '';
-
-        if (finalContent) {
-          // Immediately add the AI response to local state
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `stream-${Date.now()}`,
-              role: 'assistant' as const,
-              content: finalContent,
-              timestamp: Date.now(),
-              type: 'chat' as const,
-            },
-          ]);
-        }
-        // NOTE: Do NOT call loadHistory() here!
-        // It would overwrite locally-added error messages.
-        // Syncing with backend happens in sendMessage/captureAndAnalyze on success.
-      } else if (data.chunk) {
-        setStreamingContent((prev) => {
-          const updated = prev + data.chunk;
-          streamingContentRef.current = updated;
-          return updated;
-        });
-      }
-    });
-
-    return () => {
-      cleanup();
-    };
+    // onAIStream is now registered globally in useStoreInit — it persists
+    // across ChatPanel mount/unmount so progress is never lost.
   }, []);
+
+  // Remap screenshot preview IDs when messages change (optimistic opt-* → real backend IDs)
+  useEffect(() => {
+    setScreenshotPreviews((prev) => {
+      const oldKeys = Object.keys(prev);
+      if (oldKeys.length === 0) return prev;
+      const analysisMessages = messages.filter((m: ConversationMessage) => m.type === 'analysis' && m.role === 'user');
+      const newPreviews: Record<string, string[]> = {};
+      for (const oldKey of oldKeys) {
+        if (messages.some((m: ConversationMessage) => m.id === oldKey)) {
+          newPreviews[oldKey] = prev[oldKey];
+          continue;
+        }
+        const mapped = new Set(Object.keys(newPreviews));
+        const match = analysisMessages.find((m: ConversationMessage) => !mapped.has(m.id));
+        if (match) {
+          newPreviews[match.id] = prev[oldKey];
+        }
+      }
+      return Object.keys(newPreviews).length > 0 ? newPreviews : prev;
+    });
+  }, [messages]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -221,7 +207,8 @@ export function ChatPanel({
 
   async function loadHistory() {
     const history = await window.kxai.getConversationHistory();
-    setMessages(history);
+    storeSetMessages(history);
+    // Screenshot preview ID remap is handled by the useEffect([messages]) above.
   }
 
   async function loadProactiveMode() {
@@ -234,8 +221,8 @@ export function ChatPanel({
 
     const userMessage = input.trim();
     setInput('');
-    setIsStreaming(true);
-    setStreamingContent('');
+    setStreaming(true);
+    storeSetStreamingContent('');
 
     // Optimistically add user message for instant feedback
     const optimisticMsg: ConversationMessage = {
@@ -245,39 +232,33 @@ export function ChatPanel({
       timestamp: Date.now(),
       type: 'chat',
     };
-    setMessages((prev) => [...prev, optimisticMsg]);
+    addMessage(optimisticMsg);
 
     try {
       const result = await window.kxai.streamMessage(userMessage);
       // Safety: ensure streaming is always reset after IPC completes
-      setIsStreaming(false);
+      setStreaming(false);
       if (result.success) {
         // Sync with backend to get real IDs (replaces optimistic msg + stream msg)
         await loadHistory();
       } else {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now().toString(),
-            role: 'assistant',
-            content: t('chat.error.generic', { error: result.error || t('chat.error.sendFailed') }),
-            timestamp: Date.now(),
-            type: 'chat',
-          },
-        ]);
-      }
-    } catch (error: any) {
-      setIsStreaming(false);
-      setMessages((prev) => [
-        ...prev,
-        {
+        addMessage({
           id: Date.now().toString(),
           role: 'assistant',
-          content: t('chat.error.generic', { error: error.message || t('chat.error.sendFailed') }),
+          content: t('chat.error.generic', { error: result.error || t('chat.error.sendFailed') }),
           timestamp: Date.now(),
           type: 'chat',
-        },
-      ]);
+        });
+      }
+    } catch (error: any) {
+      setStreaming(false);
+      addMessage({
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: t('chat.error.generic', { error: error.message || t('chat.error.sendFailed') }),
+        timestamp: Date.now(),
+        type: 'chat',
+      });
     }
   }
 
@@ -288,16 +269,15 @@ export function ChatPanel({
   }
 
   async function captureAndAnalyze() {
-    setIsStreaming(true);
-    setStreamingContent('');
-    streamingContentRef.current = '';
+    setStreaming(true);
+    storeSetStreamingContent('');
 
-    // Capture screenshot for preview thumbnail
-    let previewUrl: string | undefined;
+    // Capture screenshot for preview thumbnails (all monitors)
+    let previewUrls: string[] = [];
     try {
       const capture = await window.kxai.captureScreen();
-      if (capture.success && capture.data?.[0]?.base64) {
-        previewUrl = capture.data[0].base64;
+      if (capture.success && capture.data?.length) {
+        previewUrls = capture.data.map((d: any) => d.base64).filter(Boolean);
       }
     } catch {
       /* screenshot capture may fail */
@@ -312,43 +292,37 @@ export function ChatPanel({
       timestamp: Date.now(),
       type: 'analysis',
     };
-    setMessages((prev) => [...prev, screenshotMsg]);
+    addMessage(screenshotMsg);
 
-    // Store preview thumbnail
-    if (previewUrl) {
-      setScreenshotPreviews((prev) => ({ ...prev, [msgId]: previewUrl! }));
+    // Store preview thumbnails (all monitors)
+    if (previewUrls.length > 0) {
+      setScreenshotPreviews((prev) => ({ ...prev, [msgId]: previewUrls }));
     }
 
     try {
       const result = await window.kxai.streamWithScreen(t('chat.screenshot.prompt'));
       // Safety: always reset streaming state after IPC completes
-      setIsStreaming(false);
+      setStreaming(false);
       if (result.success) {
         // Sync with backend to get real IDs
         await loadHistory();
       } else {
-        setIsStreaming(false);
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: Date.now().toString(),
-            role: 'assistant',
-            content: t('chat.error.screenshotFailed', { error: result.error ?? '' }),
-            timestamp: Date.now(),
-          },
-        ]);
-      }
-    } catch (error: any) {
-      setIsStreaming(false);
-      setMessages((prev) => [
-        ...prev,
-        {
+        setStreaming(false);
+        addMessage({
           id: Date.now().toString(),
           role: 'assistant',
-          content: t('chat.error.screenshotFailed', { error: error.message }),
+          content: t('chat.error.screenshotFailed', { error: result.error ?? '' }),
           timestamp: Date.now(),
-        },
-      ]);
+        });
+      }
+    } catch (error: any) {
+      setStreaming(false);
+      addMessage({
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: t('chat.error.screenshotFailed', { error: error.message }),
+        timestamp: Date.now(),
+      });
     }
   }
 
@@ -392,7 +366,7 @@ export function ChatPanel({
         e.preventDefault();
         if (isStreaming) {
           window.kxai.agentStop();
-          setIsStreaming(false);
+          setStreaming(false);
         }
         return;
       }
@@ -400,9 +374,7 @@ export function ChatPanel({
       // Ctrl+Shift+Backspace — clear chat
       if (ctrl && e.shiftKey && e.key === 'Backspace') {
         e.preventDefault();
-        window.kxai.clearConversationHistory().then(() => {
-          setMessages([]);
-        });
+        clearHistory();
         return;
       }
     }
@@ -459,9 +431,8 @@ export function ChatPanel({
 
     // Send as a regular chat message
     setInput('');
-    setIsStreaming(true);
-    setStreamingContent('');
-    streamingContentRef.current = '';
+    setStreaming(true);
+    storeSetStreamingContent('');
 
     const userMsg: ConversationMessage = {
       id: `opt-${Date.now()}`,
@@ -470,25 +441,22 @@ export function ChatPanel({
       timestamp: Date.now(),
       type: 'chat',
     };
-    setMessages((prev) => [...prev, userMsg]);
+    addMessage(userMsg);
 
     try {
       const result = await window.kxai.streamMessage(message);
-      setIsStreaming(false);
+      setStreaming(false);
       if (result.success) {
         await loadHistory();
       }
     } catch (error: any) {
-      setIsStreaming(false);
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: t('chat.error.generic', { error: error.message }),
-          timestamp: Date.now(),
-        },
-      ]);
+      setStreaming(false);
+      addMessage({
+        id: Date.now().toString(),
+        role: 'assistant',
+        content: t('chat.error.generic', { error: error.message }),
+        timestamp: Date.now(),
+      });
     }
   }
 
@@ -576,8 +544,13 @@ export function ChatPanel({
     setIsRecording(false);
   }
 
-  function openDashboard() {
-    onOpenDashboard();
+  async function openDashboard() {
+    try {
+      const url = await window.kxai.getDashboardUrl();
+      window.open(url, '_blank');
+    } catch (err) {
+      console.error('Failed to open dashboard:', err);
+    }
   }
 
   function formatTime(timestamp: number): string {
@@ -755,13 +728,18 @@ export function ChatPanel({
         {messages.map((msg) => (
           <div key={msg.id} className={cn('fade-in', msg.role === 'user' ? s.msgUser : s.msgAssistant)}>
             <div className={msg.role === 'user' ? s.bubbleUser : s.bubbleAssistant}>
-              {msg.type === 'analysis' && screenshotPreviews[msg.id] && (
-                <img
-                  src={screenshotPreviews[msg.id]}
-                  alt={t('chat.screenshot.preview')}
-                  className={s.screenshotPreview}
-                  loading="lazy"
-                />
+              {msg.type === 'analysis' && screenshotPreviews[msg.id]?.length > 0 && (
+                <div className={s.screenshotPreviewContainer}>
+                  {screenshotPreviews[msg.id].map((url, idx) => (
+                    <img
+                      key={idx}
+                      src={url}
+                      alt={`${t('chat.screenshot.preview')} ${idx + 1}`}
+                      className={s.screenshotPreview}
+                      loading="lazy"
+                    />
+                  ))}
+                </div>
               )}
               {msg.role === 'assistant' ? (
                 <MessageContent content={msg.content} highlighterReady={highlighterReady} />
@@ -820,7 +798,7 @@ export function ChatPanel({
             <button
               onClick={async () => {
                 await window.kxai.agentStop();
-                setIsStreaming(false);
+                setStreaming(false);
               }}
               title={t('chat.stopAgent')}
               aria-label={t('chat.stopAgent')}

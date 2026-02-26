@@ -93,6 +93,11 @@ contextBridge.exposeInMainWorld('kxai', {
     ipcRenderer.invoke(Ch.PROACTIVE_FEEDBACK, { ruleId, action }),
   getProactiveStats: () => ipcRenderer.invoke(Ch.PROACTIVE_GET_STATS),
 
+  // Reflection engine
+  reflectionTrigger: (type?: string) => ipcRenderer.invoke(Ch.REFLECTION_TRIGGER, type || 'manual'),
+  reflectionGetStatus: () => ipcRenderer.invoke(Ch.REFLECTION_GET_STATUS),
+  reflectionSetInterval: (ms: number) => ipcRenderer.invoke(Ch.REFLECTION_SET_INTERVAL, ms),
+
   // Cron jobs
   getCronJobs: () => ipcRenderer.invoke(Ch.CRON_GET_JOBS),
   addCronJob: (job: any) => ipcRenderer.invoke(Ch.CRON_ADD_JOB, job),
@@ -396,4 +401,7 @@ contextBridge.exposeInMainWorld('kxai', {
   kgDeleteRelation: (id: string) => ipcRenderer.invoke(Ch.KG_DELETE_RELATION, id),
   kgGetGraph: (entityId?: string, depth?: number) => ipcRenderer.invoke(Ch.KG_GET_GRAPH, entityId, depth),
   kgGetStats: () => ipcRenderer.invoke(Ch.KG_GET_STATS),
+
+  // App version (injected at build time via npm_package_version)
+  appVersion: process.env['npm_package_version'] ?? '',
 });

@@ -40,16 +40,67 @@
   letter-spacing: 0.02em;
 }
 
-.tabs {
+.tabsWrap {
   display: flex;
+  align-items: center;
+  gap: 6px;
   padding: 8px;
-  gap: 4px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border);
 }
 
-.tab {
+.tabsScrollBtn {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  font-size: 14px;
+  transition: var(--transition);
+  flex-shrink: 0;
+}
+
+.tabsScrollBtn:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-color: var(--border-bright);
+  background: var(--glass);
+}
+
+.tabsScrollBtn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.tabsScroller {
   flex: 1;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-bright) transparent;
+}
+
+.tabsScroller::-webkit-scrollbar {
+  height: 6px;
+}
+
+.tabsScroller::-webkit-scrollbar-thumb {
+  background: var(--border-bright);
+  border-radius: 999px;
+}
+
+.tabs {
+  display: flex;
+  width: max-content;
+  min-width: 100%;
+  gap: 6px;
+}
+
+.tab {
+  flex: 0 0 auto;
   padding: 8px;
   background: transparent;
   border: 1px solid transparent;
@@ -59,6 +110,7 @@
   font-weight: 500;
   border-radius: var(--radius-xs);
   transition: var(--transition);
+  white-space: nowrap;
 }
 
 .tab:hover {
@@ -79,7 +131,13 @@
   padding: 16px;
 }
 
-.section { margin-bottom: 20px; }
+.section {
+  margin-bottom: 16px;
+  padding: 14px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+}
 
 .sectionTitle {
   font-size: 12px;
@@ -172,6 +230,44 @@
   font-size: 11px;
   color: var(--text-muted);
   margin-bottom: 12px;
+}
+
+.toggleRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-primary);
+}
+
+.toggleMeta {
+  flex: 1;
+  min-width: 0;
+}
+
+.toggleMeta .hint {
+  margin-bottom: 0;
+}
+
+.toggleTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.warningHint {
+  font-size: 11px;
+  color: var(--warning, #f59e0b);
+  margin-bottom: 12px;
+  padding: 6px 8px;
+  background: rgba(245, 158, 11, 0.1);
+  border-radius: 4px;
+  border-left: 3px solid var(--warning, #f59e0b);
 }
 
 .desc {
@@ -306,6 +402,10 @@
   line-height: 1.5;
 }
 
+.textareaCompact {
+  min-height: 120px;
+}
+
 /* ── MCP Tab ── */
 
 .mcpServerItem {
@@ -350,6 +450,14 @@
   text-overflow: ellipsis;
 }
 
+.mcpServerTransport {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
 .mcpServerActions {
   display: flex;
   align-items: center;
@@ -376,6 +484,27 @@
 
 .mcpBtnSmall:disabled {
   opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.mcpBtnPrimary {
+  background: linear-gradient(135deg, rgba(0, 240, 255, 0.2), rgba(0, 240, 255, 0.1));
+  border: 1px solid rgba(0, 240, 255, 0.3);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+.mcpBtnPrimary:hover:not(:disabled) {
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+.mcpBtnPrimary:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
@@ -594,4 +723,10 @@
   padding: 24px 12px;
   color: var(--text-secondary);
   font-size: 12px;
+}
+
+.mcpLoading {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
 }

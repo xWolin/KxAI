@@ -1,9 +1,9 @@
-﻿import * as fs from 'fs';
+import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { EmbeddingService } from './embedding-service';
 import { ConfigService } from './config';
-import { DatabaseService } from './database-service';
+import { DatabaseService, getModelDimension } from './database-service';
 import type { HybridSearchResult } from './database-service';
 import { FileIntelligenceService } from './file-intelligence';
 import { createLogger } from './logger';
@@ -176,21 +176,69 @@ export class RAGService {
   }
 
   /**
-   * Initialize RAG — migrate legacy index if needed, or build new one.
+   * Initialize RAG — check embedding model, migrate if needed, build index.
    */
   async initialize(): Promise<void> {
     // Migrate legacy index.json to SQLite (one-time)
     this.migrateLegacyIndex();
 
+    // ─── Embedding model change detection ───
+    const needsReindex = this.checkEmbeddingModelChange();
+
     // Check if we have indexed data in SQLite
     const chunkCount = this.dbService.getRAGChunkCount();
-    if (chunkCount > 0) {
+    if (needsReindex && chunkCount > 0) {
+      log.info('Embedding model changed — clearing old embeddings and reindexing...');
+      this.dbService.clearRAGData();
+      await this.reindex();
+    } else if (chunkCount > 0) {
       this.indexed = true;
       log.info(`Loaded ${chunkCount} chunks from SQLite`);
     } else {
       await this.reindex();
     }
     this.startWatchers();
+  }
+
+  /**
+   * Check if the embedding model changed since last index.
+   * If so, recreate the vec0 table with the correct dimension.
+   * Returns true if reindex is needed.
+   */
+  private checkEmbeddingModelChange(): boolean {
+    const currentModel = this.embeddingService.getModelName();
+    const currentDim = this.embeddingService.getEmbeddingDimension();
+    const savedModel = this.dbService.getRAGMeta('embedding_model');
+    const savedDim = this.dbService.getRAGMeta('embedding_dim');
+
+    // Always ensure database service has the correct dimension first
+    this.dbService.setEmbeddingDim(currentDim);
+
+    // First run — store current model info and ensure vec0 table matches
+    if (!savedModel) {
+      this.dbService.setRAGMeta('embedding_model', currentModel);
+      this.dbService.setRAGMeta('embedding_dim', String(currentDim));
+      // Vec0 table may already exist with default 1536 dim — recreate if needed
+      this.dbService.recreateEmbeddingsTable(currentDim);
+      return false;
+    }
+
+    const savedDimNum = savedDim ? parseInt(savedDim, 10) : 1536;
+
+    // Model or dimension changed
+    if (savedModel !== currentModel || savedDimNum !== currentDim) {
+      log.warn(
+        `Embedding model changed: ${savedModel} (${savedDimNum}D) → ${currentModel} (${currentDim}D). Rebuilding vector index...`,
+      );
+      // Recreate vec0 table with new dimension
+      this.dbService.recreateEmbeddingsTable(currentDim);
+      // Update metadata
+      this.dbService.setRAGMeta('embedding_model', currentModel);
+      this.dbService.setRAGMeta('embedding_dim', String(currentDim));
+      return true;
+    }
+
+    return false;
   }
 
   // --- Indexed Folders Management ---
@@ -734,6 +782,8 @@ export class RAGService {
     totalFiles: number;
     indexed: boolean;
     embeddingType: 'openai' | 'tfidf';
+    embeddingModel: string;
+    embeddingDimension: number;
     folders: IndexedFolderInfo[];
     vectorSearchAvailable: boolean;
   } {
@@ -744,6 +794,8 @@ export class RAGService {
       totalFiles,
       indexed: this.indexed,
       embeddingType: this.embeddingService.hasOpenAI() ? 'openai' : 'tfidf',
+      embeddingModel: this.embeddingService.getModelName(),
+      embeddingDimension: this.embeddingService.getEmbeddingDimension(),
       folders,
       vectorSearchAvailable: this.dbService.hasVectorSearch(),
     };

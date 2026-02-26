@@ -37,12 +37,13 @@
     "changelog": "node scripts/generate-changelog.js",
     "changelog:latest": "node scripts/generate-changelog.js --latest",
     "release": "npm run preflight && npm run changelog && git add CHANGELOG.md && npm version",
-    "release:patch": "npm run preflight && npm run changelog && git add CHANGELOG.md && npm version patch -m \"release: v%s\"",
-    "release:minor": "npm run preflight && npm run changelog && git add CHANGELOG.md && npm version minor -m \"release: v%s\"",
-    "release:major": "npm run preflight && npm run changelog && git add CHANGELOG.md && npm version major -m \"release: v%s\"",
+    "release:patch": "npm run preflight && npm run changelog && git add CHANGELOG.md && npm version patch -m \"release: v%s\" && git push --follow-tags",
+    "release:minor": "npm run preflight && npm run changelog && git add CHANGELOG.md && npm version minor -m \"release: v%s\" && git push --follow-tags",
+    "release:major": "npm run preflight && npm run changelog && git add CHANGELOG.md && npm version major -m \"release: v%s\" && git push --follow-tags",
     "postversion": "git push && git push --tags",
     "start": "electron .",
-    "prepare": "husky"
+    "prepare": "husky",
+    "postinstall": "node -e \"process.env.SKIP_ELECTRON_REBUILD || require('child_process').execSync('electron-rebuild -f', {stdio:'inherit'})\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.0",
@@ -67,6 +68,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.58.2",
     "@types/better-sqlite3": "^7.6.13",
@@ -151,7 +153,8 @@
     },
     "asar": true,
     "asarUnpack": [
-      "node_modules/better-sqlite3/**"
+      "node_modules/better-sqlite3/**",
+      "node_modules/sqlite-vec/**"
     ],
     "nsis": {
       "oneClick": false,
