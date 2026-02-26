@@ -55,6 +55,10 @@ export function useStoreInit(): void {
       if (currentView === 'chat') {
         bumpChatRefresh();
       } else {
+        // Expand window so the notification card is visible
+        if (currentView === 'widget') {
+          window.kxai.setWindowSize(420, 400);
+        }
         addProactiveMessage(data);
       }
     });

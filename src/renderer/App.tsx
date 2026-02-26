@@ -55,10 +55,16 @@ export default function App() {
             <ProactiveNotification
               key={msg.id}
               message={msg}
-              onDismiss={() => dismissProactive(msg.id)}
-              onReply={() => {
-                navigateTo('chat');
+              onDismiss={() => {
                 dismissProactive(msg.id);
+                // Shrink back to widget if this was the last notification
+                if (view === 'widget' && proactiveMessages.length <= 1) {
+                  window.kxai.setWindowSize(68, 68);
+                }
+              }}
+              onReply={() => {
+                dismissProactive(msg.id);
+                navigateTo('chat');
               }}
             />
           ))}

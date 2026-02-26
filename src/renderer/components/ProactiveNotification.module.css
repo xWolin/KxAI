@@ -4,10 +4,10 @@
 
 .root {
   position: fixed;
-  top: 80px;
-  right: 20px;
-  width: 340px;
-  max-width: calc(100vw - 40px);
+  top: 10px;
+  right: 10px;
+  left: 10px;
+  width: auto;
   background: var(--bg-secondary);
   border-radius: var(--radius);
   box-shadow: 0 8px 40px rgba(0, 0, 0, 0.6), 0 0 20px rgba(0, 240, 255, 0.08);
