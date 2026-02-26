@@ -43,7 +43,7 @@
     "postversion": "git push && git push --tags",
     "start": "electron .",
     "prepare": "husky",
-    "postinstall": "electron-rebuild -f || echo electron-rebuild skipped"
+    "postinstall": "node -e \"process.env.SKIP_ELECTRON_REBUILD || require('child_process').execSync('electron-rebuild -f', {stdio:'inherit'})\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.0",

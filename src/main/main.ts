@@ -186,7 +186,7 @@ function startCompanionMonitor(win: BrowserWindow): void {
 }
 
 function createMainWindow(): BrowserWindow {
-  const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
+  const { width: screenWidth } = screen.getPrimaryDisplay().workAreaSize;
 
   const win = new BrowserWindow({
     width: 420,
@@ -434,7 +434,7 @@ if (gotLock) {
           safeSend(Ev.AI_STREAM, { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie (Ctrl+Shift+K)...\n' });
 
           try {
-            const result = await agentLoop.startTakeControl(
+            await agentLoop.startTakeControl(
               'Użytkownik nacisnął Ctrl+Shift+K — przejmujesz sterowanie. Obserwuj ekran i kontynuuj pracę użytkownika. Gdy skończysz lub nie masz co robić, odpowiedz TASK_COMPLETE.',
               (status) => safeSend(Ev.AUTOMATION_STATUS_UPDATE, status),
               (chunk) => safeSend(Ev.AI_STREAM, { chunk }),
@@ -470,7 +470,7 @@ if (gotLock) {
 
         try {
           // Force an OCR check to get fresh screen context
-          const ocrText = await screenMonitorService.forceOcrCheck();
+          await screenMonitorService.forceOcrCheck();
           const ctx = screenMonitorService.buildMonitorContext();
 
           // Ask AI for insight based on screen context
@@ -502,7 +502,8 @@ Bądź pomocny, krótki i konkretny. Mów po polsku.`;
     } catch (err: any) {
       log.error('FATAL: app.whenReady() failed:', err);
       console.error('FATAL: app.whenReady() failed:', err);
-      // Keep process alive for log inspection
+      // Allow logs to flush, then release the single-instance lock and exit
+      setTimeout(() => app.exit(1), 250);
     }
   });
 
@@ -547,6 +548,16 @@ Bądź pomocny, krótki i konkretny. Mów po polsku.`;
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createMainWindow();
+      // Re-initialize services that hold a direct BrowserWindow reference.
+      // Note: setupIPC is NOT re-called — ipcMain handlers persist for the process
+      // lifetime and calling it again would throw duplicate-handler errors.
+      // Config-change events reference the `mainWindow` variable directly (not a
+      // snapshot), so they pick up the new window automatically.
+      container.get('updater').initialize(mainWindow);
+      // Re-start companion monitor if proactive mode was active
+      if (container.get('config').get('proactiveMode')) {
+        startCompanionMonitor(mainWindow);
+      }
     }
   });
 } // end if (gotLock)

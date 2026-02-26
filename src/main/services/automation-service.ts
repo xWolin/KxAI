@@ -254,9 +254,11 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         }
         const using = modifiers.length > 0 ? ` using {${modifiers.join(', ')}}` : '';
         const key = keyParts[0] || '';
+        // Escape special chars to prevent malformed AppleScript
+        const escapedKey = key.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
         // Script piped via stdin to avoid shell injection
         return this.runOsascriptViaStdin(
-          `tell application "System Events" to keystroke "${key}"${using}`,
+          `tell application "System Events" to keystroke "${escapedKey}"${using}`,
           'AppleScript',
         );
       } else {
