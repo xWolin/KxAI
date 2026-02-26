@@ -34,8 +34,7 @@ export default function App() {
 
   const handleOnboardingComplete = async () => {
     await reloadConfig();
-    window.kxai.setClickThrough(true);
-    window.kxai.setWindowSize(100, 100);
+    window.kxai.setWindowSize(68, 68);
     setView('widget');
   };
 

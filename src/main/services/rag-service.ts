@@ -1,4 +1,4 @@
-﻿import * as fs from 'fs';
+import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
 import { EmbeddingService } from './embedding-service';

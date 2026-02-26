@@ -30,10 +30,8 @@ export const useNavigationStore = create<NavigationState>((set) => ({
 
   navigateTo: (view) => {
     if (view === 'widget') {
-      window.kxai.setWindowSize(100, 100);
-      window.kxai.setClickThrough(true);
+      window.kxai.setWindowSize(68, 68);
     } else {
-      window.kxai.setClickThrough(false);
       // Dashboard needs wider window for grids/tables
       const width = view === 'dashboard' ? 560 : 420;
       window.kxai.setWindowSize(width, 600);

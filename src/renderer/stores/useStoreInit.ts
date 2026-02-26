@@ -37,8 +37,7 @@ export function useStoreInit(): void {
         if (!isOnboarded) {
           setView('onboarding');
         } else {
-          window.kxai.setWindowSize(100, 100);
-          window.kxai.setClickThrough(true);
+          window.kxai.setWindowSize(68, 68);
         }
       } catch (error) {
         console.error('Init error:', error);
