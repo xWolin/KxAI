@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useNavigationStore } from './useNavigationStore';
 import { useConfigStore } from './useConfigStore';
 import { useAgentStore } from './useAgentStore';
+import { useChatStore } from './useChatStore';
 import { initTTS } from '../utils/tts';
 import type { MeetingStateInfo } from '../types';
 
@@ -50,9 +51,36 @@ export function useStoreInit(): void {
 
     // ── IPC Event Subscriptions ──
 
+    // ── Global AI stream handler — persists across ChatPanel mount/unmount ──
+    // This ensures streaming progress is visible even when the user closes
+    // and reopens the chat panel mid-stream.
+    const cleanupStream = window.kxai.onAIStream((data: any) => {
+      const store = useChatStore.getState();
+      if (data.takeControlStart) {
+        store.setStreaming(true);
+        store.setStreamingContent(data.chunk || '');
+        return;
+      }
+      if (data.done) {
+        store.finalizeStream();
+      } else if (data.chunk) {
+        store.appendStreamingContent(data.chunk);
+      }
+    });
+
     const cleanupProactive = window.kxai.onProactiveMessage((data) => {
+      // Screen observations are silent context for the heartbeat engine —
+      // they should NOT appear as chat messages or notifications.
+      if (data.type === 'screen-analysis') return;
+
       const currentView = useNavigationStore.getState().view;
-      if (currentView === 'chat') {
+
+      // Autonomous agent (heartbeat) and reflection messages always show as popup,
+      // even if the chat is open — these are proactive insights the user should see.
+      // Rule-based proactive messages only show as popup when chat is not open.
+      const alwaysPopup = data.type === 'heartbeat' || data.type === 'reflection';
+
+      if (currentView === 'chat' && !alwaysPopup) {
         bumpChatRefresh();
       } else {
         // Expand window so the notification card is visible
@@ -105,6 +133,7 @@ export function useStoreInit(): void {
     });
 
     return () => {
+      cleanupStream();
       cleanupProactive();
       cleanupNavigate();
       cleanupMeeting();

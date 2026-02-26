@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { KxAIConfig, RAGFolderInfo } from '../types';
 import type { McpServerConfig, McpHubStatus, McpRegistryEntry, McpCategory } from '@shared/types/mcp';
 import type { CalendarStatus, CalendarInfo, CalendarProvider } from '@shared/types/calendar';
 import s from './SettingsPanel.module.css';
 import { cn } from '../utils/cn';
 import { useTranslation } from '../i18n';
+import { Toggle } from './ui';
 
 interface SettingsPanelProps {
   config: KxAIConfig;
@@ -38,26 +39,184 @@ const MODELS = {
   ],
 };
 
+type SettingsTabId = 'general' | 'persona' | 'memory' | 'knowledge' | 'mcp' | 'calendar' | 'privacy';
+
+const DEFAULT_INDEXED_EXTENSIONS =
+  '.ts, .tsx, .js, .jsx, .py, .md, .txt, .json, .yaml, .yml, .xml, .csv, .pdf, .docx, .epub';
+
+function formatIndexedExtensions(extensions?: string[]): string {
+  if (!extensions || extensions.length === 0) return '';
+  return extensions.join(', ');
+}
+
+function parseIndexedExtensions(input: string): string[] | undefined {
+  const parsed = input
+    .split(',')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter(Boolean)
+    .map((entry) => (entry.startsWith('.') ? entry : `.${entry}`));
+
+  if (parsed.length === 0) return undefined;
+  return Array.from(new Set(parsed));
+}
+
+// ─── Privacy & Clipboard Tab ───
+function PrivacyTab() {
+  const { t } = useTranslation();
+  const [clipboardStatus, setClipboardStatus] = useState<{ monitoring: boolean; totalEntries: number } | null>(null);
+  const [privacyLoading, setPrivacyLoading] = useState(false);
+  const [privacyMessage, setPrivacyMessage] = useState('');
+
+  useEffect(() => {
+    loadClipboardStatus();
+  }, []);
+
+  async function loadClipboardStatus() {
+    try {
+      const status = await window.kxai.clipboardGetStatus();
+      setClipboardStatus(status);
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function toggleClipboard() {
+    if (!clipboardStatus) return;
+    try {
+      if (clipboardStatus.monitoring) {
+        await window.kxai.clipboardStopMonitoring();
+      } else {
+        await window.kxai.clipboardStartMonitoring();
+      }
+      await loadClipboardStatus();
+    } catch (err) {
+      console.error('Clipboard toggle error:', err);
+    }
+  }
+
+  async function handleExport() {
+    setPrivacyLoading(true);
+    setPrivacyMessage('');
+    try {
+      const result = await window.kxai.privacyExportData();
+      if (result.success) {
+        setPrivacyMessage(t('settings.privacy.exported', { path: result.exportPath || '?' }));
+      }
+    } catch (err: any) {
+      setPrivacyMessage('❌ ' + (err.message || 'Export failed'));
+    } finally {
+      setPrivacyLoading(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm(t('settings.privacy.deleteConfirm'))) return;
+    setPrivacyLoading(true);
+    setPrivacyMessage('');
+    try {
+      await window.kxai.privacyDeleteData();
+      setPrivacyMessage(t('settings.privacy.deleted'));
+    } catch (err: any) {
+      setPrivacyMessage('❌ ' + (err.message || 'Delete failed'));
+    } finally {
+      setPrivacyLoading(false);
+    }
+  }
+
+  return (
+    <div className="fade-in">
+      {/* Clipboard monitoring */}
+      <div className={s.section}>
+        <h3 className={s.sectionTitle}>{t('settings.privacy.clipboardSection')}</h3>
+        <p className={s.hint}>{t('settings.privacy.clipboardDesc')}</p>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8 }}>
+          <button
+            className={clipboardStatus?.monitoring ? s.mcpBtnSmallAccent : s.mcpBtnPrimary}
+            onClick={toggleClipboard}
+          >
+            {clipboardStatus?.monitoring
+              ? '⏹ ' + t('settings.privacy.clipboardEnabled')
+              : '▶ ' + t('settings.privacy.clipboardToggle')}
+          </button>
+          {clipboardStatus && (
+            <span className={s.hint}>
+              {clipboardStatus.totalEntries} {t('settings.privacy.entries')}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Privacy & GDPR */}
+      <div className={s.section}>
+        <h3 className={s.sectionTitle}>{t('settings.privacy.title')}</h3>
+        <p className={s.hint}>{t('settings.privacy.description')}</p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 12 }}>
+          <div>
+            <button className={s.mcpBtnPrimary} onClick={handleExport} disabled={privacyLoading}>
+              {privacyLoading ? t('settings.privacy.exporting') : t('settings.privacy.export')}
+            </button>
+            <p className={s.hint} style={{ marginTop: 4 }}>
+              {t('settings.privacy.exportDesc')}
+            </p>
+          </div>
+
+          <div>
+            <button
+              className={s.mcpBtnSmall}
+              onClick={handleDelete}
+              disabled={privacyLoading}
+              style={{ color: 'var(--neon-magenta)' }}
+            >
+              {privacyLoading ? t('settings.privacy.deleting') : t('settings.privacy.delete')}
+            </button>
+            <p className={s.hint} style={{ marginTop: 4 }}>
+              {t('settings.privacy.deleteDesc')}
+            </p>
+          </div>
+        </div>
+
+        {privacyMessage && (
+          <div className={s.hint} style={{ marginTop: 12, color: 'var(--accent)' }}>
+            {privacyMessage}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelProps) {
   const { t } = useTranslation();
   const [provider, setProvider] = useState(config.aiProvider || 'openai');
   const [model, setModel] = useState(config.aiModel || 'gpt-5');
+  const [userName, setUserName] = useState(config.userName || '');
+  const [userRole, setUserRole] = useState(config.userRole || '');
+  const [userDescription, setUserDescription] = useState(config.userDescription || '');
   const [apiKey, setApiKey] = useState('');
   const [hasKey, setHasKey] = useState(false);
   const [deepgramKey, setDeepgramKey] = useState('');
   const [hasDeepgramKey, setHasDeepgramKey] = useState(false);
   const [embeddingKey, setEmbeddingKey] = useState('');
   const [hasEmbeddingKey, setHasEmbeddingKey] = useState(false);
+  const [proactiveMode, setProactiveMode] = useState(Boolean(config.proactiveMode));
   const [embeddingModel, setEmbeddingModel] = useState(config.embeddingModel || 'text-embedding-3-small');
+  const [useNativeFunctionCalling, setUseNativeFunctionCalling] = useState(config.useNativeFunctionCalling ?? true);
+  const [indexedExtensionsInput, setIndexedExtensionsInput] = useState(
+    formatIndexedExtensions(config.indexedExtensions),
+  );
   const [proactiveInterval, setProactiveInterval] = useState((config.proactiveIntervalMs || 30000) / 1000);
   const [agentName, setAgentName] = useState(config.agentName || 'KxAI');
   const [agentEmoji, setAgentEmoji] = useState(config.agentEmoji || '🤖');
   const [saving, setSaving] = useState(false);
   const [soulContent, setSoulContent] = useState('');
+  const [userContent, setUserContent] = useState('');
   const [memoryContent, setMemoryContent] = useState('');
-  const [activeTab, setActiveTab] = useState<'general' | 'persona' | 'memory' | 'knowledge' | 'mcp' | 'calendar'>(
-    'general',
-  );
+  const [activeTab, setActiveTab] = useState<SettingsTabId>('general');
+  const tabsScrollRef = useRef<HTMLDivElement | null>(null);
+  const [canScrollTabsLeft, setCanScrollTabsLeft] = useState(false);
+  const [canScrollTabsRight, setCanScrollTabsRight] = useState(false);
   const [folderStats, setFolderStats] = useState<RAGFolderInfo[]>([]);
   const [ragStats, setRagStats] = useState<{
     totalChunks: number;
@@ -101,12 +260,101 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     password: '',
   });
 
+  const tabs: Array<{ id: SettingsTabId; label: string }> = [
+    { id: 'general', label: t('settings.tabs.general') },
+    { id: 'persona', label: t('settings.tabs.persona') },
+    { id: 'memory', label: t('settings.tabs.memory') },
+    { id: 'knowledge', label: t('settings.tabs.knowledge') },
+    { id: 'mcp', label: t('settings.tabs.mcp') },
+    { id: 'calendar', label: t('settings.tabs.calendar') },
+    { id: 'privacy', label: t('settings.tabs.privacy') },
+  ];
+
+  const updateTabsScrollState = useCallback(() => {
+    const el = tabsScrollRef.current;
+    if (!el) {
+      setCanScrollTabsLeft(false);
+      setCanScrollTabsRight(false);
+      return;
+    }
+
+    const maxScrollLeft = Math.max(0, el.scrollWidth - el.clientWidth);
+    setCanScrollTabsLeft(el.scrollLeft > 1);
+    setCanScrollTabsRight(el.scrollLeft < maxScrollLeft - 1);
+  }, []);
+
+  const scrollTabsBy = useCallback((delta: number) => {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+    el.scrollBy({ left: delta, behavior: 'smooth' });
+  }, []);
+
+  const handleTabsWheel = useCallback(
+    (event: React.WheelEvent<HTMLDivElement>) => {
+      const el = tabsScrollRef.current;
+      if (!el) return;
+      if (Math.abs(event.deltaY) > Math.abs(event.deltaX)) {
+        event.preventDefault();
+        el.scrollLeft += event.deltaY;
+        updateTabsScrollState();
+      }
+    },
+    [updateTabsScrollState],
+  );
+
+  const handleTabKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+      let nextIndex: number;
+      if (event.key === 'ArrowRight') {
+        nextIndex = (index + 1) % tabs.length;
+      } else if (event.key === 'ArrowLeft') {
+        nextIndex = (index - 1 + tabs.length) % tabs.length;
+      } else {
+        return;
+      }
+
+      event.preventDefault();
+      const nextTab = tabs[nextIndex];
+      if (!nextTab) return;
+      setActiveTab(nextTab.id);
+
+      requestAnimationFrame(() => {
+        const nextTabButton = tabsScrollRef.current?.querySelector<HTMLButtonElement>(`[data-tab-id="${nextTab.id}"]`);
+        nextTabButton?.focus();
+      });
+    },
+    [tabs],
+  );
+
   useEffect(() => {
     checkApiKey();
     loadFiles();
     loadKnowledgeData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider]);
+
+  useEffect(() => {
+    const el = tabsScrollRef.current;
+    if (!el) return;
+
+    updateTabsScrollState();
+    const onScroll = () => updateTabsScrollState();
+    const onResize = () => updateTabsScrollState();
+
+    el.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onResize);
+
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onResize);
+    };
+  }, [updateTabsScrollState]);
+
+  useEffect(() => {
+    const activeButton = tabsScrollRef.current?.querySelector<HTMLButtonElement>(`[data-tab-id="${activeTab}"]`);
+    activeButton?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+    updateTabsScrollState();
+  }, [activeTab, updateTabsScrollState]);
 
   async function checkApiKey() {
     const has = await window.kxai.hasApiKey(provider);
@@ -119,23 +367,36 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
   async function loadFiles() {
     const soul = await window.kxai.getMemory('SOUL.md');
+    const user = await window.kxai.getMemory('USER.md');
     const memory = await window.kxai.getMemory('MEMORY.md');
     if (soul) setSoulContent(soul);
+    if (user) setUserContent(user);
     if (memory) setMemoryContent(memory);
   }
 
   async function saveSettings() {
     setSaving(true);
     try {
+      const normalizedInterval = Math.max(5, Math.min(300, Math.round(Number(proactiveInterval) || 60)));
+      setProactiveInterval(normalizedInterval);
+
       // Save all config changes in a single batch (1 IPC call + 1 write)
       await window.kxai.setConfigBatch({
+        userName: userName.trim() || undefined,
+        userRole: userRole.trim() || undefined,
+        userDescription: userDescription.trim() || undefined,
         aiProvider: provider,
         aiModel: model,
         agentName,
         agentEmoji,
-        proactiveIntervalMs: proactiveInterval * 1000,
+        proactiveMode,
+        proactiveIntervalMs: normalizedInterval * 1000,
         embeddingModel,
+        useNativeFunctionCalling,
+        indexedExtensions: parseIndexedExtensions(indexedExtensionsInput),
       });
+
+      await window.kxai.setProactiveMode(proactiveMode);
 
       // Save API key if provided
       if (apiKey.trim()) {
@@ -167,6 +428,10 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
   async function saveSoul() {
     await window.kxai.setMemory('SOUL.md', soulContent);
+  }
+
+  async function saveUser() {
+    await window.kxai.setMemory('USER.md', userContent);
   }
 
   async function saveMemory() {
@@ -493,54 +758,42 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
       </div>
 
       {/* Tabs */}
-      <div className={s.tabs} role="tablist">
+      <div className={s.tabsWrap}>
         <button
-          className={activeTab === 'general' ? s.tabActive : s.tab}
-          onClick={() => setActiveTab('general')}
-          role="tab"
-          aria-selected={activeTab === 'general'}
+          className={s.tabsScrollBtn}
+          onClick={() => scrollTabsBy(-180)}
+          disabled={!canScrollTabsLeft}
+          aria-label={t('settings.tabs.scrollLeft')}
         >
-          {t('settings.tabs.general')}
+          ‹
         </button>
+
+        <div className={s.tabsScroller} ref={tabsScrollRef} onWheel={handleTabsWheel} role="tablist">
+          <div className={s.tabs}>
+            {tabs.map((tab, index) => (
+              <button
+                key={tab.id}
+                data-tab-id={tab.id}
+                className={activeTab === tab.id ? s.tabActive : s.tab}
+                onClick={() => setActiveTab(tab.id)}
+                onKeyDown={(event) => handleTabKeyDown(event, index)}
+                role="tab"
+                aria-selected={activeTab === tab.id}
+                tabIndex={activeTab === tab.id ? 0 : -1}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <button
-          className={activeTab === 'persona' ? s.tabActive : s.tab}
-          onClick={() => setActiveTab('persona')}
-          role="tab"
-          aria-selected={activeTab === 'persona'}
+          className={s.tabsScrollBtn}
+          onClick={() => scrollTabsBy(180)}
+          disabled={!canScrollTabsRight}
+          aria-label={t('settings.tabs.scrollRight')}
         >
-          {t('settings.tabs.persona')}
-        </button>
-        <button
-          className={activeTab === 'memory' ? s.tabActive : s.tab}
-          onClick={() => setActiveTab('memory')}
-          role="tab"
-          aria-selected={activeTab === 'memory'}
-        >
-          {t('settings.tabs.memory')}
-        </button>
-        <button
-          className={activeTab === 'knowledge' ? s.tabActive : s.tab}
-          onClick={() => setActiveTab('knowledge')}
-          role="tab"
-          aria-selected={activeTab === 'knowledge'}
-        >
-          {t('settings.tabs.knowledge')}
-        </button>
-        <button
-          className={activeTab === 'mcp' ? s.tabActive : s.tab}
-          onClick={() => setActiveTab('mcp')}
-          role="tab"
-          aria-selected={activeTab === 'mcp'}
-        >
-          {t('settings.tabs.mcp')}
-        </button>
-        <button
-          className={activeTab === 'calendar' ? s.tabActive : s.tab}
-          onClick={() => setActiveTab('calendar')}
-          role="tab"
-          aria-selected={activeTab === 'calendar'}
-        >
-          {t('settings.tabs.calendar')}
+          ›
         </button>
       </div>
 
@@ -548,6 +801,35 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
       <div className={s.content}>
         {activeTab === 'general' && (
           <div className="fade-in">
+            {/* User profile */}
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>{t('settings.general.userProfile')}</h3>
+
+              <label className={s.label}>{t('settings.general.userName')}</label>
+              <input
+                className={s.input}
+                value={userName}
+                onChange={(e) => setUserName(e.target.value)}
+                placeholder={t('settings.general.userName')}
+              />
+
+              <label className={s.label}>{t('settings.general.userRole')}</label>
+              <input
+                className={s.input}
+                value={userRole}
+                onChange={(e) => setUserRole(e.target.value)}
+                placeholder={t('settings.general.userRole')}
+              />
+
+              <label className={s.label}>{t('settings.general.userDescription')}</label>
+              <textarea
+                className={cn(s.textarea, s.textareaCompact)}
+                value={userDescription}
+                onChange={(e) => setUserDescription(e.target.value)}
+                placeholder={t('settings.general.userDescriptionPlaceholder')}
+              />
+            </div>
+
             {/* Agent identity */}
             <div className={s.section}>
               <h3 className={s.sectionTitle}>{t('settings.general.agentSection')}</h3>
@@ -571,6 +853,51 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     {e}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Engine */}
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>{t('settings.general.engineSection')}</h3>
+
+              <div className={s.toggleRow}>
+                <div className={s.toggleMeta}>
+                  <div className={s.toggleTitle}>{t('settings.general.proactiveToggle')}</div>
+                  <p className={s.hint}>
+                    {proactiveMode
+                      ? t('settings.general.proactiveEnabledHint')
+                      : t('settings.general.proactiveDisabledHint')}
+                  </p>
+                </div>
+                <Toggle
+                  checked={proactiveMode}
+                  onChange={setProactiveMode}
+                  aria-label={t('settings.general.proactiveToggle')}
+                />
+              </div>
+
+              <label className={s.label}>{t('settings.general.proactiveInterval')}</label>
+              <input
+                type="number"
+                className={s.input}
+                value={proactiveInterval}
+                onChange={(e) => setProactiveInterval(Number(e.target.value))}
+                title={t('settings.general.proactiveInterval')}
+                min={5}
+                max={300}
+              />
+              <p className={s.hint}>{t('settings.general.proactiveHint')}</p>
+
+              <div className={s.toggleRow}>
+                <div className={s.toggleMeta}>
+                  <div className={s.toggleTitle}>{t('settings.general.nativeFc')}</div>
+                  <p className={s.hint}>{t('settings.general.nativeFcHint')}</p>
+                </div>
+                <Toggle
+                  checked={useNativeFunctionCalling}
+                  onChange={setUseNativeFunctionCalling}
+                  aria-label={t('settings.general.nativeFc')}
+                />
               </div>
             </div>
 
@@ -633,23 +960,6 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   hasKey ? t('settings.general.apiKeyChangePlaceholder') : t('settings.general.apiKeyPlaceholder')
                 }
               />
-            </div>
-
-            {/* Proactive */}
-            <div className={s.section}>
-              <h3 className={s.sectionTitle}>{t('settings.general.proactiveSection')}</h3>
-
-              <label className={s.label}>{t('settings.general.proactiveInterval')}</label>
-              <input
-                type="number"
-                className={s.input}
-                value={proactiveInterval}
-                onChange={(e) => setProactiveInterval(Number(e.target.value))}
-                title={t('settings.general.proactiveInterval')}
-                min={5}
-                max={300}
-              />
-              <p className={s.hint}>{t('settings.general.proactiveHint')}</p>
             </div>
 
             {/* Deepgram / Meeting Coach */}
@@ -715,6 +1025,16 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   text-embedding-ada-002 (1536D, {t('settings.general.embeddingModelAda')})
                 </option>
               </select>
+
+              <label className={s.label}>{t('settings.general.indexedExtensions')}</label>
+              <input
+                className={s.input}
+                value={indexedExtensionsInput}
+                onChange={(e) => setIndexedExtensionsInput(e.target.value)}
+                placeholder={DEFAULT_INDEXED_EXTENSIONS}
+              />
+              <p className={s.hint}>{t('settings.general.indexedExtensionsHint')}</p>
+
               {embeddingModel !== (config.embeddingModel || 'text-embedding-3-small') && (
                 <p className={s.warningHint}>⚠️ {t('settings.general.embeddingModelChangeWarning')}</p>
               )}
@@ -731,7 +1051,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             </div>
 
             {/* Danger zone */}
-            <div>
+            <div className={s.section}>
               <h3 className={s.sectionTitleDanger}>{t('settings.general.dangerZone')}</h3>
               <button onClick={clearHistory} className={s.btnDanger}>
                 {t('settings.general.clearHistory')}
@@ -763,6 +1083,21 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
         {activeTab === 'memory' && (
           <div className="fade-in">
+            <h3 className={s.sectionTitle}>{t('settings.memory.userTitle')}</h3>
+            <p className={s.desc}>{t('settings.memory.userDescription')}</p>
+            <textarea
+              className={s.textarea}
+              value={userContent}
+              onChange={(e) => setUserContent(e.target.value)}
+              title={t('settings.memory.saveUser')}
+            />
+            <button onClick={saveUser} className={s.btnSave}>
+              {t('settings.memory.saveUser')}
+            </button>
+
+            <h3 className={s.sectionTitle} style={{ marginTop: '1.5rem' }}>
+              {t('settings.memory.memoryTitle')}
+            </h3>
             <p className={s.desc}>{t('settings.memory.description')}</p>
             <textarea
               className={s.textarea}
@@ -984,7 +1319,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
               {mcpShowAddForm && (
                 <div className={s.mcpAddForm}>
-                  <label className={s.label}>{t('settings.mcp.formName')}</label>
+                  <label className={s.label}>{t('settings.mcp.addName')}</label>
                   <input
                     className={s.input}
                     value={mcpNewServer.name}
@@ -992,7 +1327,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     placeholder="np. moj-serwer"
                   />
 
-                  <label className={s.label}>{t('settings.mcp.formTransport')}</label>
+                  <label className={s.label}>{t('settings.mcp.addTransport')}</label>
                   <select
                     className={s.select}
                     value={mcpNewServer.transport}
@@ -1010,14 +1345,14 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
                   {mcpNewServer.transport === 'stdio' ? (
                     <>
-                      <label className={s.label}>{t('settings.mcp.formCommand')}</label>
+                      <label className={s.label}>{t('settings.mcp.addCommand')}</label>
                       <input
                         className={s.input}
                         value={mcpNewServer.command}
                         onChange={(e) => setMcpNewServer((prev) => ({ ...prev, command: e.target.value }))}
                         placeholder="npx, node, python..."
                       />
-                      <label className={s.label}>{t('settings.mcp.formArgs')}</label>
+                      <label className={s.label}>{t('settings.mcp.addArgs')}</label>
                       <input
                         className={s.input}
                         value={mcpNewServer.args}
@@ -1027,7 +1362,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     </>
                   ) : (
                     <>
-                      <label className={s.label}>{t('settings.mcp.formUrl')}</label>
+                      <label className={s.label}>{t('settings.mcp.addUrl')}</label>
                       <input
                         className={s.input}
                         value={mcpNewServer.url}
@@ -1070,7 +1405,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     disabled={mcpAddingServer || !mcpNewServer.name}
                     style={{ marginTop: '12px' }}
                   >
-                    {mcpAddingServer ? t('settings.mcp.adding') : t('settings.mcp.addServer')}
+                    {mcpAddingServer ? t('settings.mcp.addServerAdding') : t('settings.mcp.addServerButton')}
                   </button>
                 </div>
               )}
@@ -1276,17 +1611,17 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     <option value="google">{t('settings.calendar.providerGoogle')}</option>
                   </select>
 
-                  <label className={s.label}>{t('settings.calendar.formName')}</label>
+                  <label className={s.label}>{t('settings.calendar.name')}</label>
                   <input
                     className={s.input}
                     value={calNewConn.name}
                     onChange={(e) => setCalNewConn({ ...calNewConn, name: e.target.value })}
-                    placeholder={t('settings.calendar.formNamePlaceholder')}
+                    placeholder={t('settings.calendar.namePlaceholder')}
                   />
 
                   {calNewConn.provider !== 'google' && (
                     <>
-                      <label className={s.label}>{t('settings.calendar.formServerUrl')}</label>
+                      <label className={s.label}>{t('settings.calendar.serverUrl')}</label>
                       <input
                         className={s.input}
                         value={calNewConn.serverUrl}
@@ -1296,7 +1631,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     </>
                   )}
 
-                  <label className={s.label}>{t('settings.calendar.formUsername')}</label>
+                  <label className={s.label}>{t('settings.calendar.username')}</label>
                   <input
                     className={s.input}
                     value={calNewConn.username}
@@ -1306,8 +1641,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
                   <label className={s.label}>
                     {calNewConn.provider === 'icloud'
-                      ? t('settings.calendar.formAppPassword')
-                      : t('settings.calendar.formPassword')}
+                      ? t('settings.calendar.passwordLabel')
+                      : t('settings.calendar.passwordLabelGeneric')}
                   </label>
                   <input
                     className={s.input}
@@ -1338,6 +1673,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             </div>
           </div>
         )}
+
+        {activeTab === 'privacy' && <PrivacyTab />}
       </div>
     </div>
   );

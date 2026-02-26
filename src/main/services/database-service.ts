@@ -195,6 +195,44 @@ export class DatabaseService {
 
     // Future migrations go here:
     if (version < 3) this.migrateV3();
+
+    // ─── Post-migration: ensure vec0 table has correct embedding dimension ───
+    // The vec0 table may have been created with a default dimension (1536)
+    // before the embedding model configuration was applied.
+    this.ensureVec0Dimension();
+  }
+
+  /**
+   * Ensure the vec0 rag_embeddings table uses the correct dimension.
+   * Reads the expected dimension from rag_metadata and recreates the table
+   * if the current in-memory dimension doesn't match.
+   */
+  private ensureVec0Dimension(): void {
+    if (!this.db || !this.vec0Loaded) return;
+    try {
+      const savedDim = this.db.prepare('SELECT value FROM rag_metadata WHERE key = ?').get('embedding_dim') as
+        | { value: string }
+        | undefined;
+      if (savedDim) {
+        const expectedDim = parseInt(savedDim.value, 10);
+        if (expectedDim > 0 && expectedDim !== this.embeddingDim) {
+          log.warn(
+            `Vec0 dimension mismatch: table created with ${this.embeddingDim}D, metadata says ${expectedDim}D. Recreating...`,
+          );
+          this.db.exec('DROP TABLE IF EXISTS rag_embeddings');
+          this.db.exec(`
+            CREATE VIRTUAL TABLE rag_embeddings USING vec0(
+              chunk_id TEXT PRIMARY KEY,
+              embedding float[${expectedDim}] distance_metric=cosine
+            );
+          `);
+          this.embeddingDim = expectedDim;
+          log.info(`Vec0 table recreated with float[${expectedDim}]`);
+        }
+      }
+    } catch (err) {
+      log.warn('ensureVec0Dimension check failed (non-fatal):', err);
+    }
   }
 
   private migrateV3(): void {
@@ -359,7 +397,23 @@ export class DatabaseService {
     // ─── sqlite-vec virtual table for vector search ───
     if (this.vec0Loaded) {
       try {
-        // Create vec0 with current embedding dimension (default 1536)
+        // Check if rag_metadata has a saved dimension — use it instead of default 1536
+        try {
+          const savedDim = this.db.prepare('SELECT value FROM rag_metadata WHERE key = ?').get('embedding_dim') as
+            | { value: string }
+            | undefined;
+          if (savedDim) {
+            const dim = parseInt(savedDim.value, 10);
+            if (dim > 0 && dim !== this.embeddingDim) {
+              log.info(`Using saved embedding dimension from rag_metadata: ${dim} (was ${this.embeddingDim})`);
+              this.embeddingDim = dim;
+            }
+          }
+        } catch {
+          /* rag_metadata may not exist yet in fresh DB */
+        }
+
+        // Create vec0 with current embedding dimension
         this.db.exec(`
           CREATE VIRTUAL TABLE IF NOT EXISTS rag_embeddings USING vec0(
             chunk_id TEXT PRIMARY KEY,
@@ -1288,9 +1342,14 @@ export class DatabaseService {
   /**
    * Recreate the vec0 embeddings table with a new dimension.
    * This drops all existing embeddings — a full reindex is required.
+   * If the table already has the correct dimension, this is a no-op.
    */
   recreateEmbeddingsTable(newDim: number): boolean {
     if (!this.db || !this.vec0Loaded) return false;
+    // Skip if dimension already matches
+    if (this.embeddingDim === newDim) {
+      return true;
+    }
     try {
       log.info(`Recreating rag_embeddings vec0 table: float[${this.embeddingDim}] → float[${newDim}]`);
       this.db.exec('DROP TABLE IF EXISTS rag_embeddings');

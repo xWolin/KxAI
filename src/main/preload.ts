@@ -93,6 +93,11 @@ contextBridge.exposeInMainWorld('kxai', {
     ipcRenderer.invoke(Ch.PROACTIVE_FEEDBACK, { ruleId, action }),
   getProactiveStats: () => ipcRenderer.invoke(Ch.PROACTIVE_GET_STATS),
 
+  // Reflection engine
+  reflectionTrigger: (type?: string) => ipcRenderer.invoke(Ch.REFLECTION_TRIGGER, type || 'manual'),
+  reflectionGetStatus: () => ipcRenderer.invoke(Ch.REFLECTION_GET_STATUS),
+  reflectionSetInterval: (ms: number) => ipcRenderer.invoke(Ch.REFLECTION_SET_INTERVAL, ms),
+
   // Cron jobs
   getCronJobs: () => ipcRenderer.invoke(Ch.CRON_GET_JOBS),
   addCronJob: (job: any) => ipcRenderer.invoke(Ch.CRON_ADD_JOB, job),

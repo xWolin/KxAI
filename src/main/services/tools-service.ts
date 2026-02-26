@@ -12,6 +12,7 @@ import { CronService } from './cron-service';
 import { FileIntelligenceService } from './file-intelligence';
 import { CalendarService } from './calendar-service';
 import { PrivacyService } from './privacy-service';
+import { MemoryService } from './memory';
 import { SecurityGuard } from './security-guard';
 import { SystemMonitor } from './system-monitor';
 
@@ -30,6 +31,7 @@ export class ToolsService {
   private fileIntelligenceService?: FileIntelligenceService;
   private calendarService?: CalendarService;
   private privacyService?: PrivacyService;
+  private memoryService?: MemoryService;
   private securityGuard!: SecurityGuard;
   private systemMonitor!: SystemMonitor;
 
@@ -157,6 +159,7 @@ export class ToolsService {
     fileIntelligence?: FileIntelligenceService;
     calendar?: CalendarService;
     privacy?: PrivacyService;
+    memory?: MemoryService;
     securityGuard?: SecurityGuard;
     systemMonitor?: SystemMonitor;
   }): void {
@@ -168,6 +171,7 @@ export class ToolsService {
     this.fileIntelligenceService = services.fileIntelligence;
     this.calendarService = services.calendar;
     this.privacyService = services.privacy;
+    this.memoryService = services.memory;
     // Use container instances instead of duplicates (if provided)
     if (services.securityGuard) this.securityGuard = services.securityGuard;
     if (services.systemMonitor) this.systemMonitor = services.systemMonitor;
@@ -180,6 +184,7 @@ export class ToolsService {
     this.registerFileIntelligenceTools();
     this.registerCalendarTools();
     this.registerPrivacyTools();
+    this.registerMemoryTools();
   }
 
   /**
@@ -2859,6 +2864,99 @@ export class ToolsService {
         } catch (err: any) {
           return { success: false, error: err.message };
         }
+      },
+    );
+  }
+
+  // ─── Memory Tools ───
+
+  private registerMemoryTools(): void {
+    if (!this.memoryService) return;
+    const mem = this.memoryService;
+
+    // ── update_memory ── persists facts about user/agent/notes
+    this.register(
+      {
+        name: 'update_memory',
+        description:
+          'Zapisuje informację do trwałej pamięci agenta. Pliki: "user" (profil użytkownika — preferencje, zainteresowania, informacje), "soul" (osobowość agenta), "memory" (notatki długoterminowe, decyzje, obserwacje). Sekcja to nagłówek ## w pliku. Treść zastępuje istniejącą sekcję lub tworzy nową.',
+        category: 'memory',
+        parameters: {
+          file: {
+            type: 'string',
+            description: 'Plik docelowy: "user", "soul" lub "memory"',
+            required: true,
+          },
+          section: {
+            type: 'string',
+            description: 'Nazwa sekcji (nagłówek ##), np. "Preferencje", "Projekty", "Notatki"',
+            required: true,
+          },
+          content: {
+            type: 'string',
+            description: 'Treść do zapisania w sekcji (markdown). Dopisuje się do istniejącej treści sekcji.',
+            required: true,
+          },
+        },
+      },
+      async (params) => {
+        const fileMap: Record<string, 'SOUL.md' | 'USER.md' | 'MEMORY.md'> = {
+          soul: 'SOUL.md',
+          user: 'USER.md',
+          memory: 'MEMORY.md',
+        };
+
+        const file = fileMap[params.file];
+        if (!file) {
+          return { success: false, error: `Nieprawidłowy plik: "${params.file}". Dozwolone: user, soul, memory.` };
+        }
+        if (!params.section || !params.content) {
+          return { success: false, error: 'Wymagane parametry: section i content.' };
+        }
+
+        const ok = await mem.updateMemorySection(file, params.section, params.content);
+        if (ok) {
+          return {
+            success: true,
+            data: { file, section: params.section, message: `Zapisano w ${file} → ## ${params.section}` },
+          };
+        }
+        return { success: false, error: `Nie udało się zapisać w ${file}` };
+      },
+    );
+
+    // ── read_memory ── read current memory contents
+    this.register(
+      {
+        name: 'read_memory',
+        description:
+          'Odczytuje zawartość pliku pamięci agenta. Pliki: "user" (profil użytkownika), "soul" (osobowość agenta), "memory" (notatki długoterminowe).',
+        category: 'memory',
+        parameters: {
+          file: {
+            type: 'string',
+            description: 'Plik do odczytania: "user", "soul" lub "memory"',
+            required: true,
+          },
+        },
+      },
+      async (params) => {
+        const fileMap: Record<string, string> = {
+          soul: 'SOUL.md',
+          user: 'USER.md',
+          memory: 'MEMORY.md',
+        };
+
+        const file = fileMap[params.file];
+        if (!file) {
+          return { success: false, error: `Nieprawidłowy plik: "${params.file}". Dozwolone: user, soul, memory.` };
+        }
+
+        const content = await mem.get(file);
+        if (content !== null) {
+          return { success: true, data: { file, content } };
+        }
+        return { success: false, error: `Plik ${file} nie istnieje lub jest pusty.` };
       },
     );
   }

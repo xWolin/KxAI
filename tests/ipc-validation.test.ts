@@ -202,8 +202,8 @@ describe('IPC Parameter Validation', () => {
     });
 
     it('WINDOW_SET_SIZE: rejects too small/large', () => {
-      expect(validateIpcParams(Ch.WINDOW_SET_SIZE, [50, 600])).not.toBeNull();
-      expect(validateIpcParams(Ch.WINDOW_SET_SIZE, [800, 20000])).not.toBeNull();
+      expect(validateIpcParams(Ch.WINDOW_SET_SIZE, [49, 600])).not.toBeNull(); // below min(50)
+      expect(validateIpcParams(Ch.WINDOW_SET_SIZE, [800, 20000])).not.toBeNull(); // above max(10000)
     });
 
     it('WINDOW_SET_CLICKTHROUGH: accepts boolean', () => {
@@ -435,6 +435,39 @@ describe('IPC Parameter Validation', () => {
     });
   });
 
+  // ─── Reflection ───
+
+  describe('Reflection channels', () => {
+    it('REFLECTION_TRIGGER: accepts valid cycle types', () => {
+      expect(validateIpcParams(Ch.REFLECTION_TRIGGER, ['deep'])).toBeNull();
+      expect(validateIpcParams(Ch.REFLECTION_TRIGGER, ['evening'])).toBeNull();
+      expect(validateIpcParams(Ch.REFLECTION_TRIGGER, ['weekly'])).toBeNull();
+      expect(validateIpcParams(Ch.REFLECTION_TRIGGER, ['manual'])).toBeNull();
+    });
+
+    it('REFLECTION_TRIGGER: accepts undefined (defaults to manual)', () => {
+      expect(validateIpcParams(Ch.REFLECTION_TRIGGER, [undefined])).toBeNull();
+    });
+
+    it('REFLECTION_TRIGGER: rejects invalid cycle type', () => {
+      expect(validateIpcParams(Ch.REFLECTION_TRIGGER, ['daily'])).not.toBeNull();
+      expect(validateIpcParams(Ch.REFLECTION_TRIGGER, [''])).not.toBeNull();
+      expect(validateIpcParams(Ch.REFLECTION_TRIGGER, [123])).not.toBeNull();
+    });
+
+    it('REFLECTION_SET_INTERVAL: accepts positive integer ms', () => {
+      expect(validateIpcParams(Ch.REFLECTION_SET_INTERVAL, [7200000])).toBeNull(); // 2h
+      expect(validateIpcParams(Ch.REFLECTION_SET_INTERVAL, [1])).toBeNull();
+      expect(validateIpcParams(Ch.REFLECTION_SET_INTERVAL, [3600000])).toBeNull(); // 1h
+    });
+
+    it('REFLECTION_SET_INTERVAL: rejects non-positive values', () => {
+      expect(validateIpcParams(Ch.REFLECTION_SET_INTERVAL, [0])).not.toBeNull();
+      expect(validateIpcParams(Ch.REFLECTION_SET_INTERVAL, [-1000])).not.toBeNull();
+      expect(validateIpcParams(Ch.REFLECTION_SET_INTERVAL, [1.5])).not.toBeNull(); // non-integer
+    });
+  });
+
   // ─── Edge cases ───
 
   describe('edge cases', () => {
@@ -451,7 +484,7 @@ describe('IPC Parameter Validation', () => {
     });
 
     it('validation error contains issues array', () => {
-      const error = validateIpcParams(Ch.WINDOW_SET_SIZE, [50, 600]);
+      const error = validateIpcParams(Ch.WINDOW_SET_SIZE, [49, 600]); // 49 < min(50)
       expect(error).not.toBeNull();
       expect(error!.issues.length).toBeGreaterThan(0);
     });

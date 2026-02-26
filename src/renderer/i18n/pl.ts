@@ -98,9 +98,23 @@ export const pl: TranslationDict = {
   'settings.tabs.knowledge': '📚 Wiedza',
   'settings.tabs.mcp': '🔌 MCP',
   'settings.tabs.calendar': '📅 Kalendarz',
+  'settings.tabs.privacy': '🔒 Prywatność',
+  'settings.tabs.scrollLeft': 'Przewiń zakładki w lewo',
+  'settings.tabs.scrollRight': 'Przewiń zakładki w prawo',
+  'settings.general.userProfile': 'Profil użytkownika',
+  'settings.general.userName': 'Imię / nazwa użytkownika',
+  'settings.general.userRole': 'Rola / stanowisko',
+  'settings.general.userDescription': 'Opis użytkownika',
+  'settings.general.userDescriptionPlaceholder': 'Krótko opisz, czym się zajmujesz i jaki masz kontekst pracy.',
   'settings.general.agentSection': 'Agent',
   'settings.general.name': 'Nazwa',
   'settings.general.emoji': 'Emoji',
+  'settings.general.engineSection': 'Silnik agenta',
+  'settings.general.proactiveToggle': 'Tryb proaktywny',
+  'settings.general.proactiveEnabledHint': 'Włączone: agent może wysyłać proaktywne sugestie i heartbeat.',
+  'settings.general.proactiveDisabledHint': 'Wyłączone: agent działa reaktywnie, bez proaktywnych wiadomości.',
+  'settings.general.nativeFc': 'Native Function Calling',
+  'settings.general.nativeFcHint': 'Włączone = stabilniejsze i szybsze wywołania narzędzi AI.',
   'settings.general.aiProvider': 'AI Provider',
   'settings.general.provider': 'Dostawca',
   'settings.general.model': 'Model',
@@ -128,6 +142,9 @@ export const pl: TranslationDict = {
   'settings.general.embeddingModelChangeWarning':
     'Zmiana modelu embeddingów wymusi pełny reindex wszystkich plików RAG przy następnym uruchomieniu. Istniejące embeddingi zostaną usunięte.',
   'settings.general.embeddingCurrentInfo': 'Aktualnie: {model} ({dim}D) — {chunks} chunków z {files} plików',
+  'settings.general.indexedExtensions': 'Rozszerzenia indeksowane (RAG)',
+  'settings.general.indexedExtensionsHint':
+    'Lista po przecinkach, np. .ts, .md, .pdf. Puste pole oznacza domyślną listę rozszerzeń.',
   'settings.general.dangerZone': 'Strefa niebezpieczna',
   'settings.general.clearHistory': '🗑️ Wyczyść historię konwersacji',
   'settings.general.clearHistoryConfirm': 'Czy na pewno chcesz wyczyścić historię konwersacji?',
@@ -142,6 +159,11 @@ export const pl: TranslationDict = {
   'settings.persona.saveSoul': 'Zapisz SOUL.md',
 
   // SettingsPanel — Memory
+  'settings.memory.userTitle': 'Profil Użytkownika (USER.md)',
+  'settings.memory.userDescription':
+    'USER.md to Twój profil — imię, rola, preferencje. Agent zapisuje tu informacje o Tobie (np. "lubię kawę").',
+  'settings.memory.saveUser': 'Zapisz USER.md',
+  'settings.memory.memoryTitle': 'Pamięć Długoterminowa (MEMORY.md)',
   'settings.memory.description':
     'MEMORY.md to pamięć długoterminowa Twojego agenta. Agent sam dodaje wspomnienia, ale możesz je edytować.',
   'settings.memory.saveMemory': 'Zapisz MEMORY.md',
@@ -292,7 +314,13 @@ export const pl: TranslationDict = {
   // ProactiveNotification
   // ═══════════════════════════════════════
   'proactive.label': 'Obserwacja KxAI',
-  'proactive.speakTitle': 'Czytaj na głos',
+  'proactive.labelAutonomous': 'KxAI (autonomiczny)',
+  'proactive.labelReflection': 'KxAI (refleksja)',
+  'proactive.labelObservation': 'Obserwacja KxAI',
+  'proactive.labelReminder': 'Przypomnienie',
+  'proactive.labelSystem': 'System',
+  'proactive.labelBriefing': 'Briefing KxAI',
+  'proactive.speakTitle': 'Czytaj na głos (ElevenLabs)',
   'proactive.dismiss': 'Zamknij',
   'proactive.reply': 'Odpowiedz',
 
@@ -401,4 +429,27 @@ export const pl: TranslationDict = {
   'common.loading': 'Ładowanie...',
   'common.yes': 'Tak',
   'common.no': 'Nie',
+  // Privacy & Clipboard
+  // ═══════════════════════════════════════════════
+  'settings.privacy.title': 'Prywatność i dane',
+  'settings.privacy.description':
+    'Wszystkie dane są przechowywane lokalnie na Twoim komputerze. Żadne dane nie są wysyłane na serwery poza wywołaniami AI.',
+  'settings.privacy.dataSummary': 'Podsumowanie danych',
+  'settings.privacy.dataSummaryDesc': 'Przegląd kategorii danych przechowywanych przez KxAI.',
+  'settings.privacy.export': '📦 Eksportuj wszystkie dane',
+  'settings.privacy.exportDesc': 'Eksportuj wszystkie dane do folderu (GDPR).',
+  'settings.privacy.exporting': 'Eksportowanie...',
+  'settings.privacy.exported': 'Dane wyeksportowane do: {path}',
+  'settings.privacy.delete': '🗑️ Usuń wszystkie dane',
+  'settings.privacy.deleteDesc': 'Trwale usuń wszystkie dane agenta (nieodwracalne).',
+  'settings.privacy.deleteConfirm': 'Czy na pewno chcesz usunąć WSZYSTKIE dane? Tej operacji nie można cofnąć!',
+  'settings.privacy.deleting': 'Usuwanie...',
+  'settings.privacy.deleted': 'Wszystkie dane zostały usunięte.',
+  'settings.privacy.clipboardSection': 'Monitoring schowka',
+  'settings.privacy.clipboardDesc':
+    'Gdy włączony, KxAI monitoruje schowek w tle i zapamiętuje historię kopiowanych treści.',
+  'settings.privacy.clipboardEnabled': 'Monitoring schowka włączony',
+  'settings.privacy.clipboardDisabled': 'Monitoring schowka wyłączony',
+  'settings.privacy.clipboardToggle': 'Włącz monitoring schowka',
+  'settings.privacy.entries': 'wpisów',
 };

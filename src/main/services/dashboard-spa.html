@@ -197,7 +197,9 @@
   // WebSocket
   function connectWS() {
     var proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    wsConn = new WebSocket(proto + '://' + location.host + '/');
+    var wsUrl = proto + '://' + location.host + '/';
+    if (typeof AUTH_TOKEN !== 'undefined' && AUTH_TOKEN) wsUrl += '?token=' + AUTH_TOKEN;
+    wsConn = new WebSocket(wsUrl);
     wsConn.onmessage = function(e) {
       try {
         var msg = JSON.parse(e.data);
@@ -265,7 +267,11 @@
   });
 
   function api(path) {
-    return fetch(API + path)
+    var headers = {};
+    if (typeof AUTH_TOKEN !== 'undefined' && AUTH_TOKEN) {
+      headers['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+    }
+    return fetch(API + path, { headers: headers })
       .then(function(r) { return r.json(); })
       .then(function(j) { return j.data; })
       .catch(function() { return null; });
@@ -509,13 +515,17 @@
   // MCP actions (called from inline onclick)
   window.mcpAction = function(action, id) {
     var endpoint = '/api/mcp/' + action;
-    fetch(API + endpoint, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({id:id}) })
+    var hdrs = {'Content-Type':'application/json'};
+    if (typeof AUTH_TOKEN !== 'undefined' && AUTH_TOKEN) hdrs['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+    fetch(API + endpoint, { method: 'POST', headers: hdrs, body: JSON.stringify({id:id}) })
       .then(function() { loadPage('mcp'); })
       .catch(function(e) { alert('Błąd: ' + e.message); });
   };
 
   window.mcpAddFromRegistry = function(registryId) {
-    fetch(API + '/api/mcp/add-from-registry', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({registryId:registryId}) })
+    var hdrs = {'Content-Type':'application/json'};
+    if (typeof AUTH_TOKEN !== 'undefined' && AUTH_TOKEN) hdrs['Authorization'] = 'Bearer ' + AUTH_TOKEN;
+    fetch(API + '/api/mcp/add-from-registry', { method: 'POST', headers: hdrs, body: JSON.stringify({registryId:registryId}) })
       .then(function() { loadPage('mcp'); })
       .catch(function(e) { alert('Błąd: ' + e.message); });
   };
@@ -711,7 +721,7 @@
 
     fetch(API + '/api/meeting-prep/research', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: (function() { var h = { 'Content-Type': 'application/json' }; if (typeof AUTH_TOKEN !== 'undefined' && AUTH_TOKEN) h['Authorization'] = 'Bearer ' + AUTH_TOKEN; return h; })(),
       body: JSON.stringify({ participants: participants }),
     })
     .then(function(r) { return r.json(); })

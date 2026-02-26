@@ -45,6 +45,9 @@ import { ClipboardService } from './clipboard-service';
 import { KnowledgeGraphService } from './knowledge-graph-service';
 import { ProactiveEngine } from './proactive-engine';
 import { WorkflowAutomator } from './workflow-automator';
+import { ReflectionEngine } from './reflection-engine';
+import { PromptService } from './prompt-service';
+import { ResponseProcessor } from './response-processor';
 
 const log = createLogger('Container');
 
@@ -83,6 +86,7 @@ export interface ServiceMap {
   knowledgeGraph: KnowledgeGraphService;
   proactiveEngine: ProactiveEngine;
   workflowAutomator: WorkflowAutomator;
+  reflectionEngine: ReflectionEngine;
 }
 
 export type ServiceKey = keyof ServiceMap;
@@ -119,6 +123,7 @@ export interface IPCServices {
   knowledgeGraphService: KnowledgeGraphService;
   proactiveEngine: ProactiveEngine;
   workflowAutomator: WorkflowAutomator;
+  reflectionEngine: ReflectionEngine;
 }
 
 export class ServiceContainer {
@@ -260,6 +265,7 @@ export class ServiceContainer {
       fileIntelligence,
       calendar,
       privacy,
+      memory,
       securityGuard,
       systemMonitor,
     });
@@ -283,6 +289,25 @@ export class ServiceContainer {
     proactiveEngine.setSystemMonitor(systemMonitor);
     proactiveEngine.setKnowledgeGraphService(knowledgeGraph);
     proactiveEngine.setScreenMonitor(screenMonitor);
+
+    // Reflection Engine — AI-driven periodic reflection and learning
+    const promptService = new PromptService();
+    const responseProcessor = new ResponseProcessor(memory, cron);
+    const reflectionEngine = new ReflectionEngine({
+      ai,
+      memory,
+      workflow,
+      cron,
+      tools,
+      promptService,
+      responseProcessor,
+      config,
+    });
+    // Wire optional context sources AFTER construction
+    reflectionEngine.setMcpClient(mcpClient);
+    reflectionEngine.setCalendarService(calendar);
+    reflectionEngine.setKnowledgeGraphService(knowledgeGraph);
+    this.set('reflectionEngine', reflectionEngine);
 
     // Agent loop — central orchestrator
     const agentLoop = new AgentLoop(ai, tools, cron, workflow, memory, config);
@@ -440,6 +465,7 @@ export class ServiceContainer {
     this.trySync('clipboard', (s) => s.shutdown());
     this.trySync('knowledgeGraph', (s) => s.shutdown());
     this.trySync('proactiveEngine', (s) => s.stop());
+    this.trySync('reflectionEngine', (s) => s.stop());
 
     // ── Phase 2: Close network connections ──
     await this.tryAsync('calendar', (s) => s.shutdown());
@@ -503,6 +529,7 @@ export class ServiceContainer {
       knowledgeGraphService: this.get('knowledgeGraph'),
       proactiveEngine: this.get('proactiveEngine'),
       workflowAutomator: this.get('workflowAutomator'),
+      reflectionEngine: this.get('reflectionEngine'),
     };
   }
 

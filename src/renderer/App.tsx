@@ -55,12 +55,13 @@ export default function App() {
             <ProactiveNotification
               key={msg.id}
               message={msg}
-              onDismiss={() => {
-                dismissProactive(msg.id);
-                // Shrink back to widget if this was the last notification
+              onDismiss={async () => {
+                // Shrink back to widget BEFORE removing notification,
+                // so widget doesn't flash centered in the large window
                 if (view === 'widget' && proactiveMessages.length <= 1) {
-                  window.kxai.setWindowSize(68, 68);
+                  await window.kxai.setWindowSize(68, 68);
                 }
+                dismissProactive(msg.id);
               }}
               onReply={() => {
                 dismissProactive(msg.id);
@@ -76,7 +77,7 @@ export default function App() {
           </ErrorBoundary>
         )}
 
-        {view === 'widget' && (
+        {view === 'widget' && proactiveMessages.length === 0 && (
           <FloatingWidget
             emoji={config?.agentEmoji || '🤖'}
             name={config?.agentName || 'KxAI'}
@@ -84,7 +85,7 @@ export default function App() {
               clearCompanionStates();
               navigateTo('chat');
             }}
-            hasNotification={proactiveMessages.length > 0}
+            hasNotification={false}
             controlActive={controlActive}
             hasSuggestion={hasSuggestion}
             wantsToSpeak={wantsToSpeak}
@@ -99,7 +100,6 @@ export default function App() {
               onOpenSettings={() => navigateTo('settings')}
               onOpenCron={() => navigateTo('cron')}
               onOpenMeeting={() => navigateTo('meeting')}
-              onOpenDashboard={() => navigateTo('dashboard')}
               refreshTrigger={chatRefreshTrigger}
             />
           </ErrorBoundary>

@@ -16,7 +16,7 @@ interface NavigationState {
    * Navigate with window resize side-effects.
    * Call this instead of setView when user-initiated navigation happens.
    */
-  navigateTo: (view: View) => void;
+  navigateTo: (view: View) => Promise<void>;
 }
 
 export const useNavigationStore = create<NavigationState>((set) => ({
@@ -28,13 +28,13 @@ export const useNavigationStore = create<NavigationState>((set) => ({
   setLoading: (isLoading) => set({ isLoading }),
   bumpChatRefresh: () => set((s) => ({ chatRefreshTrigger: s.chatRefreshTrigger + 1 })),
 
-  navigateTo: (view) => {
+  navigateTo: async (view) => {
     if (view === 'widget') {
-      window.kxai.setWindowSize(68, 68);
+      await window.kxai.setWindowSize(68, 68);
     } else {
       // Dashboard needs wider window for grids/tables
       const width = view === 'dashboard' ? 560 : 420;
-      window.kxai.setWindowSize(width, 600);
+      await window.kxai.setWindowSize(width, 600);
     }
     set({ view });
   },

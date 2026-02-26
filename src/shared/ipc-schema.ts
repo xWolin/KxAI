@@ -222,6 +222,11 @@ export const Ch = {
   KG_DELETE_RELATION: 'kg:delete-relation',
   KG_GET_GRAPH: 'kg:get-graph',
   KG_GET_STATS: 'kg:get-stats',
+
+  // Reflection Engine
+  REFLECTION_TRIGGER: 'reflection:trigger',
+  REFLECTION_GET_STATUS: 'reflection:get-status',
+  REFLECTION_SET_INTERVAL: 'reflection:set-interval',
 } as const;
 
 // ─── Send Channels (renderer → main, fire-and-forget) ───
@@ -257,6 +262,7 @@ export const Ev = {
   CALENDAR_STATUS: 'calendar:status',
   CONFIG_CHANGED: 'config:changed',
   NAVIGATE: 'navigate',
+  REFLECTION_COMPLETE: 'reflection:complete',
 } as const;
 
 // ─── Type helpers ───

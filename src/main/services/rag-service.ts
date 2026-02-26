@@ -211,12 +211,15 @@ export class RAGService {
     const savedModel = this.dbService.getRAGMeta('embedding_model');
     const savedDim = this.dbService.getRAGMeta('embedding_dim');
 
-    // First run — just store the current model info
+    // Always ensure database service has the correct dimension first
+    this.dbService.setEmbeddingDim(currentDim);
+
+    // First run — store current model info and ensure vec0 table matches
     if (!savedModel) {
       this.dbService.setRAGMeta('embedding_model', currentModel);
       this.dbService.setRAGMeta('embedding_dim', String(currentDim));
-      // Set the correct dimension on database service for table creation
-      this.dbService.setEmbeddingDim(currentDim);
+      // Vec0 table may already exist with default 1536 dim — recreate if needed
+      this.dbService.recreateEmbeddingsTable(currentDim);
       return false;
     }
 
@@ -235,8 +238,6 @@ export class RAGService {
       return true;
     }
 
-    // Ensure database service has the correct dimension
-    this.dbService.setEmbeddingDim(currentDim);
     return false;
   }
 

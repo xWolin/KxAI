@@ -81,7 +81,7 @@ const SecurityAuditLogParams = z.tuple([optionalPositiveInt]);
 
 const WindowSetPositionParams = z.tuple([z.number().int(), z.number().int()]);
 
-const WindowSetSizeParams = z.tuple([z.number().int().min(100).max(10000), z.number().int().min(100).max(10000)]);
+const WindowSetSizeParams = z.tuple([z.number().int().min(50).max(10000), z.number().int().min(50).max(10000)]);
 
 const WindowSetClickthroughParams = z.tuple([booleanVal]);
 
@@ -104,6 +104,12 @@ const ProactiveFeedbackParams = z.tuple([
     action: z.enum(['accepted', 'dismissed', 'replied']),
   }),
 ]);
+
+// ─── Reflection ───
+
+const ReflectionTriggerParams = z.tuple([z.enum(['deep', 'evening', 'weekly', 'manual']).optional()]);
+
+const ReflectionSetIntervalParams = z.tuple([positiveInt]);
 
 // ─── Cron ───
 
@@ -305,6 +311,10 @@ export const IpcParamSchemas: Partial<Record<string, z.ZodType>> = {
   // Proactive
   [Ch.PROACTIVE_SET_MODE]: ProactiveSetModeParams,
   [Ch.PROACTIVE_FEEDBACK]: ProactiveFeedbackParams,
+
+  // Reflection
+  [Ch.REFLECTION_TRIGGER]: ReflectionTriggerParams,
+  [Ch.REFLECTION_SET_INTERVAL]: ReflectionSetIntervalParams,
 
   // Cron
   [Ch.CRON_ADD_JOB]: CronAddJobParams,

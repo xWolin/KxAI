@@ -404,7 +404,9 @@ export class DashboardServer {
 
     // ─── Dashboard SPA ───
     this.app.get('/', (_req: Request, res: Response) => {
-      res.type('html').send(this.spaHtml);
+      // Inject auth token into SPA so it can authenticate API calls
+      const html = this.spaHtml.replace("var API = '';", `var API = ''; var AUTH_TOKEN = '${this.authToken}';`);
+      res.type('html').send(html);
     });
 
     // Legacy meeting routes — redirect to SPA

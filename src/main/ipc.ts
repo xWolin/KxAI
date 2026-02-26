@@ -63,6 +63,7 @@ interface Services {
   knowledgeGraphService: KnowledgeGraphService;
   proactiveEngine: ProactiveEngine;
   workflowAutomator: WorkflowAutomator;
+  reflectionEngine: import('./services/reflection-engine').ReflectionEngine;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
@@ -348,18 +349,47 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     return mainWindow.getPosition();
   });
 
+  // Saved widget position — restored when shrinking back to widget size
+  let savedWidgetPos: { x: number; y: number } | null = null;
+
   validatedHandle(Ch.WINDOW_SET_SIZE, async (_event, width: number, height: number) => {
-    // Anchor window to top-right corner of current display work area
     const currentBounds = mainWindow.getBounds();
     const display = screen.getDisplayMatching(currentBounds);
-    const { x: waX, y: waY, width: waW } = display.workArea;
-    const margin = 20;
-    mainWindow.setBounds({
-      x: waX + waW - width - margin,
-      y: waY + margin,
-      width,
-      height,
-    });
+    const { x: waX, y: waY, width: waW, height: waH } = display.workArea;
+
+    const isWidget = width <= 80 && height <= 80;
+    const wasWidget = currentBounds.width <= 80 && currentBounds.height <= 80;
+
+    if (wasWidget && !isWidget) {
+      // Expanding from widget — save position, expand anchored near widget
+      savedWidgetPos = { x: currentBounds.x, y: currentBounds.y };
+      // Expand to the left of the widget's right edge
+      let newX = currentBounds.x + currentBounds.width - width;
+      let newY = currentBounds.y;
+      // Clamp to work area
+      newX = Math.max(waX, Math.min(newX, waX + waW - width));
+      newY = Math.max(waY, Math.min(newY, waY + waH - height));
+      mainWindow.setBounds({ x: newX, y: newY, width, height });
+    } else if (isWidget && savedWidgetPos) {
+      // Shrinking to widget — restore saved position
+      const x = Math.max(waX, Math.min(savedWidgetPos.x, waX + waW - width));
+      const y = Math.max(waY, Math.min(savedWidgetPos.y, waY + waH - height));
+      mainWindow.setBounds({ x, y, width, height });
+    } else if (isWidget) {
+      // Widget but no saved position (first startup) — position at top-right
+      const margin = 20;
+      mainWindow.setBounds({
+        x: waX + waW - width - margin,
+        y: waY + margin,
+        width,
+        height,
+      });
+    } else {
+      // Non-widget resize (e.g. chat→dashboard) — keep current position, clamp
+      const x = Math.max(waX, Math.min(currentBounds.x, waX + waW - width));
+      const y = Math.max(waY, Math.min(currentBounds.y, waY + waH - height));
+      mainWindow.setBounds({ x, y, width, height });
+    }
   });
 
   validatedHandle(Ch.WINDOW_SET_CLICKTHROUGH, async (_event, enabled: boolean) => {
@@ -588,6 +618,25 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   ipcMain.handle(Ch.PROACTIVE_GET_STATS, async () => {
     return services.proactiveEngine.getStats();
+  });
+
+  // ──────────────── Reflection Engine ────────────────
+  ipcMain.handle(Ch.REFLECTION_TRIGGER, async (_event, type?: string) => {
+    try {
+      const result = await services.reflectionEngine.triggerNow((type as any) || 'manual');
+      return { success: true, data: result };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle(Ch.REFLECTION_GET_STATUS, () => {
+    return services.reflectionEngine.getStatus();
+  });
+
+  ipcMain.handle(Ch.REFLECTION_SET_INTERVAL, (_event, ms: number) => {
+    services.reflectionEngine.setIntervalMs(ms);
+    return { success: true };
   });
 
   // ──────────────── Cron Jobs ────────────────

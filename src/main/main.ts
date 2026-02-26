@@ -73,6 +73,7 @@ function startCompanionMonitor(win: BrowserWindow): void {
   const agentLoop = container.get('agentLoop');
   const memoryService = container.get('memory');
   const proactiveEngine = container.get('proactiveEngine');
+  const reflectionEngine = container.get('reflectionEngine');
 
   screenMonitorService.start(
     // T0: Window change
@@ -102,15 +103,9 @@ function startCompanionMonitor(win: BrowserWindow): void {
         if (analysis && analysis.hasInsight) {
           agentLoop.logScreenActivity(analysis.context, analysis.message);
 
-          memoryService.addMessage({
-            id: `proactive-${Date.now()}`,
-            role: 'assistant',
-            content: `💡 **Obserwacja KxAI:**\n${analysis.message}${analysis.context ? `\n\n📋 ${analysis.context}` : ''}`,
-            timestamp: Date.now(),
-            type: 'proactive',
-          });
-
-          safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+          // Screen observations are routed to the dashboard and used as context
+          // by the heartbeat/autonomous engine — they do NOT go into chat history.
+          // The autonomous agent will proactively comment when relevant.
           safeSend(Ev.AI_PROACTIVE, {
             type: 'screen-analysis',
             message: analysis.message,
@@ -169,6 +164,25 @@ function startCompanionMonitor(win: BrowserWindow): void {
     });
   });
   proactiveEngine.start();
+
+  // Start Reflection Engine — AI-driven periodic reflection and learning
+  reflectionEngine.setProcessingCheck(() => agentLoop.isCurrentlyProcessing?.() ?? false);
+  reflectionEngine.setResultCallback((message) => {
+    memoryService.addMessage({
+      id: `reflection-${Date.now()}`,
+      role: 'assistant',
+      content: `🪞 **KxAI (refleksja):**\n${message}`,
+      timestamp: Date.now(),
+      type: 'proactive',
+    });
+    safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+    safeSend(Ev.AI_PROACTIVE, {
+      type: 'reflection',
+      message,
+    });
+  });
+  reflectionEngine.onAgentStatus = (status) => safeSend(Ev.AGENT_STATUS, status);
+  reflectionEngine.start();
 }
 
 function createMainWindow(): BrowserWindow {
