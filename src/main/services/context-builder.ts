@@ -214,12 +214,12 @@ export class ContextBuilder {
     try {
       const response = await this.ai.sendMessage(
         '[MEMORY FLUSH — Pre-kompakcja]\n\n' +
-        'Sesja zbliża się do limitu kontekstu. Zapisz trwałe wspomnienia do pamięci.\n' +
-        'Użyj bloków ```update_memory aby zapisać ważne informacje z tej rozmowy:\n' +
-        '- Nowe fakty o użytkowniku\n' +
-        '- Ważne decyzje\n' +
-        '- Kontekst który powinien przetrwać reset kontekstu\n\n' +
-        'Jeśli nie ma nic do zapisania, odpowiedz "NO_REPLY".'
+          'Sesja zbliża się do limitu kontekstu. Zapisz trwałe wspomnienia do pamięci.\n' +
+          'Użyj bloków ```update_memory aby zapisać ważne informacje z tej rozmowy:\n' +
+          '- Nowe fakty o użytkowniku\n' +
+          '- Ważne decyzje\n' +
+          '- Kontekst który powinien przetrwać reset kontekstu\n\n' +
+          'Jeśli nie ma nic do zapisania, odpowiedz "NO_REPLY".',
       );
 
       if (response.trim() !== 'NO_REPLY') {
@@ -254,22 +254,25 @@ export class ContextBuilder {
 
     try {
       const conversationText = messagesToSummarize
-        .map(m => `${m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : 'System'}: ${m.content.slice(0, 2000)}`)
+        .map(
+          (m) =>
+            `${m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : 'System'}: ${m.content.slice(0, 2000)}`,
+        )
         .join('\n---\n');
 
       const summary = await this.ai.sendMessage(
         `[CONTEXT COMPACTION]\n\n` +
-        `Podsumuj tę rozmowę w 500-1500 słów. Zachowaj WSZYSTKIE istotne detale:\n` +
-        `- Kluczowe decyzje i ustalenia\n` +
-        `- Wyniki narzędzi i ich kontekst\n` +
-        `- Preferencje wyrażone przez użytkownika\n` +
-        `- Aktualne zadania w toku\n` +
-        `- Komendy i wyniki narzędzi\n` +
-        `- Pliki nad którymi pracowano\n\n` +
-        `Rozmowa do podsumowania:\n${conversationText.slice(0, 50000)}`,
+          `Podsumuj tę rozmowę w 500-1500 słów. Zachowaj WSZYSTKIE istotne detale:\n` +
+          `- Kluczowe decyzje i ustalenia\n` +
+          `- Wyniki narzędzi i ich kontekst\n` +
+          `- Preferencje wyrażone przez użytkownika\n` +
+          `- Aktualne zadania w toku\n` +
+          `- Komendy i wyniki narzędzi\n` +
+          `- Pliki nad którymi pracowano\n\n` +
+          `Rozmowa do podsumowania:\n${conversationText.slice(0, 50000)}`,
         undefined,
         undefined,
-        { skipHistory: true }
+        { skipHistory: true },
       );
 
       if (summary && summary.length > 50) {
@@ -395,9 +398,7 @@ export class ContextBuilder {
     const dynamic = await this.buildDynamicContext(modules);
 
     const full = stable + '\n' + dynamic;
-    const estimatedTokens = ContextManager.prototype.estimateTokens.call(
-      { config: {} }, full
-    );
+    const estimatedTokens = ContextManager.prototype.estimateTokens.call({ config: {} }, full);
 
     // Token budget enforcement — warn if system prompt is too large
     const model = this.config.get('aiModel') || 'gpt-5';
@@ -407,7 +408,7 @@ export class ContextBuilder {
     if (budgetRatio > 0.25) {
       log.warn(
         `System prompt uses ${Math.round(budgetRatio * 100)}% of model context ` +
-        `(${estimatedTokens} tokens / ${modelLimit} limit). Consider reducing context.`
+          `(${estimatedTokens} tokens / ${modelLimit} limit). Consider reducing context.`,
       );
     }
 
@@ -424,10 +425,7 @@ export class ContextBuilder {
   ): Promise<string> {
     // Check cache first
     const now = Date.now();
-    if (
-      this.stableContextCache &&
-      now - this.stableContextCache.timestamp < ContextBuilder.STABLE_CACHE_TTL_MS
-    ) {
+    if (this.stableContextCache && now - this.stableContextCache.timestamp < ContextBuilder.STABLE_CACHE_TTL_MS) {
       return this.stableContextCache.content;
     }
 
@@ -480,9 +478,7 @@ export class ContextBuilder {
    * Build the dynamic portion of the context — changes every turn.
    * Not suitable for prompt caching.
    */
-  private async buildDynamicContext(
-    modules: ReturnType<typeof this.resolveModules>,
-  ): Promise<string> {
+  private async buildDynamicContext(modules: ReturnType<typeof this.resolveModules>): Promise<string> {
     const parts: string[] = [];
 
     // Time context (always — cheap and useful)
@@ -517,9 +513,9 @@ export class ContextBuilder {
     if (modules.loadAutomation && this.automationEnabled) {
       parts.push(
         '\n## Desktop Automation\n' +
-        'Masz możliwość przejęcia sterowania pulpitem użytkownika (myszka + klawiatura) w trybie autonomicznym.\n' +
-        'Aby to zrobić, MUSISZ użyć bloku ```take_control (patrz instrukcje niżej).\n' +
-        'NIE próbuj sterować komputerem za pomocą narzędzi (mouse_click, keyboard_type itp.) w normalnym czacie — one działają TYLKO w trybie take_control.\n'
+          'Masz możliwość przejęcia sterowania pulpitem użytkownika (myszka + klawiatura) w trybie autonomicznym.\n' +
+          'Aby to zrobić, MUSISZ użyć bloku ```take_control (patrz instrukcje niżej).\n' +
+          'NIE próbuj sterować komputerem za pomocą narzędzi (mouse_click, keyboard_type itp.) w normalnym czacie — one działają TYLKO w trybie take_control.\n',
       );
     }
 
@@ -539,9 +535,7 @@ export class ContextBuilder {
     if (modules.loadBackgroundTasks && this.backgroundTasksProvider) {
       const bgTasks = this.backgroundTasksProvider();
       if (bgTasks.length > 0) {
-        const lines = bgTasks.map(t =>
-          `- [${t.id}] "${t.task.slice(0, 80)}" — od ${Math.round(t.elapsed / 1000)}s`
-        );
+        const lines = bgTasks.map((t) => `- [${t.id}] "${t.task.slice(0, 80)}" — od ${Math.round(t.elapsed / 1000)}s`);
         parts.push(`\n## ⏳ Zadania w tle\n${lines.join('\n')}\n`);
       }
     }
@@ -549,7 +543,7 @@ export class ContextBuilder {
     // Active hours info
     if (modules.loadActiveHours && this.activeHours) {
       parts.push(
-        `\n## ⏰ Godziny aktywności\nHeartbeat aktywny: ${this.activeHours.start}:00-${this.activeHours.end}:00\n`
+        `\n## ⏰ Godziny aktywności\nHeartbeat aktywny: ${this.activeHours.start}:00-${this.activeHours.end}:00\n`,
       );
     }
 
@@ -575,9 +569,9 @@ export class ContextBuilder {
    * Uses keyword relevance scoring when a user message is provided.
    */
   private async buildMemoryContext(hint?: ContextHint): Promise<string> {
-    const soul = await this.memory.get('SOUL.md') || '';
-    const user = await this.memory.get('USER.md') || '';
-    const fullMemory = await this.memory.get('MEMORY.md') || '';
+    const soul = (await this.memory.get('SOUL.md')) || '';
+    const user = (await this.memory.get('USER.md')) || '';
+    const fullMemory = (await this.memory.get('MEMORY.md')) || '';
 
     // Selective memory recall — if user message is provided, score memory sections
     let memoryContent: string;
@@ -593,7 +587,7 @@ export class ContextBuilder {
     if (mode === 'chat' || mode === 'vision') {
       const now = new Date();
       const todayKey = `memory/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}.md`;
-      dailyMemory = await this.memory.get(todayKey) || '';
+      dailyMemory = (await this.memory.get(todayKey)) || '';
     }
 
     // Knowledge Graph context — key entities and relations
@@ -620,7 +614,9 @@ export class ContextBuilder {
       '',
       dailyMemory ? `## Today's Notes\n${dailyMemory}` : '',
       kgContext ? `## Knowledge Graph (key entities)\n${kgContext}` : '',
-    ].filter(Boolean).join('\n');
+    ]
+      .filter(Boolean)
+      .join('\n');
   }
 
   /**
@@ -637,8 +633,8 @@ export class ContextBuilder {
     const query = userMessage.toLowerCase();
     const queryWords = query
       .split(/\s+/)
-      .filter(w => w.length > 2)
-      .map(w => w.replace(/[^a-ząćęłńóśźżA-ZĄĆĘŁŃÓŚŹŻ0-9]/g, ''));
+      .filter((w) => w.length > 2)
+      .map((w) => w.replace(/[^a-ząćęłńóśźżA-ZĄĆĘŁŃÓŚŹŻ0-9]/g, ''));
 
     interface ScoredSection {
       content: string;
@@ -646,7 +642,7 @@ export class ContextBuilder {
       isHeader: boolean;
     }
 
-    const scored: ScoredSection[] = sections.map(section => {
+    const scored: ScoredSection[] = sections.map((section) => {
       const sectionLower = section.toLowerCase();
       let score = 0;
 
@@ -700,7 +696,6 @@ export class ContextBuilder {
         const remaining = MEMORY_CHAR_BUDGET - totalChars;
         if (remaining > 200) {
           included.push(s.content.slice(0, remaining) + '\n... (truncated)');
-          totalChars = MEMORY_CHAR_BUDGET;
         }
         break;
       }
@@ -731,8 +726,8 @@ export class ContextBuilder {
     const cronJobs = this.cron.getJobs();
     if (cronJobs.length === 0) return '';
 
-    const lines = cronJobs.map((j) =>
-      `- [${j.enabled ? '✓' : '✗'}] "${j.name}" — ${j.schedule} — ${j.action.slice(0, 80)}`
+    const lines = cronJobs.map(
+      (j) => `- [${j.enabled ? '✓' : '✗'}] "${j.name}" — ${j.schedule} — ${j.action.slice(0, 80)}`,
     );
     return `\n## Cron Jobs\n${lines.join('\n')}\n`;
   }
@@ -764,7 +759,7 @@ export class ContextBuilder {
 
   private async buildMemoryNudge(): Promise<string> {
     try {
-      const memContent = await this.memory.get('MEMORY.md') || '';
+      const memContent = (await this.memory.get('MEMORY.md')) || '';
       const memIsEmpty =
         memContent.includes('(Uzupełnia się automatycznie') ||
         memContent.includes('(Bieżące obserwacje') ||
@@ -773,10 +768,14 @@ export class ContextBuilder {
 
       const nudges: string[] = [];
       if (memIsEmpty) {
-        nudges.push('⚠️ MEMORY.md jest PUSTY! Zapisuj obserwacje o użytkowniku po każdej rozmowie za pomocą bloków ```update_memory.');
+        nudges.push(
+          '⚠️ MEMORY.md jest PUSTY! Zapisuj obserwacje o użytkowniku po każdej rozmowie za pomocą bloków ```update_memory.',
+        );
       }
       if (!hasCrons) {
-        nudges.push('⚠️ Nie masz żadnych cron jobów! Zasugeruj przydatne zadania cykliczne (poranny briefing, przypomnienie o przerwie, podsumowanie dnia) za pomocą bloków ```cron.');
+        nudges.push(
+          '⚠️ Nie masz żadnych cron jobów! Zasugeruj przydatne zadania cykliczne (poranny briefing, przypomnienie o przerwie, podsumowanie dnia) za pomocą bloków ```cron.',
+        );
       }
       if (nudges.length === 0) return '';
 

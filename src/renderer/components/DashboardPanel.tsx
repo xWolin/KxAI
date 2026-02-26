@@ -1,23 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type {
-  ToolDefinition,
-  CronJob,
-  ActivityEntry,
-  SystemSnapshot,
-} from '../types';
+import type { ToolDefinition, CronJob, ActivityEntry, SystemSnapshot } from '../types';
 import type { McpHubStatus } from '@shared/types';
 import s from './DashboardPanel.module.css';
 import { cn } from '../utils/cn';
 import { useTranslation } from '../i18n';
 import { useAgentStore } from '../stores';
-import {
-  PanelHeader,
-  Tabs,
-  StatCard,
-  Badge,
-  Spinner,
-  ProgressBar,
-} from './ui';
+import { PanelHeader, Tabs, StatCard, Badge, Spinner, ProgressBar } from './ui';
 
 // ─── Types ───
 
@@ -71,12 +59,7 @@ export function DashboardPanel({ onBack }: DashboardPanelProps) {
 
 function StatusDot({ state }: { state: string }) {
   const isActive = state !== 'idle';
-  return (
-    <span
-      className={cn(s.statusDot, isActive && s.statusDotActive)}
-      title={state}
-    />
-  );
+  return <span className={cn(s.statusDot, isActive && s.statusDotActive)} title={state} />;
 }
 
 // ─── Overview Tab ───
@@ -125,13 +108,9 @@ function OverviewTab() {
       <div className={s.overviewStatus}>
         <div className={s.overviewStatusRow}>
           <span className={s.overviewLabel}>{t('dashboard.overview.agentState')}</span>
-          <Badge variant={agentStatus.state === 'idle' ? 'default' : 'accent'}>
-            {agentStatus.state}
-          </Badge>
+          <Badge variant={agentStatus.state === 'idle' ? 'default' : 'accent'}>{agentStatus.state}</Badge>
         </div>
-        {agentStatus.detail && (
-          <div className={s.overviewDetail}>{agentStatus.detail}</div>
-        )}
+        {agentStatus.detail && <div className={s.overviewDetail}>{agentStatus.detail}</div>}
         <div className={s.overviewStatusRow}>
           <span className={s.overviewLabel}>{t('dashboard.overview.embedding')}</span>
           <Badge variant="default">{rag?.embeddingType ?? '—'}</Badge>
@@ -295,7 +274,15 @@ function SystemTab() {
   }, []);
 
   useEffect(() => {
-    refresh();
+    setLoading(true); // eslint-disable-line react-hooks/set-state-in-effect -- initial data fetch on mount
+    window.kxai
+      .systemSnapshot()
+      .then((r) => {
+        if (r.success && r.data) setSystem(r.data);
+      })
+      .catch(() => {})
+      .finally(() => setLoading(false));
+
     const interval = setInterval(refresh, 10000);
     return () => clearInterval(interval);
   }, [refresh]);
@@ -338,11 +325,16 @@ function SystemTab() {
         <table className={s.table}>
           <tbody>
             <InfoRow label={t('dashboard.system.hostname')} value={system.system?.hostname} />
-            <InfoRow label={t('dashboard.system.os')} value={`${system.system?.platform} ${system.system?.osVersion} ${system.system?.arch}`} />
+            <InfoRow
+              label={t('dashboard.system.os')}
+              value={`${system.system?.platform} ${system.system?.osVersion} ${system.system?.arch}`}
+            />
             <InfoRow label="Node.js" value={system.system?.nodeVersion} />
             <InfoRow label="Electron" value={system.system?.electronVersion} />
             <InfoRow label={t('dashboard.system.uptime')} value={formatUptime(system.system?.uptimeHours)} />
-            {system.cpu?.model && <InfoRow label="CPU" value={`${system.cpu.model} (${system.cpu.cores} ${t('dashboard.system.cores')})`} />}
+            {system.cpu?.model && (
+              <InfoRow label="CPU" value={`${system.cpu.model} (${system.cpu.cores} ${t('dashboard.system.cores')})`} />
+            )}
             {system.disk?.[0] && (
               <InfoRow
                 label={t('dashboard.system.disk')}
@@ -398,10 +390,7 @@ function McpTab() {
           label={t('dashboard.mcp.connected')}
         />
         <StatCard value={servers.length} label={t('dashboard.mcp.total')} />
-        <StatCard
-          value={servers.reduce((n, sv) => n + (sv.tools?.length ?? 0), 0)}
-          label={t('dashboard.mcp.tools')}
-        />
+        <StatCard value={servers.reduce((n, sv) => n + (sv.tools?.length ?? 0), 0)} label={t('dashboard.mcp.tools')} />
       </div>
 
       {servers.length === 0 ? (

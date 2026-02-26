@@ -18,12 +18,7 @@
 import { clipboard } from 'electron';
 import { createHash, randomUUID } from 'crypto';
 import { createLogger } from './logger';
-import type {
-  ClipboardEntry,
-  ClipboardContentType,
-  ClipboardSearchOptions,
-  ClipboardStatus,
-} from '@shared/types';
+import type { ClipboardEntry, ClipboardContentType, ClipboardSearchOptions, ClipboardStatus } from '@shared/types';
 import type { ToolDefinition, ToolResult } from '@shared/types';
 
 const log = createLogger('Clipboard');
@@ -50,11 +45,11 @@ const DEFAULT_MIN_LENGTH = 2;
 
 const URL_PATTERN = /^https?:\/\/[^\s]+$/i;
 const EMAIL_PATTERN = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
-const JSON_PATTERN = /^[\s]*[\[{]/;
+const JSON_PATTERN = /^[\s]*[[{]/;
 const HEX_COLOR_PATTERN = /^#([0-9a-fA-F]{3,8})$/;
 const RGB_COLOR_PATTERN = /^rgba?\(\s*\d+/i;
 const PHONE_PATTERN = /^[+]?[\d\s()-]{7,20}$/;
-const PATH_WIN_PATTERN = /^[a-zA-Z]:\\[\w\\. -]+/;
+const PATH_WIN_PATTERN = /^[a-zA-Z]:\\[\w\\. -]+/; // eslint-disable-line no-useless-escape
 const PATH_UNIX_PATTERN = /^\/[\w/. -]+/;
 const MARKDOWN_PATTERN = /^(#{1,6}\s|[-*+]\s|\d+\.\s|```|>\s|\|.*\|)/m;
 const HTML_PATTERN = /^<(!DOCTYPE|html|div|span|p|a|h[1-6]|ul|ol|table|img)\b/i;
@@ -80,11 +75,7 @@ export class ClipboardService {
   /**
    * Set dependencies after construction (DI wiring phase).
    */
-  setDependencies(opts: {
-    database?: any;
-    toolsService?: any;
-    configService?: any;
-  }): void {
+  setDependencies(opts: { database?: any; toolsService?: any; configService?: any }): void {
     if (opts.database) this.db = opts.database;
     if (opts.toolsService) this.toolsService = opts.toolsService;
     if (opts.configService) this.configService = opts.configService;
@@ -190,9 +181,7 @@ export class ClipboardService {
 
       if (options.query) {
         // FTS5 search
-        conditions.push(
-          `id IN (SELECT id FROM clipboard_history_fts WHERE clipboard_history_fts MATCH ?)`,
-        );
+        conditions.push(`id IN (SELECT id FROM clipboard_history_fts WHERE clipboard_history_fts MATCH ?)`);
         params.push(options.query);
       }
 
@@ -246,9 +235,7 @@ export class ClipboardService {
       const raw = this.db.getDb();
       if (!raw) return false;
 
-      raw
-        .prepare(`UPDATE clipboard_history SET pinned = NOT pinned WHERE id = ?`)
-        .run(entryId);
+      raw.prepare(`UPDATE clipboard_history SET pinned = NOT pinned WHERE id = ?`).run(entryId);
 
       return true;
     } catch (err) {
@@ -287,9 +274,7 @@ export class ClipboardService {
       const raw = this.db.getDb();
       if (!raw) return 0;
 
-      const result = raw
-        .prepare(`DELETE FROM clipboard_history WHERE pinned = 0`)
-        .run();
+      const result = raw.prepare(`DELETE FROM clipboard_history WHERE pinned = 0`).run();
 
       log.info(`Cleared ${result.changes} clipboard entries`);
       return result.changes;
@@ -390,10 +375,7 @@ export class ClipboardService {
     if (/^-?[\d,. ]+([eE][+-]?\d+)?$/.test(trimmed) && trimmed.length < 30) return 'number';
 
     // Code — check multiple indicators
-    const codeScore = CODE_INDICATORS.reduce(
-      (score, pattern) => score + (pattern.test(trimmed) ? 1 : 0),
-      0,
-    );
+    const codeScore = CODE_INDICATORS.reduce((score, pattern) => score + (pattern.test(trimmed) ? 1 : 0), 0);
     if (codeScore >= 2) return 'code';
 
     return 'text';
@@ -450,9 +432,7 @@ export class ClipboardService {
 
       if (existing) {
         // Update timestamp of existing entry instead of creating duplicate
-        raw
-          .prepare(`UPDATE clipboard_history SET copied_at = datetime('now') WHERE id = ?`)
-          .run(existing.id);
+        raw.prepare(`UPDATE clipboard_history SET copied_at = datetime('now') WHERE id = ?`).run(existing.id);
         return null;
       }
 
@@ -740,8 +720,7 @@ export class ClipboardService {
     register(
       {
         name: 'clipboard_pin',
-        description:
-          'Przypina/odpina wpis w historii schowka. Przypięte wpisy nie są usuwane przez politykę retencji.',
+        description: 'Przypina/odpina wpis w historii schowka. Przypięte wpisy nie są usuwane przez politykę retencji.',
         category: 'system',
         parameters: {
           entry_id: {

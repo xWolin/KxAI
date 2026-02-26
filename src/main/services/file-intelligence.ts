@@ -273,7 +273,7 @@ export class FileIntelligenceService {
       throw new Error(`Plik zbyt duży (${metadata.sizeFormatted}). Maksymalny rozmiar: ${formatSize(MAX_FILE_SIZE)}`);
     }
 
-    let text = '';
+    let text: string;
     let pageCount: number | undefined;
     let sheets: Array<{ name: string; rows: number; cols: number }> | undefined;
 
@@ -315,7 +315,7 @@ export class FileIntelligenceService {
       }
     } catch (err: any) {
       log.error(`Błąd ekstrakcji tekstu z ${filePath}:`, err);
-      throw new Error(`Nie udało się wyekstrahować tekstu z ${metadata.name}: ${err.message}`);
+      throw new Error(`Nie udało się wyekstrahować tekstu z ${metadata.name}: ${err.message}`, { cause: err });
     }
 
     const truncated = text.length > MAX_TEXT_OUTPUT;
