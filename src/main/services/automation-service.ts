@@ -1,4 +1,4 @@
-import { exec } from 'child_process';
+import { exec, spawn } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
@@ -99,8 +99,9 @@ export class AutomationService {
         );
       } else if (this.platform === 'darwin') {
         // macOS: use JXA (JavaScript for Automation) + CoreGraphics — no external deps
+        // Script piped via stdin to avoid shell injection
         const jxa = `ObjC.import('CoreGraphics'); $.CGWarpMouseCursorPosition({x: ${sx}, y: ${sy}})`;
-        return this.runCommand(`osascript -l JavaScript -e "${jxa.replace(/"/g, '\\"')}"`);
+        return this.runOsascriptViaStdin(jxa);
       } else {
         return this.runCommand(`xdotool mousemove ${sx} ${sy}`);
       }
@@ -108,6 +109,10 @@ export class AutomationService {
   }
 
   async mouseClick(x?: number, y?: number, button: 'left' | 'right' | 'middle' = 'left'): Promise<AutomationResult> {
+    // Validate button value (defense against unexpected runtime values from AI tool calls)
+    if (!['left', 'right', 'middle'].includes(button)) {
+      return { success: false, error: `Nieznany przycisk myszy: '${String(button)}'. Dozwolone: left, right, middle.` };
+    }
     if (x !== undefined && y !== undefined) {
       const check = this.validateCoords(x, y);
       if (!check.valid) return { success: false, error: check.error! };
@@ -139,9 +144,25 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         );
       } else if (this.platform === 'darwin') {
         // macOS: use JXA (JavaScript for Automation) + CoreGraphics — no external deps
-        const clickType = button === 'right' ? 'kCGEventRightMouseDown' : 'kCGEventLeftMouseDown';
-        const clickUpType = button === 'right' ? 'kCGEventRightMouseUp' : 'kCGEventLeftMouseUp';
-        const btnConst = button === 'right' ? 'kCGMouseButtonRight' : 'kCGMouseButtonLeft';
+        // Supports left, right, and middle mouse buttons via CGEvent API
+        const clickType =
+          button === 'right'
+            ? 'kCGEventRightMouseDown'
+            : button === 'middle'
+              ? 'kCGEventOtherMouseDown'
+              : 'kCGEventLeftMouseDown';
+        const clickUpType =
+          button === 'right'
+            ? 'kCGEventRightMouseUp'
+            : button === 'middle'
+              ? 'kCGEventOtherMouseUp'
+              : 'kCGEventLeftMouseUp';
+        const btnConst =
+          button === 'right'
+            ? 'kCGMouseButtonRight'
+            : button === 'middle'
+              ? 'kCGMouseButtonCenter'
+              : 'kCGMouseButtonLeft';
         const pos =
           sx !== undefined && sy !== undefined ? `{x: ${sx}, y: ${sy}}` : '$.CGEventGetLocation($.CGEventCreate(null))';
         const jxa = [
@@ -156,7 +177,8 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         ]
           .filter(Boolean)
           .join('; ');
-        return this.runCommand(`osascript -l JavaScript -e "${jxa.replace(/"/g, '\\"')}"`);
+        // Script piped via stdin to avoid shell injection
+        return this.runOsascriptViaStdin(jxa);
       } else {
         const moveCmd = sx !== undefined && sy !== undefined ? `xdotool mousemove ${sx} ${sy} && ` : '';
         const btn = button === 'right' ? '3' : button === 'middle' ? '2' : '1';
@@ -232,7 +254,11 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         }
         const using = modifiers.length > 0 ? ` using {${modifiers.join(', ')}}` : '';
         const key = keyParts[0] || '';
-        return this.runCommand(`osascript -e 'tell application "System Events" to keystroke "${key}"${using}'`);
+        // Script piped via stdin to avoid shell injection
+        return this.runOsascriptViaStdin(
+          `tell application "System Events" to keystroke "${key}"${using}`,
+          'AppleScript',
+        );
       } else {
         const xdotoolKeys = keys.map((k) => {
           const map: Record<string, string> = {
@@ -266,7 +292,8 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
         );
       } else if (this.platform === 'darwin') {
         const keyCode = this.keyToMacKeyCode(key);
-        return this.runCommand(`osascript -e 'tell application "System Events" to key code ${keyCode}'`);
+        // Script piped via stdin to avoid shell injection
+        return this.runOsascriptViaStdin(`tell application "System Events" to key code ${keyCode}`, 'AppleScript');
       } else {
         const xKey = this.keyToXdotool(key);
         return this.runCommand(`xdotool key ${xKey}`);
@@ -404,6 +431,37 @@ public class Win32Window {
         if (error) reject(error);
         else resolve(stdout);
       });
+    });
+  }
+
+  /**
+   * Run osascript via stdin pipe — avoids shell injection from string interpolation.
+   * Script content is piped to osascript's stdin instead of passed via -e flag.
+   */
+  private runOsascriptViaStdin(
+    script: string,
+    language: 'JavaScript' | 'AppleScript' = 'JavaScript',
+  ): Promise<AutomationResult> {
+    return new Promise((resolve) => {
+      const child = spawn('osascript', ['-l', language], {
+        timeout: 10000,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
+      let stdout = '';
+      let stderr = '';
+      child.stdout.on('data', (data: Buffer) => {
+        stdout += data.toString();
+      });
+      child.stderr.on('data', (data: Buffer) => {
+        stderr += data.toString();
+      });
+      child.on('close', (code) => {
+        if (code !== 0) resolve({ success: false, error: stderr.trim() || `osascript exited with code ${code}` });
+        else resolve({ success: true, data: stdout.trim() || 'OK' });
+      });
+      child.on('error', (err) => resolve({ success: false, error: err.message }));
+      child.stdin.write(script);
+      child.stdin.end();
     });
   }
 
