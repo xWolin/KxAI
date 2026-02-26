@@ -554,6 +554,7 @@ Bądź pomocny, krótki i konkretny. Mów po polsku.`;
       // Config-change events reference the `mainWindow` variable directly (not a
       // snapshot), so they pick up the new window automatically.
       container.get('updater').initialize(mainWindow);
+      container.get('mcpClient').setDependencies({ mainWindow });
       // Re-start companion monitor if proactive mode was active
       if (container.get('config').get('proactiveMode')) {
         startCompanionMonitor(mainWindow);
