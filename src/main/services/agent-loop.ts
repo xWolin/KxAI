@@ -420,7 +420,7 @@ export class AgentLoop {
       try {
         ragContext = await this.rag.buildRAGContext(userMessage);
       } catch (err) {
-        console.warn('AgentLoop: RAG context building failed, continuing without RAG:', err);
+        log.warn('AgentLoop: RAG context building failed, continuing without RAG:', err);
       }
     }
     const fullContext = [extraContext, ragContext].filter(Boolean).join('\n\n');
@@ -443,7 +443,7 @@ export class AgentLoop {
 
       // Hard cap
       if (++iterations > MAX_ITERATIONS) {
-        console.warn(`[AgentLoop] processWithTools hit max iterations (${MAX_ITERATIONS}), breaking`);
+        log.warn(`[AgentLoop] processWithTools hit max iterations (${MAX_ITERATIONS}), breaking`);
         response += '\n\n⚠️ Osiągnięto maksymalną liczbę iteracji narzędzi.';
         break;
       }
@@ -548,7 +548,7 @@ export class AgentLoop {
       const intent = this.intentDetector.detect(userMessage);
       if (intent.autoAction === 'screenshot' && intent.confidence >= 0.7 && this.screenCapture) {
         try {
-          console.log(
+          log.info(
             `[IntentDetector] Auto-screenshot triggered (confidence: ${intent.confidence}, patterns: ${intent.matchedPatterns.join(', ')})`,
           );
           onChunk?.('📸 Robię screenshot...\n\n');
@@ -576,7 +576,7 @@ export class AgentLoop {
             return visionResponse;
           }
         } catch (err) {
-          console.warn('[IntentDetector] Auto-screenshot failed, falling back to normal flow:', err);
+          log.warn('[IntentDetector] Auto-screenshot failed, falling back to normal flow:', err);
           // Fall through to normal processing
         }
       }
@@ -599,7 +599,7 @@ export class AgentLoop {
       try {
         ragContext = await this.rag.buildRAGContext(userMessage);
       } catch (err) {
-        console.warn('AgentLoop: RAG context building failed, continuing without RAG:', err);
+        log.warn('AgentLoop: RAG context building failed, continuing without RAG:', err);
       }
     }
     const fullContext = [extraContext, ragContext].filter(Boolean).join('\n\n');
@@ -643,7 +643,7 @@ export class AgentLoop {
         { skipHistory: true, signal: this.abortController?.signal },
       );
     } catch (aiErr: any) {
-      console.error('AgentLoop: Initial streamMessage failed:', aiErr);
+      log.error('AgentLoop: Initial streamMessage failed:', aiErr);
       const errMsg = `\n\n❌ Błąd AI: ${aiErr.message || aiErr}\n`;
       onChunk?.(errMsg);
       fullResponse += errMsg;
@@ -720,7 +720,7 @@ export class AgentLoop {
           { skipHistory: true, signal: this.abortController?.signal },
         );
       } catch (aiErr: any) {
-        console.error('AgentLoop: AI streamMessage failed in tool loop:', aiErr);
+        log.error('AgentLoop: AI streamMessage failed in tool loop:', aiErr);
         onChunk?.(`\n\n❌ Błąd AI podczas przetwarzania narzędzia: ${aiErr.message || aiErr}\n`);
         break;
       }
@@ -834,7 +834,7 @@ export class AgentLoop {
         { signal },
       );
     } catch (aiErr: any) {
-      console.error('AgentLoop: Initial streamMessageWithNativeTools failed:', aiErr);
+      log.error('AgentLoop: Initial streamMessageWithNativeTools failed:', aiErr);
       const errMsg = `\n\n❌ Błąd AI: ${aiErr.message || aiErr}\n`;
       onChunk?.(errMsg);
       fullResponse += errMsg;
@@ -853,7 +853,7 @@ export class AgentLoop {
       }
 
       if (++iterations > MAX_ITERATIONS) {
-        console.warn(`[AgentLoop] Native tool loop hit max iterations (${MAX_ITERATIONS})`);
+        log.warn(`[AgentLoop] Native tool loop hit max iterations (${MAX_ITERATIONS})`);
         onChunk?.('\n\n⚠️ Osiągnięto maksymalną liczbę iteracji narzędzi.\n');
         break;
       }
@@ -901,7 +901,7 @@ export class AgentLoop {
         );
 
         if (!loopCheck.shouldContinue) {
-          console.log(`[AgentLoop] Tool loop detector triggered for ${tc.name}, stopping loop`);
+          log.info(`[AgentLoop] Tool loop detector triggered for ${tc.name}, stopping loop`);
           // Still send results but don't continue after
           break;
         }
@@ -929,7 +929,7 @@ export class AgentLoop {
           { signal },
         );
       } catch (aiErr: any) {
-        console.error('AgentLoop: continueWithToolResults failed:', aiErr);
+        log.error('AgentLoop: continueWithToolResults failed:', aiErr);
         onChunk?.(`\n\n❌ Błąd AI podczas przetwarzania narzędzia: ${aiErr.message || aiErr}\n`);
         break;
       }
@@ -1027,13 +1027,13 @@ export class AgentLoop {
   private async heartbeat(): Promise<string | null> {
     // Skip if agent is currently processing a user message (prevents context corruption)
     if (this.isProcessing) {
-      console.log('[Heartbeat] Skipped — agent is processing user message');
+      log.info('[Heartbeat] Skipped — agent is processing user message');
       return null;
     }
 
     // Skip if outside active hours
     if (!this.isWithinActiveHours()) {
-      console.log('[Heartbeat] Skipped — outside active hours');
+      log.info('[Heartbeat] Skipped — outside active hours');
       return null;
     }
 
@@ -1107,7 +1107,7 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         if (!toolCall) break;
 
         toolIterations++;
-        console.log(`[Heartbeat] Tool call #${toolIterations}: ${toolCall.tool}`);
+        log.info(`[Heartbeat] Tool call #${toolIterations}: ${toolCall.tool}`);
         this.emitStatus({ state: 'heartbeat', detail: `Heartbeat: ${toolCall.tool}`, toolName: toolCall.tool });
 
         let result: import('./tools-service').ToolResult;
@@ -1183,18 +1183,18 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
 
     // Rate limit: at most one AFK task every 10 minutes
     if (timeSinceLastTask < 10 * 60 * 1000 && this.lastAfkTaskTime > 0) {
-      console.log(`[AFK] Rate limited — last task ${Math.round(timeSinceLastTask / 60000)}min ago`);
+      log.info(`[AFK] Rate limited — last task ${Math.round(timeSinceLastTask / 60000)}min ago`);
       return null;
     }
 
     // Pick the next AFK task that hasn't been done yet
     const task = this.getNextAfkTask(afkMinutes);
     if (!task) {
-      console.log('[AFK] All tasks done for this session');
+      log.info('[AFK] All tasks done for this session');
       return null;
     }
 
-    console.log(`[AFK] Running task: ${task.id} (user AFK for ${afkMinutes}min)`);
+    log.info(`[AFK] Running task: ${task.id} (user AFK for ${afkMinutes}min)`);
     this.lastAfkTaskTime = Date.now();
     this.afkTasksDone.add(task.id);
 
@@ -1216,7 +1216,7 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         if (!toolCall) break;
 
         toolIterations++;
-        console.log(`[AFK] Tool call #${toolIterations}: ${toolCall.tool}`);
+        log.info(`[AFK] Tool call #${toolIterations}: ${toolCall.tool}`);
 
         let result: import('./tools-service').ToolResult;
         try {
@@ -1261,7 +1261,7 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       }
       return cleanResponse || null;
     } catch (err) {
-      console.error('[AFK] Task error:', err);
+      log.error('[AFK] Task error:', err);
       return null;
     }
   }
@@ -1457,7 +1457,7 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
 
     const promise = (async () => {
       try {
-        console.log(`[BackgroundExec ${taskId}] Starting: ${task.slice(0, 100)}`);
+        log.info(`[BackgroundExec ${taskId}] Starting: ${task.slice(0, 100)}`);
         const result = await this.processWithTools(
           `[BACKGROUND TASK]\n\n${task}\n\nWykonaj to zadanie w tle. Bądź zwięzły w wyniku.`,
           undefined,
@@ -1883,7 +1883,7 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       }
 
       default:
-        console.warn(`Unknown Computer Use action: ${action.action}`);
+        log.warn(`Unknown Computer Use action: ${action.action}`);
     }
   }
 

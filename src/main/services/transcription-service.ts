@@ -10,15 +10,18 @@
 import { EventEmitter } from 'events';
 import WebSocket from 'ws';
 import { SecurityService } from './security';
+import { createLogger } from './logger';
+
+const log = createLogger('Transcription');
 
 // ──────────────── Types ────────────────
 
 export interface TranscriptEvent {
   sessionId: string;
-  label: string;         // 'mic' | 'system'
+  label: string; // 'mic' | 'system'
   text: string;
   isFinal: boolean;
-  speaker?: string;      // e.g. "0", "1", "2" — Deepgram speaker ID
+  speaker?: string; // e.g. "0", "1", "2" — Deepgram speaker ID
   timestamp?: number;
   words?: Array<{ text: string; start: number; end: number; speaker?: number }>;
 }
@@ -71,20 +74,18 @@ export class TranscriptionService extends EventEmitter {
     await this.connectSession(sessionId, label, language, apiKey);
   }
 
-  private async connectSession(
-    sessionId: string, label: string, language: string, apiKey: string
-  ): Promise<void> {
+  private async connectSession(sessionId: string, label: string, language: string, apiKey: string): Promise<void> {
     // Build Deepgram Live Streaming WebSocket URL
     const params = new URLSearchParams({
       model: 'nova-3',
       language,
       smart_format: 'true',
       punctuate: 'true',
-      diarize: 'true',              // Real-time speaker diarization!
+      diarize: 'true', // Real-time speaker diarization!
       interim_results: 'true',
-      utterance_end_ms: '1500',     // 1.5s silence = utterance end
+      utterance_end_ms: '1500', // 1.5s silence = utterance end
       vad_events: 'true',
-      endpointing: '300',           // 300ms endpointing for responsive results
+      endpointing: '300', // 300ms endpointing for responsive results
       encoding: 'linear16',
       sample_rate: '16000',
       channels: '1',
@@ -93,7 +94,7 @@ export class TranscriptionService extends EventEmitter {
     const wsUrl = `wss://api.deepgram.com/v1/listen?${params.toString()}`;
 
     const ws = new WebSocket(wsUrl, {
-      headers: { 'Authorization': `Token ${apiKey}` },
+      headers: { Authorization: `Token ${apiKey}` },
     });
 
     const session: ActiveSession = {
@@ -109,7 +110,7 @@ export class TranscriptionService extends EventEmitter {
 
     ws.on('open', () => {
       session.connected = true;
-      console.log(`[Transcription] Session '${label}' connected (Deepgram Nova-3, diarize=true)`);
+      log.info(`[Transcription] Session '${label}' connected (Deepgram Nova-3, diarize=true)`);
       this.emit('session:connected', { sessionId, label });
 
       // Deepgram requires KeepAlive messages if no audio for >12s
@@ -125,12 +126,12 @@ export class TranscriptionService extends EventEmitter {
         const msg = JSON.parse(data.toString());
         this.handleMessage(sessionId, label, msg);
       } catch (err) {
-        console.error(`[Transcription] Parse error:`, err);
+        log.error(`[Transcription] Parse error:`, err);
       }
     });
 
     ws.on('error', (err: Error) => {
-      console.error(`[Transcription] Session '${label}' error:`, err.message);
+      log.error(`[Transcription] Session '${label}' error:`, err.message);
       this.emit('session:error', { sessionId, label, error: err.message });
     });
 
@@ -141,11 +142,11 @@ export class TranscriptionService extends EventEmitter {
         session.keepAliveTimer = null;
       }
       const reasonStr = reason.toString();
-      console.log(`[Transcription] Session '${label}' closed: ${code} ${reasonStr}`);
+      log.info(`[Transcription] Session '${label}' closed: ${code} ${reasonStr}`);
 
       // Don't reconnect on auth errors (401/403)
       if (code === 1008 || code === 4001 || code === 4003) {
-        console.error(`[Transcription] Session '${label}' rejected (auth/policy error) — nie ponawiam`);
+        log.error(`[Transcription] Session '${label}' rejected (auth/policy error) — nie ponawiam`);
         this.sessions.delete(sessionId);
         this.reconnectAttempts.delete(sessionId);
         this.emit('session:error', { sessionId, label, error: `Deepgram odrzucił połączenie: ${reasonStr}` });
@@ -157,13 +158,13 @@ export class TranscriptionService extends EventEmitter {
       const attempts = this.reconnectAttempts.get(sessionId) || 0;
       if (code !== 1000 && attempts < this.MAX_RECONNECT) {
         this.reconnectAttempts.set(sessionId, attempts + 1);
-        console.log(`[Transcription] Reconnecting '${label}'... (attempt ${attempts + 1})`);
-        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempts))); // exponential backoff
+        log.info(`[Transcription] Reconnecting '${label}'... (attempt ${attempts + 1})`);
+        await new Promise((r) => setTimeout(r, 1000 * Math.pow(2, attempts))); // exponential backoff
         if (this.sessions.has(sessionId)) {
           try {
             const freshKey = await this.securityService.getApiKey('deepgram');
             if (!freshKey) {
-              console.error(`[Transcription] Cannot reconnect '${label}': no Deepgram API key`);
+              log.error(`[Transcription] Cannot reconnect '${label}': no Deepgram API key`);
               this.sessions.delete(sessionId);
               this.reconnectAttempts.delete(sessionId);
               this.emit('session:error', { sessionId, label, error: 'Reconnect failed: no Deepgram API key' });
@@ -172,7 +173,7 @@ export class TranscriptionService extends EventEmitter {
             }
             await this.connectSession(sessionId, label, language, freshKey);
           } catch (err) {
-            console.error(`[Transcription] Reconnect failed for '${label}':`, err);
+            log.error(`[Transcription] Reconnect failed for '${label}':`, err);
             this.sessions.delete(sessionId);
             this.reconnectAttempts.delete(sessionId);
             this.emit('session:error', { sessionId, label, error: `Reconnect failed: ${err}` });
@@ -211,12 +212,14 @@ export class TranscriptionService extends EventEmitter {
           const count = (this._emptyResultCount.get(sessionId) || 0) + 1;
           this._emptyResultCount.set(sessionId, count);
           if (count <= 3 || count % 100 === 0) {
-            console.log(`[Transcription] Empty result #${count} for '${label}' (speech detected but no transcript)`);
+            log.info(`[Transcription] Empty result #${count} for '${label}' (speech detected but no transcript)`);
           }
           break;
         }
 
-        console.log(`[Transcription] Got transcript from '${label}': "${alt.transcript.substring(0, 80)}" (is_final=${msg.is_final})`);
+        log.info(
+          `[Transcription] Got transcript from '${label}': "${alt.transcript.substring(0, 80)}" (is_final=${msg.is_final})`,
+        );
 
         const transcript = alt.transcript;
         const isFinal = msg.is_final === true;
@@ -277,11 +280,11 @@ export class TranscriptionService extends EventEmitter {
         break;
 
       case 'Metadata':
-        console.log(`[Transcription] Session '${label}' metadata:`, JSON.stringify(msg).substring(0, 200));
+        log.info(`[Transcription] Session '${label}' metadata:`, JSON.stringify(msg).substring(0, 200));
         break;
 
       case 'Error':
-        console.error(`[Transcription] Deepgram error in '${label}':`, msg.message || msg.description || msg);
+        log.error(`[Transcription] Deepgram error in '${label}':`, msg.message || msg.description || msg);
         this.emit('session:error', { sessionId, label, error: msg.message || msg.description || 'Deepgram error' });
         break;
 
@@ -309,30 +312,36 @@ export class TranscriptionService extends EventEmitter {
     // Log every 500 chunks (~8s of audio at 128-sample frames @ 16kHz)
     const now = Date.now();
     const lastLog = this.lastChunkLog.get(sessionId) || 0;
-    if (now - lastLog > 10000) { // Log every 10 seconds
+    if (now - lastLog > 10000) {
+      // Log every 10 seconds
       this.lastChunkLog.set(sessionId, now);
       const connected = session?.connected ?? false;
       const wsState = session?.ws?.readyState ?? -1;
-      console.log(`[Transcription] Audio stats '${sessionId}': ${count} chunks sent, connected=${connected}, ws.readyState=${wsState}, chunkSize=${chunk.length}bytes`);
+      log.info(
+        `[Transcription] Audio stats '${sessionId}': ${count} chunks sent, connected=${connected}, ws.readyState=${wsState}, chunkSize=${chunk.length}bytes`,
+      );
     }
 
     if (!session) {
-      if (count === 1) console.warn(`[Transcription] No session found for '${sessionId}' — audio chunk dropped`);
+      if (count === 1) log.warn(`[Transcription] No session found for '${sessionId}' — audio chunk dropped`);
       return;
     }
     if (!session.connected) {
-      if (count === 1) console.warn(`[Transcription] Session '${sessionId}' not yet connected — audio chunk dropped`);
+      if (count === 1) log.warn(`[Transcription] Session '${sessionId}' not yet connected — audio chunk dropped`);
       return;
     }
     if (!session.ws || session.ws.readyState !== WebSocket.OPEN) {
-      if (count <= 3) console.warn(`[Transcription] WebSocket not open for '${sessionId}' (state=${session.ws?.readyState}) — audio chunk dropped`);
+      if (count <= 3)
+        log.warn(
+          `[Transcription] WebSocket not open for '${sessionId}' (state=${session.ws?.readyState}) — audio chunk dropped`,
+        );
       return;
     }
 
     try {
       session.ws.send(chunk);
     } catch (err) {
-      console.warn(`[Transcription] ws.send failed for '${sessionId}':`, err);
+      log.warn(`[Transcription] ws.send failed for '${sessionId}':`, err);
     }
   }
 
@@ -355,11 +364,11 @@ export class TranscriptionService extends EventEmitter {
       if (session.ws.readyState === WebSocket.OPEN) {
         // Send CloseStream to get final transcripts before closing
         session.ws.send(JSON.stringify({ type: 'CloseStream' }));
-        await new Promise(r => setTimeout(r, 800));
+        await new Promise((r) => setTimeout(r, 800));
         session.ws.close(1000, 'Session ended');
       }
     } catch (err) {
-      console.error(`[Transcription] Error closing session '${sessionId}':`, err);
+      log.error(`[Transcription] Error closing session '${sessionId}':`, err);
     }
     this.sessions.delete(sessionId);
     this.reconnectAttempts.delete(sessionId);
@@ -387,7 +396,7 @@ export class TranscriptionService extends EventEmitter {
    */
   getActiveSessions(): TranscriptionSessionInfo[] {
     return Array.from(this.sessions.values())
-      .filter(s => s.connected)
-      .map(s => ({ id: s.id, label: s.label, connected: s.connected, language: s.language }));
+      .filter((s) => s.connected)
+      .map((s) => ({ id: s.id, label: s.label, connected: s.connected, language: s.language }));
   }
 }

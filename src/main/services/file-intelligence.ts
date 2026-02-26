@@ -530,32 +530,38 @@ export class FileIntelligenceService {
   }
 
   /**
-   * XLSX/XLS → text via SheetJS (każdy arkusz jako CSV).
+   * XLSX/XLS → text via ExcelJS (każdy arkusz jako CSV).
    */
   private async extractXLSX(
     filePath: string,
   ): Promise<{ text: string; sheets: Array<{ name: string; rows: number; cols: number }> }> {
-    const XLSX = await import('xlsx');
-    const buffer = await fs.readFile(filePath);
-    const workbook = XLSX.read(buffer, { type: 'buffer' });
+    const ExcelJS = await import('exceljs');
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(filePath);
 
     const sheets: Array<{ name: string; rows: number; cols: number }> = [];
     const textParts: string[] = [];
 
-    for (const sheetName of workbook.SheetNames) {
-      const sheet = workbook.Sheets[sheetName];
-      const csvContent = XLSX.utils.sheet_to_csv(sheet);
-      const range = sheet['!ref'] ? XLSX.utils.decode_range(sheet['!ref']) : null;
+    for (const worksheet of workbook.worksheets) {
+      const rows = worksheet.rowCount;
+      const cols = worksheet.columnCount;
 
       sheets.push({
-        name: sheetName,
-        rows: range ? range.e.r + 1 : 0,
-        cols: range ? range.e.c + 1 : 0,
+        name: worksheet.name,
+        rows,
+        cols,
       });
 
-      textParts.push(
-        `=== Arkusz: ${sheetName} (${sheets.at(-1)!.rows} wierszy × ${sheets.at(-1)!.cols} kolumn) ===\n${csvContent}`,
-      );
+      // Convert worksheet to CSV-like text
+      const csvLines: string[] = [];
+      worksheet.eachRow((row) => {
+        const values = row.values as any[];
+        // row.values is 1-indexed (index 0 is undefined), slice it
+        const cells = values.slice(1).map((v) => (v != null ? String(v) : ''));
+        csvLines.push(cells.join(','));
+      });
+
+      textParts.push(`=== Arkusz: ${worksheet.name} (${rows} wierszy × ${cols} kolumn) ===\n${csvLines.join('\n')}`);
     }
 
     return { text: textParts.join('\n\n'), sheets };

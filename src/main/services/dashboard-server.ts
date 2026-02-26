@@ -25,9 +25,10 @@
  *   WebSocket /ws            — Real-time agent events
  */
 
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import * as http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { MeetingCoachService, ParticipantResearch } from './meeting-coach';
@@ -37,7 +38,10 @@ import { RAGService } from './rag-service';
 import { WorkflowService } from './workflow-service';
 import { SystemMonitor } from './system-monitor';
 import { McpClientService } from './mcp-client-service';
+import { createLogger } from './logger';
 import type { AgentStatus } from './agent-loop';
+
+const log = createLogger('Dashboard');
 
 interface DashboardServices {
   meetingCoach: MeetingCoachService;
@@ -60,13 +64,28 @@ export class DashboardServer {
   private subAgentListFn?: () => any[];
   private subAgentResultsFn?: () => any[];
   private spaHtml: string;
+  /** Per-session auth token — required for all /api/* requests */
+  private authToken: string;
 
   constructor(meetingCoach: MeetingCoachService, port: number = 5678, services?: Partial<DashboardServices>) {
     this.meetingCoach = meetingCoach;
     this.port = port;
     this.services = { meetingCoach, ...services };
     this.app = express();
-    this.app.use(express.json());
+    this.app.use(express.json({ limit: '1mb' }));
+
+    // Generate random auth token per session
+    this.authToken = crypto.randomBytes(32).toString('hex');
+
+    // Auth middleware for /api/* routes
+    this.app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      if (token !== this.authToken) {
+        res.status(401).json({ success: false, error: 'Unauthorized' });
+        return;
+      }
+      next();
+    });
 
     // Load SPA HTML from file (co-located with this module)
     try {
@@ -76,6 +95,11 @@ export class DashboardServer {
     }
 
     this.setupRoutes();
+  }
+
+  /** Get the auth token — pass to renderer via IPC so in-app dashboard can authenticate */
+  getAuthToken(): string {
+    return this.authToken;
   }
 
   /**
@@ -109,7 +133,7 @@ export class DashboardServer {
         try {
           client.send(json);
         } catch (err) {
-          console.error('[Dashboard] WebSocket send error:', err);
+          log.error('WebSocket send error:', err);
         }
       }
     });
@@ -183,7 +207,7 @@ export class DashboardServer {
         const activity = await this.services.workflow.getActivityLog(limit);
         res.json({ success: true, data: activity });
       } catch (err: any) {
-        console.error('[Dashboard] Activity fetch error:', err);
+        log.error('Activity fetch error:', err);
         res.status(500).json({ success: false, error: err.message });
       }
     });
@@ -250,7 +274,7 @@ export class DashboardServer {
 
         res.json({ success: true, data: results });
       } catch (err: any) {
-        console.error('[Dashboard] Meeting prep research error:', err);
+        log.error('Meeting prep research error:', err);
         res.status(500).json({ success: false, error: err.message });
       }
     });
@@ -259,7 +283,11 @@ export class DashboardServer {
     this.app.post('/api/meeting-prep/research-one', async (req: Request, res: Response) => {
       try {
         const { name, company, role, photoBase64, userContext } = req.body as {
-          name: string; company?: string; role?: string; photoBase64?: string; userContext?: string;
+          name: string;
+          company?: string;
+          role?: string;
+          photoBase64?: string;
+          userContext?: string;
         };
 
         if (!name || name.trim().length < 2) {
@@ -275,7 +303,7 @@ export class DashboardServer {
 
         res.json({ success: true, data: result });
       } catch (err: any) {
-        console.error('[Dashboard] Meeting prep research-one error:', err);
+        log.error('Meeting prep research-one error:', err);
         res.status(500).json({ success: false, error: err.message });
       }
     });
@@ -298,35 +326,56 @@ export class DashboardServer {
     });
 
     this.app.post('/api/mcp/connect', async (req: Request, res: Response) => {
-      if (!this.services.mcpClient) { res.status(503).json({ success: false, error: 'MCP not available' }); return; }
+      if (!this.services.mcpClient) {
+        res.status(503).json({ success: false, error: 'MCP not available' });
+        return;
+      }
       try {
         await this.services.mcpClient.connect(req.body.id);
         res.json({ success: true });
-      } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+      } catch (err: any) {
+        res.status(500).json({ success: false, error: err.message });
+      }
     });
 
     this.app.post('/api/mcp/disconnect', async (req: Request, res: Response) => {
-      if (!this.services.mcpClient) { res.status(503).json({ success: false, error: 'MCP not available' }); return; }
+      if (!this.services.mcpClient) {
+        res.status(503).json({ success: false, error: 'MCP not available' });
+        return;
+      }
       try {
         await this.services.mcpClient.disconnect(req.body.id);
         res.json({ success: true });
-      } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+      } catch (err: any) {
+        res.status(500).json({ success: false, error: err.message });
+      }
     });
 
     this.app.post('/api/mcp/remove', async (req: Request, res: Response) => {
-      if (!this.services.mcpClient) { res.status(503).json({ success: false, error: 'MCP not available' }); return; }
+      if (!this.services.mcpClient) {
+        res.status(503).json({ success: false, error: 'MCP not available' });
+        return;
+      }
       try {
         await this.services.mcpClient.removeServer(req.body.id);
         res.json({ success: true });
-      } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+      } catch (err: any) {
+        res.status(500).json({ success: false, error: err.message });
+      }
     });
 
     this.app.post('/api/mcp/add-from-registry', async (req: Request, res: Response) => {
-      if (!this.services.mcpClient) { res.status(503).json({ success: false, error: 'MCP not available' }); return; }
+      if (!this.services.mcpClient) {
+        res.status(503).json({ success: false, error: 'MCP not available' });
+        return;
+      }
       try {
         const registry = this.services.mcpClient.getRegistry();
-        const entry = registry.find(r => r.id === req.body.registryId);
-        if (!entry) { res.status(404).json({ success: false, error: 'Registry entry not found' }); return; }
+        const entry = registry.find((r) => r.id === req.body.registryId);
+        if (!entry) {
+          res.status(404).json({ success: false, error: 'Registry entry not found' });
+          return;
+        }
 
         const config = {
           name: entry.name,
@@ -348,7 +397,9 @@ export class DashboardServer {
         }
 
         res.json({ success: true, data: server });
-      } catch (err: any) { res.status(500).json({ success: false, error: err.message }); }
+      } catch (err: any) {
+        res.status(500).json({ success: false, error: err.message });
+      }
     });
 
     // ─── Dashboard SPA ───
@@ -367,11 +418,18 @@ export class DashboardServer {
 
     return new Promise((resolve, reject) => {
       this.server = this.app.listen(this.port, '127.0.0.1', () => {
-        console.log(`[Dashboard] Serwer uruchomiony: http://localhost:${this.port}`);
+        log.info(`Serwer uruchomiony: http://localhost:${this.port}`);
 
         // Setup WebSocket server
-        this.wss = new WebSocketServer({ server: this.server! });
-        this.wss.on('connection', (ws) => {
+        this.wss = new WebSocketServer({ server: this.server!, maxPayload: 1024 * 1024 });
+        this.wss.on('connection', (ws, req) => {
+          // Validate auth token from query parameter
+          const url = new URL(req.url || '', `http://localhost:${this.port}`);
+          const token = url.searchParams.get('token');
+          if (token !== this.authToken) {
+            ws.close(4001, 'Unauthorized');
+            return;
+          }
           // Send current status on connect
           ws.send(JSON.stringify({ type: 'agent:status', data: this.lastAgentStatus }));
         });
@@ -380,13 +438,20 @@ export class DashboardServer {
       });
       this.server.on('error', (err: any) => {
         if (err.code === 'EADDRINUSE') {
-          console.warn(`[Dashboard] Port ${this.port} zajęty, próbuję ${this.port + 1}...`);
+          log.warn(`Port ${this.port} zajęty, próbuję ${this.port + 1}...`);
           this.port++;
           const retryServer = this.app.listen(this.port, '127.0.0.1', () => {
-            console.log(`[Dashboard] Serwer uruchomiony: http://localhost:${this.port}`);
+            log.info(`Serwer uruchomiony: http://localhost:${this.port}`);
             this.server = retryServer;
-            this.wss = new WebSocketServer({ server: this.server! });
-            this.wss.on('connection', (ws) => {
+            this.wss = new WebSocketServer({ server: this.server!, maxPayload: 1024 * 1024 });
+            this.wss.on('connection', (ws, req) => {
+              // Validate auth token from query parameter
+              const url = new URL(req.url || '', `http://localhost:${this.port}`);
+              const token = url.searchParams.get('token');
+              if (token !== this.authToken) {
+                ws.close(4001, 'Unauthorized');
+                return;
+              }
               ws.send(JSON.stringify({ type: 'agent:status', data: this.lastAgentStatus }));
             });
             resolve();
@@ -409,7 +474,7 @@ export class DashboardServer {
     if (this.server) {
       return new Promise((resolve) => {
         this.server!.close(() => {
-          console.log('[Dashboard] Serwer zatrzymany');
+          log.info('Serwer zatrzymany');
           this.server = null;
           resolve();
         });

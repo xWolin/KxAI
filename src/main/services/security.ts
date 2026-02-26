@@ -2,7 +2,10 @@ import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
 import * as crypto from 'crypto';
-import { app } from 'electron';
+import { app, safeStorage } from 'electron';
+import { createLogger } from './logger';
+
+const log = createLogger('SecurityService');
 
 const ENCRYPTION_ALGORITHM = 'aes-256-gcm';
 const KEY_LENGTH = 32;
@@ -24,27 +27,73 @@ export class SecurityService {
     }
   }
 
+  /**
+   * Get or create encryption key using OS-level secure storage.
+   * Priority: Electron safeStorage (DPAPI/Keychain/libsecret) → legacy .kxai-key migration.
+   * The key itself is encrypted by the OS before being stored on disk.
+   */
   private getOrCreateEncryptionKey(): Buffer {
     const keyPath = path.join(app.getPath('userData'), '.kxai-key');
-    
-    if (fs.existsSync(keyPath)) {
-      return Buffer.from(fs.readFileSync(keyPath, 'utf8'), 'hex');
+    const safeKeyPath = path.join(app.getPath('userData'), '.kxai-key-safe');
+
+    // Try to load from safeStorage-encrypted file
+    if (fs.existsSync(safeKeyPath) && safeStorage.isEncryptionAvailable()) {
+      try {
+        const encryptedKey = fs.readFileSync(safeKeyPath);
+        return Buffer.from(safeStorage.decryptString(encryptedKey), 'hex');
+      } catch (err) {
+        log.error('Failed to decrypt safe key, regenerating:', err);
+      }
     }
 
+    // Migrate from legacy plaintext .kxai-key if it exists
+    if (fs.existsSync(keyPath)) {
+      const legacyKey = Buffer.from(fs.readFileSync(keyPath, 'utf8'), 'hex');
+
+      // Migrate to safeStorage
+      if (safeStorage.isEncryptionAvailable()) {
+        try {
+          const encrypted = safeStorage.encryptString(legacyKey.toString('hex'));
+          fs.writeFileSync(safeKeyPath, encrypted);
+          // Remove legacy plaintext key after successful migration
+          fs.unlinkSync(keyPath);
+          log.info('Migrated encryption key from plaintext to OS-level secure storage');
+        } catch (err) {
+          log.warn('Failed to migrate key to safeStorage, keeping legacy:', err);
+        }
+      }
+      return legacyKey;
+    }
+
+    // Generate new key and store securely
     const key = crypto.randomBytes(KEY_LENGTH);
+
+    if (safeStorage.isEncryptionAvailable()) {
+      try {
+        const encrypted = safeStorage.encryptString(key.toString('hex'));
+        fs.writeFileSync(safeKeyPath, encrypted);
+        log.info('Created new encryption key with OS-level secure storage');
+        return key;
+      } catch (err) {
+        log.warn('safeStorage unavailable, falling back to file-based key:', err);
+      }
+    }
+
+    // Fallback: file-based key (e.g., CI environments where safeStorage is unavailable)
     fs.writeFileSync(keyPath, key.toString('hex'), { mode: 0o600 });
+    log.warn('Using file-based encryption key (safeStorage unavailable)');
     return key;
   }
 
   private encrypt(text: string): string {
     const iv = crypto.randomBytes(IV_LENGTH);
     const cipher = crypto.createCipheriv(ENCRYPTION_ALGORITHM, this.encryptionKey, iv);
-    
+
     let encrypted = cipher.update(text, 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    
+
     const authTag = cipher.getAuthTag();
-    
+
     // Format: iv:authTag:encrypted
     return `${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted}`;
   }
@@ -52,17 +101,17 @@ export class SecurityService {
   private decrypt(encryptedText: string): string {
     const parts = encryptedText.split(':');
     if (parts.length !== 3) throw new Error('Invalid encrypted format');
-    
+
     const iv = Buffer.from(parts[0], 'hex');
     const authTag = Buffer.from(parts[1], 'hex');
     const encrypted = parts[2];
-    
+
     const decipher = crypto.createDecipheriv(ENCRYPTION_ALGORITHM, this.encryptionKey, iv);
     decipher.setAuthTag(authTag);
-    
+
     let decrypted = decipher.update(encrypted, 'hex', 'utf8');
     decrypted += decipher.final('utf8');
-    
+
     return decrypted;
   }
 
@@ -102,6 +151,8 @@ export class SecurityService {
 
     try {
       await fsp.unlink(filePath);
-    } catch { /* file does not exist, nothing to do */ }
+    } catch {
+      /* file does not exist, nothing to do */
+    }
   }
 }

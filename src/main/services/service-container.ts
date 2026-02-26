@@ -305,7 +305,7 @@ export class ServiceContainer {
     cron.startAll();
 
     // Calendar initialization (loads connections from config, auto-connects in background)
-    void calendar.initialize();
+    void calendar.initialize().catch((err) => log.error('Calendar init failed:', err));
     p();
 
     this.initialized = true;

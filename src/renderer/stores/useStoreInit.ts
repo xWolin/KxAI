@@ -2,7 +2,6 @@ import { useEffect } from 'react';
 import { useNavigationStore } from './useNavigationStore';
 import { useConfigStore } from './useConfigStore';
 import { useAgentStore } from './useAgentStore';
-import { useChatStore } from './useChatStore';
 import { initTTS } from '../utils/tts';
 import type { MeetingStateInfo } from '../types';
 

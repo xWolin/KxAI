@@ -30,15 +30,16 @@ export class ToolsService {
   private fileIntelligenceService?: FileIntelligenceService;
   private calendarService?: CalendarService;
   private privacyService?: PrivacyService;
-  private securityGuard: SecurityGuard;
-  private systemMonitor: SystemMonitor;
+  private securityGuard!: SecurityGuard;
+  private systemMonitor!: SystemMonitor;
 
   /** Callback for workflow recording — called after every tool execution */
   private onToolExecuted?: (name: string, params: any, result: ToolResult, durationMs: number) => void;
 
-  constructor() {
-    this.securityGuard = new SecurityGuard();
-    this.systemMonitor = new SystemMonitor();
+  constructor(securityGuard?: SecurityGuard, systemMonitor?: SystemMonitor) {
+    // Accept instances from ServiceContainer, or create fallback instances
+    this.securityGuard = securityGuard ?? new SecurityGuard();
+    this.systemMonitor = systemMonitor ?? new SystemMonitor();
     this.registerBuiltinTools();
   }
 

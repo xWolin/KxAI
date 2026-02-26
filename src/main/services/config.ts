@@ -144,8 +144,15 @@ export class ConfigService extends EventEmitter {
    * Atomic write: write to temp file, then rename.
    * Prevents data loss on crash during write.
    */
+  /** Track whether another save was requested while one is in progress */
+  private pendingSave = false;
+
   private async flushSave(): Promise<void> {
-    if (this.saving) return;
+    if (this.saving) {
+      // Another save is in progress — mark pending so it re-runs after current save
+      this.pendingSave = true;
+      return;
+    }
     this.saving = true;
     try {
       const dir = path.dirname(this.configPath);
@@ -157,6 +164,11 @@ export class ConfigService extends EventEmitter {
       log.error('Failed to save config:', error);
     } finally {
       this.saving = false;
+      // If another save was requested during this save, flush again
+      if (this.pendingSave) {
+        this.pendingSave = false;
+        void this.flushSave();
+      }
     }
   }
 

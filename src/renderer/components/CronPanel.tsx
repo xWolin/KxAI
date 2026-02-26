@@ -16,7 +16,6 @@ export function CronPanel({ onBack }: CronPanelProps) {
   const [newSchedule, setNewSchedule] = useState('30m');
   const [newAction, setNewAction] = useState('');
   const [newCategory, setNewCategory] = useState<CronJob['category']>('custom');
-  const [editingId, setEditingId] = useState<string | null>(null);
 
   const loadJobs = useCallback(async () => {
     const list = await window.kxai.getCronJobs();

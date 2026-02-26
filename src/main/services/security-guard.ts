@@ -26,12 +26,12 @@ interface RateLimitBucket {
 interface SecurityConfig {
   enableAuditLog: boolean;
   maxAuditEntries: number;
-  commandRateLimit: number;        // Max shell commands per minute
-  fileWriteRateLimit: number;      // Max file writes per minute
-  automationRateLimit: number;     // Max automation actions per minute
-  browserRateLimit: number;        // Max browser actions per minute
-  allowedWritePaths: string[];     // Whitelisted write paths (glob-like)
-  blockedCommands: string[];       // Blacklisted command patterns
+  commandRateLimit: number; // Max shell commands per minute
+  fileWriteRateLimit: number; // Max file writes per minute
+  automationRateLimit: number; // Max automation actions per minute
+  browserRateLimit: number; // Max browser actions per minute
+  allowedWritePaths: string[]; // Whitelisted write paths (glob-like)
+  blockedCommands: string[]; // Blacklisted command patterns
 }
 
 // Commands that should NEVER be executed by an AI agent
@@ -42,7 +42,7 @@ const DANGEROUS_COMMANDS = [
   'format c:',
   'mkfs',
   'dd if=',
-  ':(){:|:&};:',  // fork bomb
+  ':(){:|:&};:', // fork bomb
   // Privilege escalation
   'chmod 777 /',
   'chmod -R 777',
@@ -141,7 +141,13 @@ export class SecurityGuard {
       try {
         const regex = new RegExp(pattern, 'i');
         if (regex.test(normalized)) {
-          this.audit('shell_command', { command }, 'tool', 'blocked', `Zablokowana komenda: pasuje do wzorca "${pattern}"`);
+          this.audit(
+            'shell_command',
+            { command },
+            'tool',
+            'blocked',
+            `Zablokowana komenda: pasuje do wzorca "${pattern}"`,
+          );
           return { allowed: false, reason: `Komenda zablokowana ze względów bezpieczeństwa (wzorzec: ${pattern})` };
         }
       } catch {
@@ -156,7 +162,10 @@ export class SecurityGuard {
     // Rate limit check
     if (!this.checkRateLimit('command', this.config.commandRateLimit)) {
       this.audit('shell_command', { command }, 'tool', 'rate-limited', 'Przekroczono limit komend/minutę');
-      return { allowed: false, reason: `Zbyt wiele komend w krótkim czasie (limit: ${this.config.commandRateLimit}/min)` };
+      return {
+        allowed: false,
+        reason: `Zbyt wiele komend w krótkim czasie (limit: ${this.config.commandRateLimit}/min)`,
+      };
     }
 
     this.audit('shell_command', { command: command.slice(0, 200) }, 'tool', 'allowed');
@@ -237,10 +246,16 @@ export class SecurityGuard {
   /**
    * Rate-limit automation actions.
    */
-  validateAutomationAction(action: string, params: Record<string, unknown> = {}): { allowed: boolean; reason?: string } {
+  validateAutomationAction(
+    action: string,
+    params: Record<string, unknown> = {},
+  ): { allowed: boolean; reason?: string } {
     if (!this.checkRateLimit('automation', this.config.automationRateLimit)) {
       this.audit(action, params, 'automation', 'rate-limited');
-      return { allowed: false, reason: `Zbyt wiele akcji automatyzacji (limit: ${this.config.automationRateLimit}/min)` };
+      return {
+        allowed: false,
+        reason: `Zbyt wiele akcji automatyzacji (limit: ${this.config.automationRateLimit}/min)`,
+      };
     }
 
     this.audit(action, params, 'automation', 'allowed');
@@ -287,7 +302,7 @@ export class SecurityGuard {
       const ipMatch = parsed.hostname.match(/^(\d+)\.(\d+)\.\d+\.\d+$/);
       if (ipMatch) {
         const [, first, second] = ipMatch.map(Number);
-        if (first === 10 || first === 172 && second >= 16 && second <= 31 || first === 192 && second === 168) {
+        if (first === 10 || (first === 172 && second >= 16 && second <= 31) || (first === 192 && second === 168)) {
           return { allowed: false, reason: 'Dostęp do sieci prywatnych jest zablokowany' };
         }
       }
@@ -312,7 +327,9 @@ export class SecurityGuard {
   private isSafeRegexPattern(pattern: string): boolean {
     // Reject overly long patterns
     if (pattern.length > 200) {
-      console.warn(`[SecurityGuard] Rejected regex pattern (too long: ${pattern.length} chars): "${pattern.slice(0, 50)}..."`);
+      console.warn(
+        `[SecurityGuard] Rejected regex pattern (too long: ${pattern.length} chars): "${pattern.slice(0, 50)}..."`,
+      );
       return false;
     }
 
@@ -321,8 +338,16 @@ export class SecurityGuard {
     //   Also: {n,}){n,}  and similar nested repeats
     const nestedQuantifiers = /(\((?:[^()]*(?:\.\*|\.\+|\w[*+]))[^()]*\))[*+]|\{[0-9]+,?\}[)][*+{]/;
     if (nestedQuantifiers.test(pattern)) {
-      console.warn(`[SecurityGuard] Rejected regex pattern (nested quantifiers / ReDoS risk): "${pattern.slice(0, 80)}"`);
-      this.audit('regex_rejected', { pattern: pattern.slice(0, 100) }, 'tool', 'blocked', 'Wzorzec regex z zagnieżdżonymi kwantyfikatorami');
+      console.warn(
+        `[SecurityGuard] Rejected regex pattern (nested quantifiers / ReDoS risk): "${pattern.slice(0, 80)}"`,
+      );
+      this.audit(
+        'regex_rejected',
+        { pattern: pattern.slice(0, 100) },
+        'tool',
+        'blocked',
+        'Wzorzec regex z zagnieżdżonymi kwantyfikatorami',
+      );
       return false;
     }
 
@@ -389,7 +414,13 @@ export class SecurityGuard {
   /**
    * Public audit entry — for external callers (IPC handlers, etc.)
    */
-  logAudit(entry: { action: string; params: Record<string, unknown>; source: AuditEntry['source']; result: AuditEntry['result']; reason?: string }): void {
+  logAudit(entry: {
+    action: string;
+    params: Record<string, unknown>;
+    source: AuditEntry['source'];
+    result: AuditEntry['result'];
+    reason?: string;
+  }): void {
     this.audit(entry.action, entry.params, entry.source, entry.result, entry.reason);
   }
 
@@ -437,7 +468,8 @@ export class SecurityGuard {
   private saveAuditLog(): void {
     // Fire-and-forget async write — audit log save should not block event loop
     const dir = path.dirname(this.auditFilePath);
-    fsp.mkdir(dir, { recursive: true })
+    fsp
+      .mkdir(dir, { recursive: true })
       .then(() => fsp.writeFile(this.auditFilePath, JSON.stringify(this.auditLog), 'utf8'))
       .catch((error) => {
         console.error('Failed to save audit log:', error);

@@ -150,13 +150,9 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   validatedHandle(Ch.AI_STREAM_MESSAGE, async (_event, message: string, context?: string) => {
     try {
       await agentLoop.streamWithTools(message, context, (chunk: string) => {
-        if (!mainWindow.isDestroyed()) {
-          mainWindow.webContents.send(Ev.AI_STREAM, { chunk });
-        }
+        safeSend(Ev.AI_STREAM, { chunk });
       });
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
-      }
+      safeSend(Ev.AI_STREAM, { done: true });
 
       // Check if AI requested take-control mode
       const pendingTask = agentLoop.consumePendingTakeControl();
@@ -179,36 +175,34 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
             result: 'allowed',
           });
           // Run take-control in background (don't block the IPC response)
-          mainWindow.webContents.send(Ev.AGENT_CONTROL_STATE, { active: true });
+          safeSend(Ev.AGENT_CONTROL_STATE, { active: true });
           // Open a new stream in the UI so chunks are visible
-          mainWindow.webContents.send(Ev.AI_STREAM, { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie...\n' });
+          safeSend(Ev.AI_STREAM, { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie...\n' });
           agentLoop
             .startTakeControl(
               pendingTask,
-              (status) => mainWindow.webContents.send(Ev.AUTOMATION_STATUS_UPDATE, status),
-              (chunk) => mainWindow.webContents.send(Ev.AI_STREAM, { chunk }),
+              (status) => safeSend(Ev.AUTOMATION_STATUS_UPDATE, status),
+              (chunk) => safeSend(Ev.AI_STREAM, { chunk }),
               true,
             )
             .then(() => {
-              mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
-              mainWindow.webContents.send(Ev.AGENT_CONTROL_STATE, { active: false });
+              safeSend(Ev.AI_STREAM, { done: true });
+              safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
             })
             .catch((err) => {
-              console.error('Take-control error:', err);
-              mainWindow.webContents.send(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${err.message}\n` });
-              mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
-              mainWindow.webContents.send(Ev.AGENT_CONTROL_STATE, { active: false });
+              log.error('Take-control error:', err);
+              safeSend(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${err.message}\n` });
+              safeSend(Ev.AI_STREAM, { done: true });
+              safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
             });
         }
       }
 
       return { success: true };
     } catch (error: any) {
-      console.error('ai:stream-message error:', error);
-      if (!mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${error.message}\n` });
-        mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
-      }
+      log.error('ai:stream-message error:', error);
+      safeSend(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${error.message}\n` });
+      safeSend(Ev.AI_STREAM, { done: true });
       return { success: false, error: error.message };
     }
   });
@@ -224,13 +218,13 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
       // Build vision message with screenshots
       await aiService.streamMessageWithScreenshots(message, screenshots, (chunk: string) => {
-        mainWindow.webContents.send(Ev.AI_STREAM, { chunk });
+        safeSend(Ev.AI_STREAM, { chunk });
       });
-      mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
+      safeSend(Ev.AI_STREAM, { done: true });
       return { success: true };
     } catch (error: any) {
-      console.error('ai:stream-with-screen error:', error);
-      mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
+      log.error('ai:stream-with-screen error:', error);
+      safeSend(Ev.AI_STREAM, { done: true });
       return { success: false, error: error.message };
     }
   });
@@ -260,7 +254,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
       // Send to AI for analysis
       const analysis = await aiService.analyzeScreens(screenshots);
       if (analysis && analysis.hasInsight) {
-        mainWindow.webContents.send(Ev.AI_PROACTIVE, {
+        safeSend(Ev.AI_PROACTIVE, {
           type: 'screen-analysis',
           message: analysis.message,
           context: analysis.context,
@@ -396,7 +390,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
       return { success: true, text: transcription.text };
     } catch (error: any) {
-      console.error('[IPC] Whisper transcription failed:', error.message);
+      log.error('Whisper transcription failed:', error.message);
       return { success: false, error: error.message };
     }
   });
@@ -451,7 +445,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
         // T1: Content change
         (ctx) => {
           if (ctx.contentChanged && ctx.ocrText.length > 50) {
-            mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { wantsToSpeak: true });
+            safeSend(Ev.AGENT_COMPANION_STATE, { wantsToSpeak: true });
           }
         },
         // T2: Vision needed — full AI analysis on significant changes or periodic
@@ -462,7 +456,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
               .filter((s) => {
                 // Validate base64 data — filter out empty/corrupt screenshots
                 if (!s.base64 || s.base64.length < 100) {
-                  console.warn(`[Proactive] Pominięto pusty screenshot: ${s.label}`);
+                  log.warn(`Pominięto pusty screenshot: ${s.label}`);
                   return false;
                 }
                 return true;
@@ -477,11 +471,11 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
               }));
 
             if (screenshotData.length === 0) {
-              console.warn('[Proactive] Brak prawidłowych screenshotów do analizy');
+              log.warn('Brak prawidłowych screenshotów do analizy');
               return;
             }
 
-            console.log(
+            log.info(
               `[Proactive] T2 callback triggered — starting AI analysis (${screenshotData.length} screen(s))...`,
             );
             const analysis = await aiService.analyzeScreens(screenshotData);
@@ -496,26 +490,26 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
                 type: 'proactive',
               });
 
-              mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
-              mainWindow.webContents.send(Ev.AI_PROACTIVE, {
+              safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+              safeSend(Ev.AI_PROACTIVE, {
                 type: 'screen-analysis',
                 message: analysis.message,
                 context: analysis.context,
               });
             }
           } catch (err) {
-            console.error('[Proactive] Vision analysis error:', err);
+            log.error('Vision analysis error:', err);
           }
         },
         // Idle start — user went AFK
         () => {
           agentLoop.setAfkState(true);
-          mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { isAfk: true });
+          safeSend(Ev.AGENT_COMPANION_STATE, { isAfk: true });
         },
         // Idle end — user is back
         () => {
           agentLoop.setAfkState(false);
-          mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { isAfk: false });
+          safeSend(Ev.AGENT_COMPANION_STATE, { isAfk: false });
         },
       );
 
@@ -528,8 +522,8 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
           timestamp: Date.now(),
           type: 'proactive',
         });
-        mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
-        mainWindow.webContents.send(Ev.AI_PROACTIVE, {
+        safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+        safeSend(Ev.AI_PROACTIVE, {
           type: 'heartbeat',
           message,
         });
@@ -548,8 +542,8 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
           timestamp: Date.now(),
           type: 'proactive',
         });
-        mainWindow.webContents.send(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
-        mainWindow.webContents.send(Ev.AI_PROACTIVE, {
+        safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+        safeSend(Ev.AI_PROACTIVE, {
           type: notification.type,
           message: notification.message,
           context: notification.context,
@@ -570,14 +564,17 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   // Proactive feedback (learning loop)
-  validatedHandle(Ch.PROACTIVE_FEEDBACK, async (_event, data: { ruleId: string; action: 'accepted' | 'dismissed' | 'replied' }) => {
-    services.proactiveEngine.recordFeedback({
-      ruleId: data.ruleId,
-      action: data.action,
-      timestamp: Date.now(),
-    });
-    return { success: true };
-  });
+  validatedHandle(
+    Ch.PROACTIVE_FEEDBACK,
+    async (_event, data: { ruleId: string; action: 'accepted' | 'dismissed' | 'replied' }) => {
+      services.proactiveEngine.recordFeedback({
+        ruleId: data.ruleId,
+        action: data.action,
+        timestamp: Date.now(),
+      });
+      return { success: true };
+    },
+  );
 
   ipcMain.handle(Ch.PROACTIVE_GET_STATS, async () => {
     return services.proactiveEngine.getStats();
@@ -703,7 +700,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     try {
       // Wire progress reporting to renderer
       ragService.onProgress = (progress) => {
-        mainWindow.webContents.send(Ev.RAG_INDEXING_PROGRESS, progress);
+        safeSend(Ev.RAG_INDEXING_PROGRESS, progress);
       };
       await ragService.reindex();
       ragService.onProgress = undefined;
@@ -835,18 +832,18 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     });
 
     try {
-      mainWindow.webContents.send(Ev.AI_STREAM, { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie...\n' });
+      safeSend(Ev.AI_STREAM, { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie...\n' });
       const result = await agentLoop.startTakeControl(
         task,
-        (status) => mainWindow.webContents.send(Ev.AUTOMATION_STATUS_UPDATE, status),
-        (chunk) => mainWindow.webContents.send(Ev.AI_STREAM, { chunk }),
+        (status) => safeSend(Ev.AUTOMATION_STATUS_UPDATE, status),
+        (chunk) => safeSend(Ev.AI_STREAM, { chunk }),
         true, // confirmed via dialog above
       );
-      mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
+      safeSend(Ev.AI_STREAM, { done: true });
       return { success: true, data: result };
     } catch (error: any) {
-      mainWindow.webContents.send(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${error.message}\n` });
-      mainWindow.webContents.send(Ev.AI_STREAM, { done: true });
+      safeSend(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${error.message}\n` });
+      safeSend(Ev.AI_STREAM, { done: true });
       return { success: false, error: error.message };
     }
   });
@@ -934,7 +931,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
       }
       return { success: true, audioData: dataUrl };
     } catch (error: any) {
-      console.error('[TTS] IPC speak error:', error.message);
+      log.error('TTS speak error:', error.message);
       return { success: false, fallback: true, error: error.message };
     }
   });
@@ -1060,7 +1057,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
       const now = Date.now();
       if (now - lastIpcAudioLog > 10000) {
         lastIpcAudioLog = now;
-        console.log(
+        log.info(
           `[IPC] meeting:audio-chunk: ${ipcAudioChunkCount} chunks received (source=${source}, size=${chunk.byteLength}bytes)`,
         );
       }

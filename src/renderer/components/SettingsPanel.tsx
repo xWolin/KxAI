@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { KxAIConfig, RAGFolderInfo } from '../types';
 import type { McpServerConfig, McpHubStatus, McpRegistryEntry, McpCategory } from '@shared/types/mcp';
-import type { CalendarConfig, CalendarStatus, CalendarInfo, CalendarProvider } from '@shared/types/calendar';
+import type { CalendarStatus, CalendarInfo, CalendarProvider } from '@shared/types/calendar';
 import s from './SettingsPanel.module.css';
 import { cn } from '../utils/cn';
 import { useTranslation } from '../i18n';
@@ -58,7 +58,6 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [activeTab, setActiveTab] = useState<'general' | 'persona' | 'memory' | 'knowledge' | 'mcp' | 'calendar'>(
     'general',
   );
-  const [indexedFolders, setIndexedFolders] = useState<string[]>([]);
   const [folderStats, setFolderStats] = useState<RAGFolderInfo[]>([]);
   const [ragStats, setRagStats] = useState<{ totalChunks: number; totalFiles: number; embeddingType: string } | null>(
     null,
@@ -68,7 +67,6 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   // MCP state
   const [mcpStatus, setMcpStatus] = useState<McpHubStatus | null>(null);
   const [mcpRegistry, setMcpRegistry] = useState<McpRegistryEntry[]>([]);
-  const [mcpLoading, setMcpLoading] = useState(false);
   const [mcpAddingServer, setMcpAddingServer] = useState(false);
   const [mcpShowAddForm, setMcpShowAddForm] = useState(false);
   const [mcpNewServer, setMcpNewServer] = useState({
@@ -103,6 +101,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     checkApiKey();
     loadFiles();
     loadKnowledgeData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [provider]);
 
   async function checkApiKey() {
@@ -176,8 +175,6 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
       setRagStats(stats);
       const folders = await window.kxai.ragFolderStats();
       setFolderStats(folders);
-      const folderList = await window.kxai.ragGetFolders();
-      setIndexedFolders(folderList);
     } catch (err) {
       console.error('Failed to load knowledge data:', err);
     }
@@ -219,7 +216,6 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   // ── MCP Functions ──
   const loadMcpData = useCallback(async () => {
     try {
-      setMcpLoading(true);
       const [status, registry, categories] = await Promise.all([
         window.kxai.mcpGetStatus(),
         window.kxai.mcpGetRegistry(),
@@ -230,8 +226,6 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
       setMcpCategories(categories);
     } catch (err) {
       console.error('Failed to load MCP data:', err);
-    } finally {
-      setMcpLoading(false);
     }
   }, []);
 
@@ -496,22 +490,52 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
       {/* Tabs */}
       <div className={s.tabs} role="tablist">
-        <button className={activeTab === 'general' ? s.tabActive : s.tab} onClick={() => setActiveTab('general')} role="tab" aria-selected={activeTab === 'general'}>
+        <button
+          className={activeTab === 'general' ? s.tabActive : s.tab}
+          onClick={() => setActiveTab('general')}
+          role="tab"
+          aria-selected={activeTab === 'general'}
+        >
           {t('settings.tabs.general')}
         </button>
-        <button className={activeTab === 'persona' ? s.tabActive : s.tab} onClick={() => setActiveTab('persona')} role="tab" aria-selected={activeTab === 'persona'}>
+        <button
+          className={activeTab === 'persona' ? s.tabActive : s.tab}
+          onClick={() => setActiveTab('persona')}
+          role="tab"
+          aria-selected={activeTab === 'persona'}
+        >
           {t('settings.tabs.persona')}
         </button>
-        <button className={activeTab === 'memory' ? s.tabActive : s.tab} onClick={() => setActiveTab('memory')} role="tab" aria-selected={activeTab === 'memory'}>
+        <button
+          className={activeTab === 'memory' ? s.tabActive : s.tab}
+          onClick={() => setActiveTab('memory')}
+          role="tab"
+          aria-selected={activeTab === 'memory'}
+        >
           {t('settings.tabs.memory')}
         </button>
-        <button className={activeTab === 'knowledge' ? s.tabActive : s.tab} onClick={() => setActiveTab('knowledge')} role="tab" aria-selected={activeTab === 'knowledge'}>
+        <button
+          className={activeTab === 'knowledge' ? s.tabActive : s.tab}
+          onClick={() => setActiveTab('knowledge')}
+          role="tab"
+          aria-selected={activeTab === 'knowledge'}
+        >
           {t('settings.tabs.knowledge')}
         </button>
-        <button className={activeTab === 'mcp' ? s.tabActive : s.tab} onClick={() => setActiveTab('mcp')} role="tab" aria-selected={activeTab === 'mcp'}>
+        <button
+          className={activeTab === 'mcp' ? s.tabActive : s.tab}
+          onClick={() => setActiveTab('mcp')}
+          role="tab"
+          aria-selected={activeTab === 'mcp'}
+        >
           {t('settings.tabs.mcp')}
         </button>
-        <button className={activeTab === 'calendar' ? s.tabActive : s.tab} onClick={() => setActiveTab('calendar')} role="tab" aria-selected={activeTab === 'calendar'}>
+        <button
+          className={activeTab === 'calendar' ? s.tabActive : s.tab}
+          onClick={() => setActiveTab('calendar')}
+          role="tab"
+          aria-selected={activeTab === 'calendar'}
+        >
           {t('settings.tabs.calendar')}
         </button>
       </div>
@@ -580,7 +604,12 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               </select>
 
               <label className={s.label}>{t('settings.general.model')}</label>
-              <select className={s.select} value={model} title={t('settings.general.model')} onChange={(e) => setModel(e.target.value)}>
+              <select
+                className={s.select}
+                value={model}
+                title={t('settings.general.model')}
+                onChange={(e) => setModel(e.target.value)}
+              >
                 {MODELS[provider].map((m) => (
                   <option key={m.value} value={m.value}>
                     {m.label}
@@ -588,13 +617,17 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 ))}
               </select>
 
-              <label className={s.label}>{t('settings.general.apiKey')} {hasKey ? '✅' : '❌'}</label>
+              <label className={s.label}>
+                {t('settings.general.apiKey')} {hasKey ? '✅' : '❌'}
+              </label>
               <input
                 type="password"
                 className={s.input}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
-                placeholder={hasKey ? t('settings.general.apiKeyChangePlaceholder') : t('settings.general.apiKeyPlaceholder')}
+                placeholder={
+                  hasKey ? t('settings.general.apiKeyChangePlaceholder') : t('settings.general.apiKeyPlaceholder')
+                }
               />
             </div>
 
@@ -612,26 +645,28 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 min={5}
                 max={300}
               />
-              <p className={s.hint}>
-                {t('settings.general.proactiveHint')}
-              </p>
+              <p className={s.hint}>{t('settings.general.proactiveHint')}</p>
             </div>
 
             {/* Deepgram / Meeting Coach */}
             <div className={s.section}>
               <h3 className={s.sectionTitle}>{t('settings.general.meetingCoach')}</h3>
 
-              <label className={s.label}>{t('settings.general.deepgramKey')} {hasDeepgramKey ? '✅' : '❌'}</label>
+              <label className={s.label}>
+                {t('settings.general.deepgramKey')} {hasDeepgramKey ? '✅' : '❌'}
+              </label>
               <input
                 type="password"
                 className={s.input}
                 value={deepgramKey}
                 onChange={(e) => setDeepgramKey(e.target.value)}
-                placeholder={hasDeepgramKey ? t('settings.general.apiKeyChangePlaceholder') : t('settings.general.deepgramKeyPlaceholder')}
+                placeholder={
+                  hasDeepgramKey
+                    ? t('settings.general.apiKeyChangePlaceholder')
+                    : t('settings.general.deepgramKeyPlaceholder')
+                }
               />
-              <p className={s.hint}>
-                {t('settings.general.deepgramHint')}
-              </p>
+              <p className={s.hint}>{t('settings.general.deepgramHint')}</p>
             </div>
 
             {/* Embeddings (RAG) */}
@@ -640,7 +675,11 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
               <label className={s.label}>
                 {t('settings.general.embeddingKey')}{' '}
-                {hasEmbeddingKey ? '✅' : hasKey && provider === 'openai' ? t('settings.general.embeddingKeyShared') : '❌'}
+                {hasEmbeddingKey
+                  ? '✅'
+                  : hasKey && provider === 'openai'
+                    ? t('settings.general.embeddingKeyShared')
+                    : '❌'}
               </label>
               <input
                 type="password"
@@ -648,12 +687,12 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 value={embeddingKey}
                 onChange={(e) => setEmbeddingKey(e.target.value)}
                 placeholder={
-                  hasEmbeddingKey ? t('settings.general.apiKeyChangePlaceholder') : t('settings.general.embeddingKeyPlaceholder')
+                  hasEmbeddingKey
+                    ? t('settings.general.apiKeyChangePlaceholder')
+                    : t('settings.general.embeddingKeyPlaceholder')
                 }
               />
-              <p className={s.hint}>
-                {t('settings.general.embeddingHint')}
-              </p>
+              <p className={s.hint}>{t('settings.general.embeddingHint')}</p>
 
               <label className={s.label}>{t('settings.general.embeddingModel')}</label>
               <select
@@ -686,9 +725,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
         {activeTab === 'persona' && (
           <div className="fade-in">
-            <p className={s.desc}>
-              {t('settings.persona.description')}
-            </p>
+            <p className={s.desc}>{t('settings.persona.description')}</p>
             <textarea
               className={s.textarea}
               value={soulContent}
@@ -703,9 +740,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
         {activeTab === 'memory' && (
           <div className="fade-in">
-            <p className={s.desc}>
-              {t('settings.memory.description')}
-            </p>
+            <p className={s.desc}>{t('settings.memory.description')}</p>
             <textarea
               className={s.textarea}
               value={memoryContent}
@@ -720,9 +755,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
         {activeTab === 'knowledge' && (
           <div className="fade-in">
-            <p className={s.desc}>
-              {t('settings.knowledge.description')}
-            </p>
+            <p className={s.desc}>{t('settings.knowledge.description')}</p>
 
             {/* Stats */}
             {ragStats && (
@@ -756,7 +789,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       {folder.path}
                     </div>
                     <div className={s.folderItemStats}>
-                      {folder.fileCount} {t('settings.knowledge.folderFiles')} · {folder.chunkCount} {t('settings.knowledge.folderChunks')}
+                      {folder.fileCount} {t('settings.knowledge.folderFiles')} · {folder.chunkCount}{' '}
+                      {t('settings.knowledge.folderChunks')}
                       {folder.lastIndexed > 0 && <> · {new Date(folder.lastIndexed).toLocaleString('pl-PL')}</>}
                     </div>
                   </div>
@@ -789,9 +823,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
         {activeTab === 'mcp' && (
           <div className="fade-in">
-            <p className={s.desc}>
-              {t('settings.mcp.description')}
-            </p>
+            <p className={s.desc}>{t('settings.mcp.description')}</p>
 
             {/* Hub Stats */}
             {mcpStatus && (
@@ -818,9 +850,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             <div className={s.section}>
               <h3 className={s.sectionTitle}>{t('settings.mcp.configuredServers')}</h3>
 
-              {mcpStatus && mcpStatus.servers.length === 0 && (
-                <p className={s.hint}>{t('settings.mcp.noServers')}</p>
-              )}
+              {mcpStatus && mcpStatus.servers.length === 0 && <p className={s.hint}>{t('settings.mcp.noServers')}</p>}
 
               {mcpStatus?.servers.map((server) => {
                 const badge = getMcpStatusBadge(server.status);
@@ -926,7 +956,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 onClick={() => setMcpShowAddForm(!mcpShowAddForm)}
                 style={{ marginBottom: '12px' }}
               >
-                                {mcpShowAddForm ? t('settings.mcp.addManualCancel') : t('settings.mcp.addManualOpen')}
+                {mcpShowAddForm ? t('settings.mcp.addManualCancel') : t('settings.mcp.addManualOpen')}
               </button>
 
               {mcpShowAddForm && (
@@ -1026,9 +1056,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
             {/* Registry */}
             <div className={s.section}>
               <h3 className={s.sectionTitle}>{t('settings.mcp.registry')}</h3>
-              <p className={s.hint}>
-                {t('settings.mcp.registryHint')}
-              </p>
+              <p className={s.hint}>{t('settings.mcp.registryHint')}</p>
 
               {/* Search + Category Filter */}
               <div className={s.mcpDiscoveryBar}>
@@ -1076,11 +1104,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 });
 
                 if (filtered.length === 0) {
-                  return (
-                    <div className={s.mcpEmptySearch}>
-                      {t('settings.mcp.noResults')}
-                    </div>
-                  );
+                  return <div className={s.mcpEmptySearch}>{t('settings.mcp.noResults')}</div>;
                 }
 
                 return filtered.map((entry) => {
@@ -1123,9 +1147,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
           <div className="fade-in">
             <div className={s.section}>
               <h3 className={s.sectionTitle}>{t('settings.calendar.title')}</h3>
-              <p className={s.hint}>
-                {t('settings.calendar.description')}
-              </p>
+              <p className={s.hint}>{t('settings.calendar.description')}</p>
 
               {calLoading && <div className={s.mcpLoading}>{t('settings.calendar.loading')}</div>}
 
@@ -1260,7 +1282,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   />
 
                   <label className={s.label}>
-                    {calNewConn.provider === 'icloud' ? t('settings.calendar.formAppPassword') : t('settings.calendar.formPassword')}
+                    {calNewConn.provider === 'icloud'
+                      ? t('settings.calendar.formAppPassword')
+                      : t('settings.calendar.formPassword')}
                   </label>
                   <input
                     className={s.input}
@@ -1271,9 +1295,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   />
 
                   {calNewConn.provider === 'google' && (
-                    <p className={s.hint}>
-                      {t('settings.calendar.googleOauthHint')}
-                    </p>
+                    <p className={s.hint}>{t('settings.calendar.googleOauthHint')}</p>
                   )}
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>

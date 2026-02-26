@@ -1,12 +1,15 @@
-import * as fs from 'fs';
+﻿import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import { app } from 'electron';
 import { ToolDefinition, ToolResult } from './tools-service';
+import { createLogger } from './logger';
+
+const log = createLogger('PluginService');
 
 /**
- * PluginService — dynamiczne ładowanie narzędzi z katalogu plugins/.
- * 
+ * PluginService â€” dynamiczne Å‚adowanie narzÄ™dzi z katalogu plugins/.
+ *
  * Format pluginu (CommonJS):
  * ```
  * module.exports = {
@@ -16,7 +19,7 @@ import { ToolDefinition, ToolResult } from './tools-service';
  *   tools: [
  *     {
  *       name: 'my_tool',
- *       description: 'Co robi narzędzie',
+ *       description: 'Co robi narzÄ™dzie',
  *       category: 'custom',
  *       parameters: {
  *         input: { type: 'string', description: 'Input', required: true },
@@ -31,7 +34,7 @@ export class PluginService {
   private pluginsDir: string;
   private loadedPlugins: Map<string, LoadedPlugin> = new Map();
   private watcher: fs.FSWatcher | null = null;
-  private approvedPluginHashes: Map<string, string> = new Map(); // fileName → sha256 hash
+  private approvedPluginHashes: Map<string, string> = new Map(); // fileName â†’ sha256 hash
   private approvalPath: string;
 
   constructor() {
@@ -41,7 +44,7 @@ export class PluginService {
   }
 
   /**
-   * Initialize — create plugins directory, load existing plugins.
+   * Initialize â€” create plugins directory, load existing plugins.
    */
   async initialize(): Promise<void> {
     // Ensure plugins directory exists
@@ -69,16 +72,15 @@ export class PluginService {
     this.loadedPlugins.clear();
 
     try {
-      const files = fs.readdirSync(this.pluginsDir)
-        .filter((f) => f.endsWith('.js') && !f.startsWith('_'));
+      const files = fs.readdirSync(this.pluginsDir).filter((f) => f.endsWith('.js') && !f.startsWith('_'));
 
       for (const file of files) {
         await this.loadPlugin(file);
       }
 
-      console.log(`PluginService: Loaded ${this.loadedPlugins.size} plugins`);
+      log.info(`PluginService: Loaded ${this.loadedPlugins.size} plugins`);
     } catch (err) {
-      console.error('PluginService: Failed to load plugins:', err);
+      log.error('Failed to load plugins:', err);
     }
   }
 
@@ -98,7 +100,7 @@ export class PluginService {
         }
       }
     } catch (err: any) {
-      console.warn('PluginService: Failed to load approved hashes:', err.message);
+      log.warn('Failed to load approved hashes:', err.message);
     }
   }
 
@@ -115,7 +117,7 @@ export class PluginService {
       fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
       fs.renameSync(tmpPath, this.approvalPath);
     } catch (err: any) {
-      console.warn('PluginService: Failed to save approved hashes:', err.message);
+      log.warn('Failed to save approved hashes:', err.message);
     }
   }
 
@@ -136,15 +138,16 @@ export class PluginService {
       // 2) Check if plugin is approved (by hash)
       const approvedHash = this.approvedPluginHashes.get(fileName);
       if (approvedHash && approvedHash !== fileHash) {
-        console.warn(`PluginService: Plugin "${fileName}" was modified since approval — skipping. Re-approve via plugins panel.`);
+        log.warn(`Plugin "${fileName}" was modified since approval â€” skipping. Re-approve via plugins panel.`);
         return;
       }
 
-      // Auto-approve new plugins from the plugins directory (user placed them there intentionally)
+      // Require explicit approval â€” do NOT auto-approve new plugins
       if (!approvedHash) {
-        this.approvedPluginHashes.set(fileName, fileHash);
-        this.saveApprovedHashes();
-        console.log(`PluginService: Auto-approved new plugin "${fileName}" (hash: ${fileHash.slice(0, 12)}...)`);
+        log.info(
+          `Plugin "${fileName}" pending approval (hash: ${fileHash.slice(0, 12)}...). Approve via Settings â†’ Plugins.`,
+        );
+        return;
       }
 
       // 3) Clear require cache to support hot reload
@@ -156,18 +159,18 @@ export class PluginService {
 
       // 4) Validate manifest structure
       if (!plugin.name || typeof plugin.name !== 'string') {
-        console.warn(`PluginService: Invalid plugin — missing 'name' in ${fileName}`);
+        log.warn(`PluginService: Invalid plugin â€” missing 'name' in ${fileName}`);
         return;
       }
       if (!Array.isArray(plugin.tools)) {
-        console.warn(`PluginService: Invalid plugin format in ${fileName} — 'tools' must be an array`);
+        log.warn(`PluginService: Invalid plugin format in ${fileName} â€” 'tools' must be an array`);
         return;
       }
 
       const tools: PluginTool[] = [];
       for (const tool of plugin.tools) {
         if (!tool.name || !tool.description || typeof tool.handler !== 'function') {
-          console.warn(`PluginService: Invalid tool in plugin ${plugin.name}: ${tool.name}`);
+          log.warn(`PluginService: Invalid tool in plugin ${plugin.name}: ${tool.name}`);
           continue;
         }
         tools.push(tool);
@@ -180,9 +183,9 @@ export class PluginService {
         loadedAt: Date.now(),
       });
 
-      console.log(`PluginService: Loaded plugin "${plugin.name}" with ${tools.length} tools`);
+      log.info(`PluginService: Loaded plugin "${plugin.name}" with ${tools.length} tools`);
     } catch (err: any) {
-      console.error(`PluginService: Failed to load plugin ${fileName}:`, err.message);
+      log.error(`PluginService: Failed to load plugin ${fileName}:`, err.message);
     }
   }
 
@@ -224,7 +227,7 @@ export class PluginService {
 
     const tool = plugin.tools.find((t) => t.name === toolName);
     if (!tool) {
-      return { success: false, error: `Narzędzie "${toolName}" nie znalezione w pluginie "${pluginName}"` };
+      return { success: false, error: `NarzÄ™dzie "${toolName}" nie znalezione w pluginie "${pluginName}"` };
     }
 
     try {
@@ -276,7 +279,7 @@ export class PluginService {
     try {
       this.watcher = fs.watch(this.pluginsDir, { persistent: false }, (eventType, fileName) => {
         if (fileName && fileName.endsWith('.js') && !fileName.startsWith('_')) {
-          console.log(`PluginService: Detected change in ${fileName}, reloading...`);
+          log.info(`PluginService: Detected change in ${fileName}, reloading...`);
           // Debounce reload
           setTimeout(() => this.loadAll(), 500);
         }
@@ -294,26 +297,26 @@ export class PluginService {
     if (fs.existsSync(examplePath)) return;
 
     const exampleContent = `/**
- * Przykładowy plugin KxAI
- * Skopiuj ten plik, usuń prefiks _ z nazwy, i zmodyfikuj.
- * Plugin zostanie automatycznie załadowany.
+ * PrzykÅ‚adowy plugin KxAI
+ * Skopiuj ten plik, usuÅ„ prefiks _ z nazwy, i zmodyfikuj.
+ * Plugin zostanie automatycznie zaÅ‚adowany.
  */
 module.exports = {
   name: 'example',
   version: '1.0.0',
-  description: 'Przykładowy plugin z prostym narzędziem',
+  description: 'PrzykÅ‚adowy plugin z prostym narzÄ™dziem',
   tools: [
     {
       name: 'hello_world',
-      description: 'Proste narzędzie testowe — zwraca powitanie',
+      description: 'Proste narzÄ™dzie testowe â€” zwraca powitanie',
       category: 'custom',
       parameters: {
-        name: { type: 'string', description: 'Imię do powitania', required: true },
+        name: { type: 'string', description: 'ImiÄ™ do powitania', required: true },
       },
       handler: async (params) => {
         return {
           success: true,
-          data: \`Cześć, \${params.name}! Plugin działa prawidłowo. 🎉\`,
+          data: \`CzeÅ›Ä‡, \${params.name}! Plugin dziaÅ‚a prawidÅ‚owo. ðŸŽ‰\`,
         };
       },
     },
@@ -334,7 +337,7 @@ module.exports = {
   }
 }
 
-// ─── Types ───
+// â”€â”€â”€ Types â”€â”€â”€
 
 interface PluginManifest {
   name: string;

@@ -17,6 +17,9 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import * as path from 'path';
 import { app } from 'electron';
+import { createLogger } from './logger';
+
+const log = createLogger('MeetingCoach');
 import { v4 as uuid } from 'uuid';
 import { TranscriptionService, TranscriptEvent } from './transcription-service';
 import { AIService } from './ai-service';
@@ -269,10 +272,10 @@ export class MeetingCoachService extends EventEmitter {
     this.transcriptionService.on('session:error', (data) => {
       // Suppress errors during shutdown
       if (this.isStopping) {
-        console.log(`[MeetingCoach] Suppressed transcription error during shutdown (${data.label}):`, data.error);
+        log.info(`[MeetingCoach] Suppressed transcription error during shutdown (${data.label}):`, data.error);
         return;
       }
-      console.error(`[MeetingCoach] Transcription error (${data.label}):`, data.error);
+      log.error(`[MeetingCoach] Transcription error (${data.label}):`, data.error);
       this.emit('meeting:error', { error: data.error, source: data.label });
     });
   }
@@ -303,7 +306,7 @@ export class MeetingCoachService extends EventEmitter {
     this.lastCoachingTime = 0;
     this.recentSystemUtterances = [];
     this.recentMicUtterances = [];
-    console.log(`[MeetingCoach] Starting meeting ${this.meetingId}: ${title || 'Untitled'}`);
+    log.info(`[MeetingCoach] Starting meeting ${this.meetingId}: ${title || 'Untitled'}`);
 
     const lang = this.config.language || 'pl';
     try {
@@ -314,7 +317,7 @@ export class MeetingCoachService extends EventEmitter {
         await this.transcriptionService.startSession(`${this.meetingId}-system`, 'system', lang);
       }
     } catch (err: any) {
-      console.error('[MeetingCoach] Failed to start transcription:', err);
+      log.error('[MeetingCoach] Failed to start transcription:', err);
       this.meetingId = null;
       this.meetingStartTime = null;
       throw err;
@@ -335,7 +338,7 @@ export class MeetingCoachService extends EventEmitter {
     if (!this.meetingId) return null;
 
     const meetingId = this.meetingId;
-    console.log(`[MeetingCoach] Stopping meeting ${meetingId}`);
+    log.info(`[MeetingCoach] Stopping meeting ${meetingId}`);
     this.isStopping = true;
 
     if (this.durationTimer) {
@@ -376,7 +379,7 @@ export class MeetingCoachService extends EventEmitter {
 
   sendAudioChunk(source: 'mic' | 'system', chunk: Buffer): void {
     if (!this.meetingId) {
-      if (this.audioChunkCount === 0) console.warn('[MeetingCoach] sendAudioChunk called but no active meeting');
+      if (this.audioChunkCount === 0) log.warn('[MeetingCoach] sendAudioChunk called but no active meeting');
       return;
     }
     this.audioChunkCount++;
@@ -385,7 +388,7 @@ export class MeetingCoachService extends EventEmitter {
     const now = Date.now();
     if (now - this.lastAudioLog > 10000) {
       this.lastAudioLog = now;
-      console.log(
+      log.info(
         `[MeetingCoach] Audio: ${this.audioChunkCount} chunks received (source=${source}, size=${chunk.length}bytes)`,
       );
     }
@@ -430,39 +433,39 @@ export class MeetingCoachService extends EventEmitter {
   async setBriefing(briefing: MeetingBriefing): Promise<void> {
     this.briefing = { ...briefing, urlContents: [], ragIndexed: false };
 
-    console.log(
+    log.info(
       `[MeetingCoach] Briefing set: topic="${briefing.topic}", ${briefing.participants.length} participants, ${briefing.urls.length} URLs, ${briefing.projectPaths.length} project paths`,
     );
 
     // Fetch URL contents in parallel
     if (briefing.urls.length > 0) {
-      console.log(`[MeetingCoach] Fetching ${briefing.urls.length} URLs...`);
+      log.info(`[MeetingCoach] Fetching ${briefing.urls.length} URLs...`);
       const urlResults = await Promise.allSettled(briefing.urls.map((url) => this.fetchUrlContent(url)));
       this.briefing.urlContents = urlResults.map((result, i) => {
         if (result.status === 'fulfilled') {
           return { url: briefing.urls[i], content: result.value };
         } else {
-          console.warn(`[MeetingCoach] Failed to fetch ${briefing.urls[i]}:`, result.reason);
+          log.warn(`[MeetingCoach] Failed to fetch ${briefing.urls[i]}:`, result.reason);
           return { url: briefing.urls[i], content: '', error: String(result.reason) };
         }
       });
-      console.log(
+      log.info(
         `[MeetingCoach] Fetched ${this.briefing.urlContents.filter((u) => !u.error).length}/${briefing.urls.length} URLs`,
       );
     }
 
     // Index project paths via RAG
     if (briefing.projectPaths.length > 0 && this.ragService) {
-      console.log(`[MeetingCoach] Indexing ${briefing.projectPaths.length} project paths via RAG...`);
+      log.info(`[MeetingCoach] Indexing ${briefing.projectPaths.length} project paths via RAG...`);
       for (const projPath of briefing.projectPaths) {
         try {
           await this.ragService.addFolder(projPath);
         } catch (err) {
-          console.warn(`[MeetingCoach] Failed to index ${projPath}:`, err);
+          log.warn(`[MeetingCoach] Failed to index ${projPath}:`, err);
         }
       }
       this.briefing.ragIndexed = true;
-      console.log('[MeetingCoach] RAG indexing complete');
+      log.info('[MeetingCoach] RAG indexing complete');
     }
 
     this.emit('meeting:briefing-updated', this.getBriefing());
@@ -613,14 +616,14 @@ export class MeetingCoachService extends EventEmitter {
     if (!this.config.enabled || !this.config.autoDetect) return;
     if (this.detectionInterval) return;
 
-    console.log('[MeetingCoach] Auto-detection started');
+    log.info('[MeetingCoach] Auto-detection started');
     this.detectionInterval = setInterval(async () => {
       if (this.meetingId) return;
       const title = getWindowTitle();
       if (!title) return;
       const { detected, app } = this.detectMeeting(title);
       if (detected) {
-        console.log(`[MeetingCoach] Meeting detected: ${app} — "${title}"`);
+        log.info(`[MeetingCoach] Meeting detected: ${app} — "${title}"`);
         this.emit('meeting:detected', { app, title });
       }
     }, 5000);
@@ -697,7 +700,7 @@ export class MeetingCoachService extends EventEmitter {
     if (!this.meetingId) return;
 
     const source = event.label as 'mic' | 'system';
-    console.log(
+    log.info(
       `[MeetingCoach] Transcript event: source=${source}, isFinal=${event.isFinal}, text="${event.text.substring(0, 80)}", speaker=${event.speaker || 'none'}`,
     );
 
@@ -784,7 +787,7 @@ export class MeetingCoachService extends EventEmitter {
 
     if (!shouldTrigger) return;
 
-    console.log(`[MeetingCoach] 🎯 Question detected: "${text.substring(0, 80)}..."`);
+    log.info(`[MeetingCoach] 🎯 Question detected: "${text.substring(0, 80)}..."`);
     this.triggerCoaching(text);
   }
 
@@ -814,7 +817,7 @@ export class MeetingCoachService extends EventEmitter {
       return 'statement';
     } catch (err) {
       // If AI fails, fall back to regex result
-      console.warn('[MeetingCoach] AI classification failed, using regex fallback:', err);
+      log.warn('[MeetingCoach] AI classification failed, using regex fallback:', err);
       return isDirected ? 'direct_question' : 'statement';
     }
   }
@@ -875,7 +878,7 @@ export class MeetingCoachService extends EventEmitter {
         try {
           ragContext = await this.ragService.buildRAGContext(questionText, 1500);
         } catch (err) {
-          console.warn('[MeetingCoach] RAG search failed:', err);
+          log.warn('[MeetingCoach] RAG search failed:', err);
         }
       }
 
@@ -924,7 +927,7 @@ export class MeetingCoachService extends EventEmitter {
         questionText,
       });
     } catch (err) {
-      console.error('[MeetingCoach] Coaching generation error:', err);
+      log.error('[MeetingCoach] Coaching generation error:', err);
       this.emit('meeting:coaching-done', {
         id: tipId,
         tip: '(Nie udało się wygenerować podpowiedzi)',
@@ -1075,7 +1078,7 @@ Bądź rzeczowy i konkretny. Max 3-4 zdania.`;
 
       const screenshot = await this.screenCapture.captureFast();
       if (!screenshot) {
-        console.warn('[MeetingCoach] Screen capture failed for speaker identification');
+        log.warn('[MeetingCoach] Screen capture failed for speaker identification');
         return;
       }
 
@@ -1109,7 +1112,7 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
           if (jsonMatch) {
             const result = JSON.parse(jsonMatch[0]);
             if (result.speaker && result.confidence !== 'low') {
-              console.log(
+              log.info(
                 `[MeetingCoach] 🎯 Screen identified speaker "${result.speaker}" (confidence: ${result.confidence}, app: ${result.app})`,
               );
 
@@ -1144,18 +1147,18 @@ Odpowiedz TYLKO JSON-em, bez markdown.`;
                   app: result.app,
                 });
 
-                console.log(`[MeetingCoach] Speaker ${speakerId} → "${result.speaker}" (via screen)`);
+                log.info(`[MeetingCoach] Speaker ${speakerId} → "${result.speaker}" (via screen)`);
               }
             } else {
-              console.log(`[MeetingCoach] Screen identify: no speaker found — ${result.reason || 'unknown'}`);
+              log.info(`[MeetingCoach] Screen identify: no speaker found — ${result.reason || 'unknown'}`);
             }
           }
         } catch (parseErr) {
-          console.warn('[MeetingCoach] Failed to parse screen identify response:', parseErr);
+          log.warn('[MeetingCoach] Failed to parse screen identify response:', parseErr);
         }
       }
     } catch (err) {
-      console.warn('[MeetingCoach] Screen-based speaker identification error:', err);
+      log.warn('[MeetingCoach] Screen-based speaker identification error:', err);
     } finally {
       this.pendingScreenIdentify = false;
     }
@@ -1264,7 +1267,7 @@ Odpowiedz TYLKO JSON-em bez markdown:
           }
         }
       } catch (err) {
-        console.error('[MeetingCoach] Summary generation error:', err);
+        log.error('[MeetingCoach] Summary generation error:', err);
         aiSummary = 'Nie udało się wygenerować podsumowania.';
       }
     } else {
@@ -1302,9 +1305,9 @@ Odpowiedz TYLKO JSON-em bez markdown:
       const fileName = `${dateStr}_${timeStr}_${summary.id}.json`;
       const filePath = path.join(this.storagePath, fileName);
       fs.writeFileSync(filePath, JSON.stringify(summary, null, 2), 'utf8');
-      console.log(`[MeetingCoach] Summary saved: ${fileName}`);
+      log.info(`[MeetingCoach] Summary saved: ${fileName}`);
     } catch (err) {
-      console.error('[MeetingCoach] Failed to save summary:', err);
+      log.error('[MeetingCoach] Failed to save summary:', err);
     }
   }
 
@@ -1347,7 +1350,7 @@ Odpowiedz TYLKO JSON-em bez markdown:
     onProgress?: (status: string) => void,
   ): Promise<ParticipantResearch> {
     const { name, company, role, photoBase64 } = participant;
-    console.log(`[MeetingCoach] Researching participant: ${name} (${company || 'unknown company'})`);
+    log.info(`[MeetingCoach] Researching participant: ${name} (${company || 'unknown company'})`);
 
     onProgress?.(`Szukam informacji o ${name}...`);
 
@@ -1434,7 +1437,7 @@ Odpowiedz TYLKO JSON-em bez markdown:
           }
         }
       } catch (err) {
-        console.warn(`[MeetingCoach] Search failed for "${query}":`, err);
+        log.warn(`[MeetingCoach] Search failed for "${query}":`, err);
       }
     }
 
@@ -1468,7 +1471,7 @@ Odpowiedz TYLKO JSON-em bez markdown:
             'Jesteś asystentem opisującym osoby na zdjęciach. Bądź zwięzły i profesjonalny.',
           )) || '';
       } catch (err) {
-        console.warn('[MeetingCoach] Photo analysis failed:', err);
+        log.warn('[MeetingCoach] Photo analysis failed:', err);
       }
     }
 
@@ -1527,7 +1530,7 @@ Pisz po polsku.`;
           .trim();
         parsed = JSON.parse(cleaned);
       } catch {
-        console.warn('[MeetingCoach] Failed to parse AI research response, using raw text');
+        log.warn('[MeetingCoach] Failed to parse AI research response, using raw text');
         parsed = {
           summary: aiResponse.slice(0, 500),
           experience: [],
@@ -1555,12 +1558,12 @@ Pisz po polsku.`;
         researchedAt: Date.now(),
       };
 
-      console.log(`[MeetingCoach] Research complete for ${name}: ${result.summary.slice(0, 100)}...`);
+      log.info(`[MeetingCoach] Research complete for ${name}: ${result.summary.slice(0, 100)}...`);
       onProgress?.(`✅ Research ${name} zakończony`);
 
       return result;
     } catch (err: any) {
-      console.error(`[MeetingCoach] AI synthesis failed for ${name}:`, err);
+      log.error(`[MeetingCoach] AI synthesis failed for ${name}:`, err);
       return {
         name,
         company,

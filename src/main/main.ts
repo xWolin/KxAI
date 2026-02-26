@@ -272,12 +272,22 @@ function createMainWindow(): BrowserWindow {
     const isInternal = appOrigins.some((origin) => url.startsWith(origin));
     if (!isInternal) {
       event.preventDefault();
-      shell.openExternal(url);
+      // Only allow http/https protocols — block file://, smb://, custom protocols
+      if (url.startsWith('https://') || url.startsWith('http://')) {
+        shell.openExternal(url);
+      } else {
+        log.warn(`Blocked shell.openExternal for unsafe protocol: ${url}`);
+      }
     }
   });
 
   win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    // Only allow http/https protocols
+    if (url.startsWith('https://') || url.startsWith('http://')) {
+      shell.openExternal(url);
+    } else {
+      log.warn(`Blocked setWindowOpenHandler for unsafe protocol: ${url}`);
+    }
     return { action: 'deny' };
   });
 
