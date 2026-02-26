@@ -926,6 +926,13 @@ export class AIService {
     let fullResponse = '';
     const systemRole = this.getSystemRole(model);
 
+    // Add multi-monitor context to the user message
+    const monitorContext =
+      screenshots.length > 1
+        ? `\n\n[${screenshots.length} monitorów: ${screenshots.map((s) => `${s.displayLabel} (${s.width}×${s.height})`).join(', ')}]`
+        : '';
+    const enrichedMessage = userMessage + monitorContext;
+
     if (provider === 'openai' && this.openaiClient) {
       const imageContents: AIContentPart[] = screenshots.map((s) => ({
         type: 'image_url' as const,
@@ -938,7 +945,7 @@ export class AIService {
           { role: systemRole, content: systemContext },
           {
             role: 'user',
-            content: [{ type: 'text', text: userMessage }, ...imageContents],
+            content: [{ type: 'text', text: enrichedMessage }, ...imageContents],
           },
         ],
         ...this.openaiTokenParam(4096),
@@ -973,7 +980,7 @@ export class AIService {
         messages: [
           {
             role: 'user',
-            content: [{ type: 'text', text: userMessage }, ...imageContents],
+            content: [{ type: 'text', text: enrichedMessage }, ...imageContents],
           },
         ],
       });
@@ -1012,6 +1019,13 @@ export class AIService {
     const screenAnalysisPrompt = await this.promptService.load('SCREEN_ANALYSIS.md');
     const analysisPrompt = `${screenAnalysisPrompt}\n\n${systemContext}`;
 
+    // Add multi-monitor context to the analysis prompt
+    const monitorContext =
+      screenshots.length > 1
+        ? `\n\n[${screenshots.length} monitorów: ${screenshots.map((s) => `${s.displayLabel} (${s.width}×${s.height})`).join(', ')}]`
+        : '';
+    const analysisUserText = `Przeanalizuj bieżące zrzuty ekranu:${monitorContext}`;
+
     try {
       if (provider === 'openai' && this.openaiClient) {
         const imageContents: AIContentPart[] = screenshots.map((s) => ({
@@ -1026,7 +1040,7 @@ export class AIService {
             { role: systemRole, content: analysisPrompt },
             {
               role: 'user',
-              content: [{ type: 'text', text: 'Przeanalizuj bieżące zrzuty ekranu:' }, ...imageContents],
+              content: [{ type: 'text', text: analysisUserText }, ...imageContents],
             },
           ],
           ...this.openaiTokenParam(1024),
@@ -1062,7 +1076,7 @@ export class AIService {
           messages: [
             {
               role: 'user',
-              content: [{ type: 'text', text: 'Przeanalizuj bieżące zrzuty ekranu:' }, ...imageContents],
+              content: [{ type: 'text', text: analysisUserText }, ...imageContents],
             },
           ],
         });

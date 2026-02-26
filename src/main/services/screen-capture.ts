@@ -1,7 +1,11 @@
 import { desktopCapturer, screen, systemPreferences } from 'electron';
+import { createLogger } from './logger';
+
+const log = createLogger('ScreenCapture');
 
 export interface ScreenshotData {
   displayId: number;
+  displayIndex?: number;
   displayLabel: string;
   base64: string;
   width: number;
@@ -51,39 +55,50 @@ export class ScreenCaptureService {
   async captureAllScreens(): Promise<ScreenshotData[]> {
     // macOS: check screen recording permission
     if (process.platform === 'darwin' && !this.hasScreenPermission()) {
-      console.warn('[ScreenCapture] macOS Screen Recording permission not granted. Screenshots will be empty.');
+      log.warn('macOS Screen Recording permission not granted. Screenshots will be empty.');
     }
 
     const displays = screen.getAllDisplays();
+    log.info(`Capturing ${displays.length} display(s)`);
 
-    // Use the largest display's native resolution for thumbnail size
-    const primaryDisplay = screen.getPrimaryDisplay();
-    const nativeSize = this.getDisplaySize(primaryDisplay);
-
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: nativeSize,
-    });
-
+    // Capture each display individually for correct resolution per monitor.
+    // desktopCapturer with a single thumbnailSize applies it to ALL sources,
+    // which distorts monitors with different resolutions. We capture per-display instead.
     const screenshots: ScreenshotData[] = [];
 
-    for (let i = 0; i < sources.length; i++) {
-      const source = sources[i];
-      const display = displays[i] || displays[0];
+    for (let displayIdx = 0; displayIdx < displays.length; displayIdx++) {
+      const display = displays[displayIdx];
+      const displaySize = this.getDisplaySize(display);
 
-      const thumbnail = source.thumbnail;
-      if (thumbnail && !thumbnail.isEmpty()) {
-        screenshots.push({
-          displayId: display.id,
-          displayLabel: source.name || `Monitor ${i + 1}`,
-          base64: thumbnail.toDataURL(),
-          width: thumbnail.getSize().width,
-          height: thumbnail.getSize().height,
-          timestamp: Date.now(),
+      try {
+        const sources = await desktopCapturer.getSources({
+          types: ['screen'],
+          thumbnailSize: displaySize,
         });
+
+        // Match source to display: try by display_id in source.id (format: "screen:DISPLAY_ID:INDEX"),
+        // then fall back to positional index
+        const matchedSource = sources.find((s) => s.display_id === String(display.id)) || sources[displayIdx];
+
+        if (matchedSource?.thumbnail && !matchedSource.thumbnail.isEmpty()) {
+          screenshots.push({
+            displayId: display.id,
+            displayIndex: displayIdx,
+            displayLabel: matchedSource.name || `Monitor ${displayIdx + 1}`,
+            base64: matchedSource.thumbnail.toDataURL(),
+            width: matchedSource.thumbnail.getSize().width,
+            height: matchedSource.thumbnail.getSize().height,
+            timestamp: Date.now(),
+          });
+        } else {
+          log.warn(`Display ${displayIdx} (${display.id}): no thumbnail captured`);
+        }
+      } catch (err) {
+        log.error(`Failed to capture display ${displayIdx}:`, err);
       }
     }
 
+    log.info(`Captured ${screenshots.length}/${displays.length} screen(s)`);
     return screenshots;
   }
 
@@ -144,10 +159,14 @@ export class ScreenCaptureService {
         thumbnailSize: scaled,
       });
 
-      if (sources.length > 0 && sources[0].thumbnail && !sources[0].thumbnail.isEmpty()) {
-        const thumbnail = sources[0].thumbnail;
+      // Find primary display source
+      const primary = sources.find((s) => s.display_id === String(primaryDisplay.id)) || sources[0];
+
+      if (primary?.thumbnail && !primary.thumbnail.isEmpty()) {
+        const thumbnail = primary.thumbnail;
         return {
-          displayId: 0,
+          displayId: primaryDisplay.id,
+          displayIndex: 0,
           displayLabel: 'primary',
           base64: thumbnail.toDataURL(),
           width: thumbnail.getSize().width,
@@ -156,7 +175,7 @@ export class ScreenCaptureService {
         };
       }
     } catch (error) {
-      console.error('Fast capture error:', error);
+      log.error('Fast capture error:', error);
     }
     return null;
   }
@@ -172,7 +191,7 @@ export class ScreenCaptureService {
     try {
       // macOS: check screen recording permission
       if (process.platform === 'darwin' && !this.hasScreenPermission()) {
-        console.warn('[ScreenCapture] macOS Screen Recording permission not granted');
+        log.warn('macOS Screen Recording permission not granted');
         return null;
       }
 
@@ -220,7 +239,7 @@ export class ScreenCaptureService {
         };
       }
     } catch (error) {
-      console.error('Computer Use capture error:', error);
+      log.error('Computer Use capture error:', error);
     }
     return null;
   }

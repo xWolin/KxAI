@@ -439,18 +439,31 @@
   color: var(--neon-green);
 }
 
+/* Screenshot preview thumbnails container (multi-monitor) */
+.screenshotPreviewContainer {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
 /* Screenshot preview thumbnail in user bubble */
 .screenshotPreview {
+  max-height: 120px;
+  flex: 1 1 auto;
+  min-width: 80px;
   max-width: 100%;
-  max-height: 160px;
   border-radius: 8px;
-  margin-bottom: 6px;
   border: 1px solid var(--border);
   object-fit: contain;
   cursor: zoom-in;
   display: block;
   opacity: 0.9;
   transition: opacity 0.2s;
+}
+/* Single monitor — full width */
+.screenshotPreviewContainer > .screenshotPreview:only-child {
+  max-height: 160px;
 }
 .screenshotPreview:hover {
   opacity: 1;

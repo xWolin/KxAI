@@ -142,7 +142,7 @@ export function ChatPanel({
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [highlighterReady, setHighlighterReady] = useState(false);
-  const [screenshotPreviews, setScreenshotPreviews] = useState<Record<string, string>>({});
+  const [screenshotPreviews, setScreenshotPreviews] = useState<Record<string, string[]>>({});
   const [isDragging, setIsDragging] = useState(false);
 
   // Agent status & RAG progress from global store (subscribed in useStoreInit)
@@ -292,12 +292,12 @@ export function ChatPanel({
     setStreamingContent('');
     streamingContentRef.current = '';
 
-    // Capture screenshot for preview thumbnail
-    let previewUrl: string | undefined;
+    // Capture screenshot for preview thumbnails (all monitors)
+    let previewUrls: string[] = [];
     try {
       const capture = await window.kxai.captureScreen();
-      if (capture.success && capture.data?.[0]?.base64) {
-        previewUrl = capture.data[0].base64;
+      if (capture.success && capture.data?.length) {
+        previewUrls = capture.data.map((d: any) => d.base64).filter(Boolean);
       }
     } catch {
       /* screenshot capture may fail */
@@ -314,9 +314,9 @@ export function ChatPanel({
     };
     setMessages((prev) => [...prev, screenshotMsg]);
 
-    // Store preview thumbnail
-    if (previewUrl) {
-      setScreenshotPreviews((prev) => ({ ...prev, [msgId]: previewUrl! }));
+    // Store preview thumbnails (all monitors)
+    if (previewUrls.length > 0) {
+      setScreenshotPreviews((prev) => ({ ...prev, [msgId]: previewUrls }));
     }
 
     try {
@@ -755,13 +755,18 @@ export function ChatPanel({
         {messages.map((msg) => (
           <div key={msg.id} className={cn('fade-in', msg.role === 'user' ? s.msgUser : s.msgAssistant)}>
             <div className={msg.role === 'user' ? s.bubbleUser : s.bubbleAssistant}>
-              {msg.type === 'analysis' && screenshotPreviews[msg.id] && (
-                <img
-                  src={screenshotPreviews[msg.id]}
-                  alt={t('chat.screenshot.preview')}
-                  className={s.screenshotPreview}
-                  loading="lazy"
-                />
+              {msg.type === 'analysis' && screenshotPreviews[msg.id]?.length > 0 && (
+                <div className={s.screenshotPreviewContainer}>
+                  {screenshotPreviews[msg.id].map((url, idx) => (
+                    <img
+                      key={idx}
+                      src={url}
+                      alt={`${t('chat.screenshot.preview')} ${idx + 1}`}
+                      className={s.screenshotPreview}
+                      loading="lazy"
+                    />
+                  ))}
+                </div>
               )}
               {msg.role === 'assistant' ? (
                 <MessageContent content={msg.content} highlighterReady={highlighterReady} />
