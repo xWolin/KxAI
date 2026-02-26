@@ -474,7 +474,7 @@ export class CalendarService {
 
   private async fetchEventsForConnection(
     conn: CalendarConnection,
-    options: Pick<FetchEventsOptions, 'start' | 'end' | 'calendarUrl'>,
+    options: { start: string; end: string; calendarUrl?: string },
   ): Promise<CalendarEvent[]> {
     if (!conn.client) return [];
 
@@ -772,7 +772,7 @@ export class CalendarService {
 
   private saveConnectionsToConfig(): void {
     const configs = Array.from(this.connections.values()).map((c) => c.config);
-    void this.configService.set('calendarConnections' as keyof import('@shared/types').KxAIConfig, configs as never);
+    void this.configService.set('calendarConnections' as any, configs as any);
   }
 
   // ─── Private: Sync ───

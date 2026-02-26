@@ -24,7 +24,7 @@ const TOOL_WITH_PARAMS: ToolDefinition = {
 const TOOL_WITH_ARRAY_PARAMS: ToolDefinition = {
   name: 'batch_process',
   description: 'Process multiple items',
-  category: 'utility',
+  category: 'system',
   parameters: {
     items: { type: 'string[]', description: 'List of items', required: true },
     scores: { type: 'number[]', description: 'Scores per item', required: false },
@@ -34,7 +34,7 @@ const TOOL_WITH_ARRAY_PARAMS: ToolDefinition = {
 const TOOL_ALL_TYPES: ToolDefinition = {
   name: 'complex_tool',
   description: 'Tool with all param types',
-  category: 'test',
+  category: 'system',
   parameters: {
     name: { type: 'string', description: 'Name', required: true },
     count: { type: 'number', description: 'Count', required: true },
@@ -73,7 +73,7 @@ describe('toOpenAITools', () => {
     const tool: ToolDefinition = {
       name: 'test',
       description: 'Test',
-      category: 'test',
+      category: 'system',
       parameters: {
         optional: { type: 'string', description: 'Optional', required: false },
       },
@@ -209,7 +209,7 @@ describe('toAnthropicTools', () => {
     const tool: ToolDefinition = {
       name: 'test',
       description: 'Test',
-      category: 'test',
+      category: 'system',
       parameters: {
         foo: { type: 'string', description: 'Optional', required: false },
       },

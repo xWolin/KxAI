@@ -665,8 +665,8 @@ describe('ToolsService registry', () => {
   it('register adds new tool', () => {
     const before = svc.getDefinitions().length;
     svc.register(
-      { name: 'test_custom', description: 'Test tool', category: 'test', parameters: {} },
-      async () => ({ success: true, result: 'ok' }),
+      { name: 'test_custom', description: 'Test tool', category: 'system', parameters: {} },
+      async () => ({ success: true, data: 'ok' }),
     );
     expect(svc.getDefinitions().length).toBe(before + 1);
     expect(svc.getDefinitions().find((d) => d.name === 'test_custom')).toBeDefined();
@@ -674,8 +674,8 @@ describe('ToolsService registry', () => {
 
   it('unregister removes a tool', () => {
     svc.register(
-      { name: 'to_remove', description: 'Will be removed', category: 'test', parameters: {} },
-      async () => ({ success: true, result: 'ok' }),
+      { name: 'to_remove', description: 'Will be removed', category: 'system', parameters: {} },
+      async () => ({ success: true, data: 'ok' }),
     );
     expect(svc.getDefinitions().find((d) => d.name === 'to_remove')).toBeDefined();
     svc.unregister('to_remove');
@@ -685,11 +685,11 @@ describe('ToolsService registry', () => {
   it('unregisterByPrefix removes all matching tools', () => {
     svc.register(
       { name: 'mcp_test_one', description: 'MCP 1', category: 'mcp', parameters: {} },
-      async () => ({ success: true, result: '' }),
+      async () => ({ success: true, data: '' }),
     );
     svc.register(
       { name: 'mcp_test_two', description: 'MCP 2', category: 'mcp', parameters: {} },
-      async () => ({ success: true, result: '' }),
+      async () => ({ success: true, data: '' }),
     );
     const before = svc.getDefinitions().filter((d) => d.name.startsWith('mcp_test_')).length;
     expect(before).toBe(2);
@@ -703,19 +703,19 @@ describe('ToolsService registry', () => {
     const result = await svc.execute('nonexistent_tool', {});
     expect(result.success).toBe(false);
     // result may be string or undefined depending on implementation
-    expect(typeof result.result === 'string' || result.result === undefined).toBe(true);
+    expect(typeof result.data === 'string' || result.data === undefined).toBe(true);
   });
 
   it('execute calls registered handler', async () => {
-    const handler = vi.fn(async () => ({ success: true, result: 'custom result' }));
+    const handler = vi.fn(async () => ({ success: true, data: 'custom result' }));
     svc.register(
-      { name: 'exec_test', description: 'Test exec', category: 'test', parameters: {} },
+      { name: 'exec_test', description: 'Test exec', category: 'system', parameters: {} },
       handler,
     );
     const result = await svc.execute('exec_test', { foo: 'bar' });
     expect(handler).toHaveBeenCalledWith({ foo: 'bar' });
     expect(result.success).toBe(true);
-    expect(result.result).toBe('custom result');
+    expect(result.data).toBe('custom result');
   });
 
   it('getToolsPrompt contains tool names', () => {
@@ -732,8 +732,8 @@ describe('ToolsService registry', () => {
     const cb = vi.fn();
     svc.setToolExecutedCallback(cb);
     svc.register(
-      { name: 'cb_test', description: 'CB test', category: 'test', parameters: {} },
-      async () => ({ success: true, result: 'done' }),
+      { name: 'cb_test', description: 'CB test', category: 'system', parameters: {} },
+      async () => ({ success: true, data: 'done' }),
     );
     await svc.execute('cb_test', {});
     expect(cb).toHaveBeenCalledWith(

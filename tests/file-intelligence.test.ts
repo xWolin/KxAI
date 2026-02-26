@@ -26,7 +26,7 @@ vi.mock('../src/main/services/logger', () => ({
 import * as fsp from 'fs/promises';
 import { FileIntelligenceService } from '../src/main/services/file-intelligence';
 
-const mockStat = vi.mocked(fsp.stat);
+const mockStat = vi.mocked(fsp.stat) as any;
 
 // =============================================================================
 // detectFormat

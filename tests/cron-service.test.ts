@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// ─── Mocks ───
+// â”€â”€â”€ Mocks â”€â”€â”€
 const mockUserDataPath = '/mock/userData';
 let mockFiles: Record<string, string> = {};
 
@@ -90,6 +90,11 @@ describe('CronService', () => {
     return new CronService();
   }
 
+  /** Helper: create job params with required defaults */
+  function jobParams(overrides: { name: string; schedule: string; action: string; enabled: boolean; oneShot?: boolean; runAt?: number }) {
+    return { autoCreated: false, category: 'custom' as const, ...overrides };
+  }
+
   // =============================================================================
   // parseScheduleToMs (private)
   // =============================================================================
@@ -106,7 +111,7 @@ describe('CronService', () => {
       ['30s', 30_000],
       ['1s', 1_000],
       ['60s', 60_000],
-    ])('parses seconds: "%s" → %d ms', (input, expected) => {
+    ])('parses seconds: "%s" â†’ %d ms', (input, expected) => {
       expect(parseMs(input)).toBe(expected);
     });
 
@@ -114,7 +119,7 @@ describe('CronService', () => {
       ['5m', 300_000],
       ['1m', 60_000],
       ['30m', 1_800_000],
-    ])('parses minutes: "%s" → %d ms', (input, expected) => {
+    ])('parses minutes: "%s" â†’ %d ms', (input, expected) => {
       expect(parseMs(input)).toBe(expected);
     });
 
@@ -122,7 +127,7 @@ describe('CronService', () => {
       ['1h', 3_600_000],
       ['2h', 7_200_000],
       ['24h', 86_400_000],
-    ])('parses hours: "%s" → %d ms', (input, expected) => {
+    ])('parses hours: "%s" â†’ %d ms', (input, expected) => {
       expect(parseMs(input)).toBe(expected);
     });
 
@@ -131,16 +136,16 @@ describe('CronService', () => {
       ['every 1 minute', 60_000],
       ['every 2 hours', 7_200_000],
       ['every 30 seconds', 30_000],
-    ])('parses English: "%s" → %d ms', (input, expected) => {
+    ])('parses English: "%s" â†’ %d ms', (input, expected) => {
       expect(parseMs(input)).toBe(expected);
     });
 
     // Cron expressions
-    it('parses cron */5 * * * * → 5 minutes', () => {
+    it('parses cron */5 * * * * â†’ 5 minutes', () => {
       expect(parseMs('*/5 * * * *')).toBe(300_000);
     });
 
-    it('parses cron 0 */2 * * * → 2 hours', () => {
+    it('parses cron 0 */2 * * * â†’ 2 hours', () => {
       expect(parseMs('0 */2 * * *')).toBe(7_200_000);
     });
 
@@ -165,15 +170,15 @@ describe('CronService', () => {
       parseCron = (svc as any).parseCronToMs.bind(svc);
     });
 
-    it('*/10 * * * * → 10 minutes', () => {
+    it('*/10 * * * * â†’ 10 minutes', () => {
       expect(parseCron(['*/10', '*', '*', '*', '*'])).toBe(600_000);
     });
 
-    it('0 */3 * * * → 3 hours', () => {
+    it('0 */3 * * * â†’ 3 hours', () => {
       expect(parseCron(['0', '*/3', '*', '*', '*'])).toBe(10_800_000);
     });
 
-    it('fixed time → 24 hours', () => {
+    it('fixed time â†’ 24 hours', () => {
       expect(parseCron(['0', '9', '*', '*', '*'])).toBe(86_400_000);
     });
   });
@@ -184,12 +189,12 @@ describe('CronService', () => {
   describe('CRUD', () => {
     it('addJob creates a job with id, createdAt, runCount', () => {
       const svc = createService();
-      const job = svc.addJob({
+      const job = svc.addJob(jobParams({
         name: 'Test Job',
         schedule: '5m',
-        task: 'Say hello',
+        action: 'Say hello',
         enabled: false,
-      });
+      }));
       expect(job.id).toBe('test-uuid-1');
       expect(job.name).toBe('Test Job');
       expect(job.schedule).toBe('5m');
@@ -199,15 +204,15 @@ describe('CronService', () => {
 
     it('getJobs returns all added jobs', () => {
       const svc = createService();
-      svc.addJob({ name: 'J1', schedule: '1m', task: 'Task 1', enabled: false });
-      svc.addJob({ name: 'J2', schedule: '2m', task: 'Task 2', enabled: false });
+      svc.addJob(jobParams({ name: 'J1', schedule: '1m', action: 'Task 1', enabled: false }));
+      svc.addJob(jobParams({ name: 'J2', schedule: '2m', action: 'Task 2', enabled: false }));
       const jobs = svc.getJobs();
       expect(jobs).toHaveLength(2);
     });
 
     it('getJob returns specific job', () => {
       const svc = createService();
-      const added = svc.addJob({ name: 'Specific', schedule: '1m', task: 'T', enabled: false });
+      const added = svc.addJob(jobParams({ name: 'Specific', schedule: '1m', action: 'T', enabled: false }));
       const found = svc.getJob(added.id);
       expect(found).not.toBeNull();
       expect(found!.name).toBe('Specific');
@@ -220,7 +225,7 @@ describe('CronService', () => {
 
     it('updateJob modifies existing job', () => {
       const svc = createService();
-      const job = svc.addJob({ name: 'Original', schedule: '1m', task: 'T', enabled: false });
+      const job = svc.addJob(jobParams({ name: 'Original', schedule: '1m', action: 'T', enabled: false }));
       const updated = svc.updateJob(job.id, { name: 'Updated' });
       expect(updated).not.toBeNull();
       expect(updated!.name).toBe('Updated');
@@ -234,7 +239,7 @@ describe('CronService', () => {
 
     it('removeJob deletes job', () => {
       const svc = createService();
-      const job = svc.addJob({ name: 'ToRemove', schedule: '1m', task: 'T', enabled: false });
+      const job = svc.addJob(jobParams({ name: 'ToRemove', schedule: '1m', action: 'T', enabled: false }));
       expect(svc.removeJob(job.id)).toBe(true);
       expect(svc.getJob(job.id)).toBeNull();
       expect(svc.getJobs()).toHaveLength(0);
@@ -247,7 +252,7 @@ describe('CronService', () => {
 
     it('getJobs returns a copy (not reference)', () => {
       const svc = createService();
-      svc.addJob({ name: 'J1', schedule: '1m', task: 'T', enabled: false });
+      svc.addJob(jobParams({ name: 'J1', schedule: '1m', action: 'T', enabled: false }));
       const jobs1 = svc.getJobs();
       const jobs2 = svc.getJobs();
       expect(jobs1).not.toBe(jobs2);
@@ -261,27 +266,27 @@ describe('CronService', () => {
   describe('scheduling', () => {
     it('startAll + stopAll does not throw', () => {
       const svc = createService();
-      svc.addJob({ name: 'S1', schedule: '5m', task: 'T', enabled: true });
+      svc.addJob(jobParams({ name: 'S1', schedule: '5m', action: 'T', enabled: true }));
       expect(() => svc.startAll()).not.toThrow();
       expect(() => svc.stopAll()).not.toThrow();
     });
 
     it('addJob with enabled=true creates timer', () => {
       const svc = createService();
-      svc.addJob({ name: 'Enabled', schedule: '10m', task: 'T', enabled: true });
+      svc.addJob(jobParams({ name: 'Enabled', schedule: '10m', action: 'T', enabled: true }));
       // Timer should be in the internal map
       expect((svc as any).timers.size).toBe(1);
     });
 
     it('addJob with enabled=false does not create timer', () => {
       const svc = createService();
-      svc.addJob({ name: 'Disabled', schedule: '10m', task: 'T', enabled: false });
+      svc.addJob(jobParams({ name: 'Disabled', schedule: '10m', action: 'T', enabled: false }));
       expect((svc as any).timers.size).toBe(0);
     });
 
     it('removeJob clears timer', () => {
       const svc = createService();
-      const job = svc.addJob({ name: 'TimerJob', schedule: '5m', task: 'T', enabled: true });
+      const job = svc.addJob(jobParams({ name: 'TimerJob', schedule: '5m', action: 'T', enabled: true }));
       expect((svc as any).timers.size).toBe(1);
       svc.removeJob(job.id);
       expect((svc as any).timers.size).toBe(0);
@@ -289,7 +294,7 @@ describe('CronService', () => {
 
     it('updateJob re-schedules enabled job', () => {
       const svc = createService();
-      const job = svc.addJob({ name: 'Reschedule', schedule: '5m', task: 'T', enabled: true });
+      const job = svc.addJob(jobParams({ name: 'Reschedule', schedule: '5m', action: 'T', enabled: true }));
       svc.updateJob(job.id, { schedule: '10m' });
       // Timer should still exist (rescheduled)
       expect((svc as any).timers.size).toBe(1);
@@ -305,7 +310,7 @@ describe('CronService', () => {
       const executor = vi.fn(async () => 'executed!');
       svc.setExecutor(executor);
 
-      const job = svc.addJob({ name: 'ExecTest', schedule: '5m', task: 'Do work', enabled: false });
+      const job = svc.addJob(jobParams({ name: 'ExecTest', schedule: '5m', action: 'Do work', enabled: false }));
       await (svc as any).executeJob(job);
 
       expect(executor).toHaveBeenCalledWith(job);
@@ -315,7 +320,7 @@ describe('CronService', () => {
       const svc = createService();
       svc.setExecutor(async () => 'ok');
 
-      const job = svc.addJob({ name: 'Counter', schedule: '5m', task: 'Count', enabled: false });
+      const job = svc.addJob(jobParams({ name: 'Counter', schedule: '5m', action: 'Count', enabled: false }));
       expect(job.runCount).toBe(0);
 
       await (svc as any).executeJob(job);
@@ -329,7 +334,7 @@ describe('CronService', () => {
       const svc = createService();
       svc.setExecutor(async () => { throw new Error('Executor failed'); });
 
-      const job = svc.addJob({ name: 'ErrorJob', schedule: '5m', task: 'Fail', enabled: false });
+      const job = svc.addJob(jobParams({ name: 'ErrorJob', schedule: '5m', action: 'Fail', enabled: false }));
       await expect((svc as any).executeJob(job)).resolves.not.toThrow();
       expect(job.lastResult).toContain('Error');
     });
@@ -338,13 +343,13 @@ describe('CronService', () => {
       const svc = createService();
       svc.setExecutor(async () => 'done');
 
-      const job = svc.addJob({
+      const job = svc.addJob(jobParams({
         name: 'OneShot',
         schedule: '5m',
-        task: 'Once',
+        action: 'Once',
         enabled: true,
         oneShot: true,
-      });
+      }));
       expect(job.enabled).toBe(true);
 
       await (svc as any).executeJob(job);
@@ -353,7 +358,7 @@ describe('CronService', () => {
 
     it('executeJob without executor is a no-op', async () => {
       const svc = createService();
-      const job = svc.addJob({ name: 'NoExec', schedule: '5m', task: 'T', enabled: false });
+      const job = svc.addJob(jobParams({ name: 'NoExec', schedule: '5m', action: 'T', enabled: false }));
       await expect((svc as any).executeJob(job)).resolves.not.toThrow();
       expect(job.runCount).toBe(0);
     });
@@ -372,7 +377,7 @@ describe('CronService', () => {
     it('getHistory returns executions after executeJob', async () => {
       const svc = createService();
       svc.setExecutor(async () => 'result');
-      const job = svc.addJob({ name: 'HistJob', schedule: '5m', task: 'T', enabled: false });
+      const job = svc.addJob(jobParams({ name: 'HistJob', schedule: '5m', action: 'T', enabled: false }));
 
       await (svc as any).executeJob(job);
 
@@ -385,8 +390,8 @@ describe('CronService', () => {
     it('getHistory filters by jobId', async () => {
       const svc = createService();
       svc.setExecutor(async () => 'ok');
-      const job1 = svc.addJob({ name: 'H1', schedule: '5m', task: 'T', enabled: false });
-      const job2 = svc.addJob({ name: 'H2', schedule: '5m', task: 'T', enabled: false });
+      const job1 = svc.addJob(jobParams({ name: 'H1', schedule: '5m', action: 'T', enabled: false }));
+      const job2 = svc.addJob(jobParams({ name: 'H2', schedule: '5m', action: 'T', enabled: false }));
 
       await (svc as any).executeJob(job1);
       await (svc as any).executeJob(job2);
@@ -409,7 +414,7 @@ describe('CronService', () => {
       const cronDir = `${mockUserDataPath}/workspace/cron`;
       const jobsPath = path.join(cronDir, 'jobs.json');
       const existingJobs: Partial<CronJob>[] = [
-        { id: 'persisted-1', name: 'Persisted', schedule: '5m', task: 'T', enabled: false },
+        { id: 'persisted-1', name: 'Persisted', schedule: '5m', action: 'T', enabled: false, autoCreated: false, category: 'custom' },
       ];
       mockFiles[jobsPath] = JSON.stringify(existingJobs);
       // Mark all parent paths as existing for existsSync
@@ -423,3 +428,5 @@ describe('CronService', () => {
     });
   });
 });
+
+

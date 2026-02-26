@@ -130,7 +130,7 @@ describe('summarizeRAG', () => {
 
   it('returns chunk+embedding count when DB ready', async () => {
     const db = createMockDb(true);
-    db.db!.prepare = vi.fn((sql: string) => ({
+    (db.db as any).prepare = vi.fn((sql: string) => ({
       get: vi.fn(() => {
         if (sql.includes('rag_chunks')) return { count: 150 };
         if (sql.includes('embedding_cache')) return { count: 50 };

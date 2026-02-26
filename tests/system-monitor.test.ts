@@ -1,5 +1,5 @@
-/**
- * Tests for SystemMonitor — system state monitoring service.
+﻿/**
+ * Tests for SystemMonitor â€” system state monitoring service.
  * Covers: parseDiskOutput, parseProcessOutput, getMemoryInfo,
  * getNetworkInfo, getSystemInfo, cache, getWarnings, getStatusSummary.
  */
@@ -38,7 +38,7 @@ const osMock = os as any;
 
 import { SystemMonitor } from '@main/services/system-monitor';
 
-// ─── Tests ───
+// â”€â”€â”€ Tests â”€â”€â”€
 
 describe('SystemMonitor', () => {
   let monitor: SystemMonitor;
@@ -50,7 +50,7 @@ describe('SystemMonitor', () => {
     (monitor as any).previousCpuTimes = null;
   });
 
-  // ─── parseDiskOutput ───
+  // â”€â”€â”€ parseDiskOutput â”€â”€â”€
 
   describe('parseDiskOutput (private)', () => {
     const parse = (output: string, unit?: number) =>
@@ -113,7 +113,7 @@ describe('SystemMonitor', () => {
     });
   });
 
-  // ─── parseProcessOutput ───
+  // â”€â”€â”€ parseProcessOutput â”€â”€â”€
 
   describe('parseProcessOutput (private)', () => {
     const parseFn = (output: string, limit: number) =>
@@ -179,7 +179,7 @@ describe('SystemMonitor', () => {
     });
   });
 
-  // ─── getMemoryInfo ───
+  // â”€â”€â”€ getMemoryInfo â”€â”€â”€
 
   describe('getMemoryInfo', () => {
     it('returns memory info from os module', () => {
@@ -198,7 +198,7 @@ describe('SystemMonitor', () => {
       osMock.freemem.mockReturnValue(4 * 1024 ** 3);
 
       const first = monitor.getMemoryInfo();
-      // Change mock — should still return cached value
+      // Change mock â€” should still return cached value
       osMock.freemem.mockReturnValue(8 * 1024 ** 3);
       const second = monitor.getMemoryInfo();
 
@@ -206,7 +206,7 @@ describe('SystemMonitor', () => {
     });
   });
 
-  // ─── getNetworkInfo ───
+  // â”€â”€â”€ getNetworkInfo â”€â”€â”€
 
   describe('getNetworkInfo', () => {
     it('detects connected state from external IPv4', () => {
@@ -239,7 +239,7 @@ describe('SystemMonitor', () => {
     });
   });
 
-  // ─── getSystemInfo ───
+  // â”€â”€â”€ getSystemInfo â”€â”€â”€
 
   describe('getSystemInfo', () => {
     it('returns system properties', () => {
@@ -259,7 +259,7 @@ describe('SystemMonitor', () => {
     });
   });
 
-  // ─── Cache ───
+  // â”€â”€â”€ Cache â”€â”€â”€
 
   describe('cache', () => {
     it('setCache / getFromCache works', () => {
@@ -278,7 +278,7 @@ describe('SystemMonitor', () => {
     });
   });
 
-  // ─── getWarnings ───
+  // â”€â”€â”€ getWarnings â”€â”€â”€
 
   describe('getWarnings', () => {
     it('returns empty array for healthy system', async () => {
@@ -311,7 +311,7 @@ describe('SystemMonitor', () => {
       });
 
       const warnings = await monitor.getWarnings();
-      expect(warnings.some((w) => w.includes('CPU'))).toBe(true);
+      expect(warnings.some((w: string) => w.includes('CPU'))).toBe(true);
     });
 
     it('warns on high memory', async () => {
@@ -327,7 +327,7 @@ describe('SystemMonitor', () => {
       });
 
       const warnings = await monitor.getWarnings();
-      expect(warnings.some((w) => w.includes('RAM'))).toBe(true);
+      expect(warnings.some((w: string) => w.includes('RAM'))).toBe(true);
     });
 
     it('warns on disk full', async () => {
@@ -343,7 +343,7 @@ describe('SystemMonitor', () => {
       });
 
       const warnings = await monitor.getWarnings();
-      expect(warnings.some((w) => w.includes('Dysk'))).toBe(true);
+      expect(warnings.some((w: string) => w.includes('Dysk'))).toBe(true);
     });
 
     it('warns on low battery', async () => {
@@ -359,7 +359,7 @@ describe('SystemMonitor', () => {
       });
 
       const warnings = await monitor.getWarnings();
-      expect(warnings.some((w) => w.includes('Bateria'))).toBe(true);
+      expect(warnings.some((w: string) => w.includes('Bateria'))).toBe(true);
     });
 
     it('warns on no network', async () => {
@@ -375,7 +375,7 @@ describe('SystemMonitor', () => {
       });
 
       const warnings = await monitor.getWarnings();
-      expect(warnings.some((w) => w.includes('internet') || w.includes('połączenia'))).toBe(true);
+      expect(warnings.some((w: string) => w.includes('internet') || w.includes('poÅ‚Ä…czenia'))).toBe(true);
     });
 
     it('no battery warning when charging', async () => {
@@ -391,11 +391,11 @@ describe('SystemMonitor', () => {
       });
 
       const warnings = await monitor.getWarnings();
-      expect(warnings.some((w) => w.includes('Bateria'))).toBe(false);
+      expect(warnings.some((w: string) => w.includes('Bateria'))).toBe(false);
     });
   });
 
-  // ─── getStatusSummary ───
+  // â”€â”€â”€ getStatusSummary â”€â”€â”€
 
   describe('getStatusSummary', () => {
     it('returns formatted status string', async () => {
@@ -442,3 +442,4 @@ describe('SystemMonitor', () => {
     });
   });
 });
+

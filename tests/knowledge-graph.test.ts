@@ -25,12 +25,12 @@ function priv<T>(instance: any, name: string): (...args: any[]) => T {
 // Mock database builder
 function createMockDb() {
   const stmtMock = {
-    run: vi.fn(() => ({ changes: 1 })),
-    get: vi.fn(() => null),
-    all: vi.fn(() => []),
+    run: vi.fn((): any => ({ changes: 1 })),
+    get: vi.fn((): any => null),
+    all: vi.fn((): any[] => []),
   };
   const db = {
-    prepare: vi.fn(() => stmtMock),
+    prepare: vi.fn((): any => stmtMock),
     exec: vi.fn(),
     pragma: vi.fn(),
   };

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { HeartbeatEngine } from '../src/main/services/heartbeat-engine';
 
 // Mock logger
@@ -62,7 +62,7 @@ describe('HeartbeatEngine', () => {
     vi.clearAllMocks();
     vi.useFakeTimers();
     deps = createMockDeps();
-    engine = new HeartbeatEngine(deps);
+    engine = new HeartbeatEngine(deps as any);
   });
 
   afterEach(() => {

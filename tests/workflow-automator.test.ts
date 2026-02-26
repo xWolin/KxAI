@@ -334,7 +334,7 @@ describe('stopRecording', () => {
     expect(result.macro).toBeDefined();
     expect(result.macro!.name).toBe('param-test');
     expect(result.macro!.steps.length).toBe(2);
-    expect(result.macro!.parameters.length).toBeGreaterThanOrEqual(1);
+    expect(result.macro!.parameters!.length).toBeGreaterThanOrEqual(1);
     expect(automator.getRecordingState().isRecording).toBe(false);
   });
 
