@@ -20,6 +20,14 @@
     <key>com.apple.security.network.client</key>
     <true/>
 
+    <!-- Native modules (better-sqlite3, sqlite-vec) require library validation disabled -->
+    <key>com.apple.security.cs.disable-library-validation</key>
+    <true/>
+
+    <!-- AppleScript automation (osascript + System Events) -->
+    <key>com.apple.security.automation.apple-events</key>
+    <true/>
+
     <!-- File access for RAG, file intelligence -->
     <key>com.apple.security.files.user-selected.read-write</key>
     <true/>

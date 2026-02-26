@@ -2,7 +2,7 @@ import { exec } from 'child_process';
 import * as os from 'os';
 import * as path from 'path';
 import * as fs from 'fs';
-import { systemPreferences } from 'electron';
+import { systemPreferences, screen } from 'electron';
 
 const MAX_COORD = 32767; // Safe maximum screen coordinate
 
@@ -98,10 +98,9 @@ export class AutomationService {
             `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${sx}, ${sy})`,
         );
       } else if (this.platform === 'darwin') {
-        // macOS: use Python + Quartz CoreGraphics for real HID mouse move
-        // Requires: pyobjc-framework-Quartz + Accessibility permission
-        const pyScript = `import Quartz; Quartz.CGEventPost(Quartz.kCGHIDEventTap, Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, (${sx}, ${sy}), Quartz.kCGMouseButtonLeft))`;
-        return this.runCommand(`python3 -c "${pyScript.replace(/"/g, '\\"')}"`);
+        // macOS: use JXA (JavaScript for Automation) + CoreGraphics — no external deps
+        const jxa = `ObjC.import('CoreGraphics'); $.CGWarpMouseCursorPosition({x: ${sx}, y: ${sy}})`;
+        return this.runCommand(`osascript -l JavaScript -e "${jxa.replace(/"/g, '\\"')}"`);
       } else {
         return this.runCommand(`xdotool mousemove ${sx} ${sy}`);
       }
@@ -139,15 +138,25 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
             `$mouse::mouse_event(${upFlag}, 0, 0, 0, 0)`,
         );
       } else if (this.platform === 'darwin') {
-        // macOS: use cliclick for coordinate-based clicking (brew install cliclick)
-        if (sx !== undefined && sy !== undefined) {
-          const btn = button === 'right' ? 'rc' : button === 'middle' ? 'mc' : 'c';
-          return this.runCommand(`cliclick ${btn}:${sx},${sy}`);
-        } else {
-          // Click at current position
-          const btn = button === 'right' ? 'rc' : button === 'middle' ? 'mc' : 'c';
-          return this.runCommand(`cliclick ${btn}:.`);
-        }
+        // macOS: use JXA (JavaScript for Automation) + CoreGraphics — no external deps
+        const clickType = button === 'right' ? 'kCGEventRightMouseDown' : 'kCGEventLeftMouseDown';
+        const clickUpType = button === 'right' ? 'kCGEventRightMouseUp' : 'kCGEventLeftMouseUp';
+        const btnConst = button === 'right' ? 'kCGMouseButtonRight' : 'kCGMouseButtonLeft';
+        const pos =
+          sx !== undefined && sy !== undefined ? `{x: ${sx}, y: ${sy}}` : '$.CGEventGetLocation($.CGEventCreate(null))';
+        const jxa = [
+          `ObjC.import('CoreGraphics')`,
+          `var p = ${pos}`,
+          sx !== undefined ? `$.CGWarpMouseCursorPosition(p)` : '',
+          `var down = $.CGEventCreateMouseEvent(null, $.${clickType}, p, $.${btnConst})`,
+          `$.CGEventPost($.kCGHIDEventTap, down)`,
+          `delay(0.05)`,
+          `var up = $.CGEventCreateMouseEvent(null, $.${clickUpType}, p, $.${btnConst})`,
+          `$.CGEventPost($.kCGHIDEventTap, up)`,
+        ]
+          .filter(Boolean)
+          .join('; ');
+        return this.runCommand(`osascript -l JavaScript -e "${jxa.replace(/"/g, '\\"')}"`);
       } else {
         const moveCmd = sx !== undefined && sy !== undefined ? `xdotool mousemove ${sx} ${sy} && ` : '';
         const btn = button === 'right' ? '3' : button === 'middle' ? '2' : '1';
@@ -306,13 +315,10 @@ public class Win32Window {
         const [x, y] = result.trim().split(',').map(Number);
         return { x: x || 0, y: y || 0 };
       } else if (this.platform === 'darwin') {
-        // macOS: get mouse position via Python + Quartz CoreGraphics
+        // macOS: use Electron's cross-platform screen API — no external deps
         try {
-          const result = await this.runCommandRaw(
-            `python3 -c "import Quartz; e = Quartz.CGEventCreate(None); p = Quartz.CGEventGetLocation(e); print(f'{int(p.x)},{int(p.y)}')"`,
-          );
-          const [x, y] = result.trim().split(',').map(Number);
-          return { x: x || 0, y: y || 0 };
+          const point = screen.getCursorScreenPoint();
+          return { x: point.x, y: point.y };
         } catch {
           return { x: 0, y: 0 };
         }

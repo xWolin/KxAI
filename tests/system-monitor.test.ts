@@ -72,8 +72,8 @@ describe('SystemMonitor', () => {
       expect(disks[0].freeGB).toBeCloseTo(100000000000 / 1024 ** 3, 1);
     });
 
-    // Linux-specific: df format
-    it.runIf(!isWindows)('parses Linux df output', () => {
+    // Linux-specific: df --output format (3 columns)
+    it.runIf(!isWindows)('parses Linux df --output format', () => {
       const output = [
         'Filesystem     1B-blocks      Available Mounted',
         '/dev/sda1      500000000000   100000000000 /',
@@ -84,6 +84,21 @@ describe('SystemMonitor', () => {
       expect(disks).toHaveLength(2);
       expect(disks[0].mount).toBe('/dev/sda1');
       expect(disks[0].freeGB).toBeCloseTo(100000000000 / 1024 ** 3, 1);
+    });
+
+    // macOS/POSIX: df -Pk format (6+ columns)
+    it.runIf(!isWindows)('parses macOS/POSIX df -Pk output (6+ columns)', () => {
+      const output = [
+        'Filesystem     1024-blocks      Used Available Capacity  Mounted on',
+        '/dev/disk1s1    488245288  146337592 341907696    30%    /',
+        '/dev/disk1s2    488245288   50000000 400000000    11%    /System/Volumes/Data',
+      ].join('\n');
+
+      const disks = parse(output, 1024); // df -Pk outputs kilobytes
+      expect(disks).toHaveLength(2);
+      expect(disks[0].mount).toBe('/');
+      expect(disks[0].freeGB).toBeCloseTo((341907696 * 1024) / 1024 ** 3, 0);
+      expect(disks[1].mount).toBe('/System/Volumes/Data');
     });
 
     it('handles empty output', () => {
@@ -375,7 +390,7 @@ describe('SystemMonitor', () => {
       });
 
       const warnings = await monitor.getWarnings();
-      expect(warnings.some((w: string) => w.includes('internet') || w.includes('poÅ‚Ä…czenia'))).toBe(true);
+      expect(warnings.some((w: string) => w.includes('internet') || w.includes('połączenia'))).toBe(true);
     });
 
     it('no battery warning when charging', async () => {
