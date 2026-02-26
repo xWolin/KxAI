@@ -349,7 +349,17 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   });
 
   validatedHandle(Ch.WINDOW_SET_SIZE, async (_event, width: number, height: number) => {
-    mainWindow.setSize(width, height);
+    // Anchor window to top-right corner of current display work area
+    const currentBounds = mainWindow.getBounds();
+    const display = screen.getDisplayMatching(currentBounds);
+    const { x: waX, y: waY, width: waW } = display.workArea;
+    const margin = 20;
+    mainWindow.setBounds({
+      x: waX + waW - width - margin,
+      y: waY + margin,
+      width,
+      height,
+    });
   });
 
   validatedHandle(Ch.WINDOW_SET_CLICKTHROUGH, async (_event, enabled: boolean) => {
