@@ -56,13 +56,10 @@ describe('SystemMonitor', () => {
     const parse = (output: string, unit?: number) =>
       (monitor as any).parseDiskOutput(output, unit ?? 1);
 
-    // process.platform is win32 in test env, so Windows CSV branch runs by default
+    const isWindows = process.platform === 'win32';
 
-    it('parses Windows CSV output', () => {
-      // The code reads: parts[1]=mount, parts[2]=freeSpace, parts[3]=size
-      // Real PowerShell ConvertTo-Csv -NoTypeInformation wraps in quotes
-      // but code uses parseInt which handles leading quotes poorly.
-      // Use unquoted comma-separated values matching what code actually parses.
+    // Windows-specific: wmic CSV format
+    it.runIf(isWindows)('parses Windows CSV output', () => {
       const output = [
         'DeviceId,Caption,FreeSpace,Size',
         'C:,C:,100000000000,500000000000',
@@ -75,16 +72,42 @@ describe('SystemMonitor', () => {
       expect(disks[0].freeGB).toBeCloseTo(100000000000 / 1024 ** 3, 1);
     });
 
+    // Linux-specific: df format
+    it.runIf(!isWindows)('parses Linux df output', () => {
+      const output = [
+        'Filesystem     1B-blocks      Available Mounted',
+        '/dev/sda1      500000000000   100000000000 /',
+        '/dev/sdb1      1000000000000  200000000000 /home',
+      ].join('\n');
+
+      const disks = parse(output, 1);
+      expect(disks).toHaveLength(2);
+      expect(disks[0].mount).toBe('/dev/sda1');
+      expect(disks[0].freeGB).toBeCloseTo(100000000000 / 1024 ** 3, 1);
+    });
+
     it('handles empty output', () => {
       const disks = parse('');
       expect(disks).toHaveLength(0);
     });
 
-    it('skips entries with zero size', () => {
+    it.runIf(isWindows)('skips entries with zero size (Windows)', () => {
       const output = [
         'DeviceId,Caption,FreeSpace,Size',
         'X:,X:,0,0',
       ].join('\n');
+      const disks = parse(output, 1);
+      expect(disks).toHaveLength(0);
+    });
+
+    it.runIf(!isWindows)('skips entries not starting with / (Linux)', () => {
+      const output = [
+        'Filesystem     1B-blocks      Available Mounted',
+        'tmpfs          1000000        500000 tmpfs-mount',
+      ].join('\n');
+      // tmpfs doesn't start with /, but the mount field (parts[0]) does not start with /
+      // Actually on Linux the code checks mount.startsWith('/') where mount = parts[0]
+      // tmpfs doesn't start with / so it's skipped
       const disks = parse(output, 1);
       expect(disks).toHaveLength(0);
     });
@@ -96,7 +119,10 @@ describe('SystemMonitor', () => {
     const parseFn = (output: string, limit: number) =>
       (monitor as any).parseProcessOutput(output, limit);
 
-    it('parses Windows PowerShell CSV', () => {
+    const isWindows = process.platform === 'win32';
+
+    // Windows-specific: PowerShell CSV format
+    it.runIf(isWindows)('parses Windows PowerShell CSV', () => {
       const output = [
         '"Name","Id","CpuPct","MemMB"',
         '"chrome","1234","15.5","512.3"',
@@ -112,10 +138,37 @@ describe('SystemMonitor', () => {
       expect(procs[1].name).toBe('code');
     });
 
-    it('respects limit', () => {
+    // Linux-specific: ps aux format
+    it.runIf(!isWindows)('parses Linux ps aux output', () => {
+      // ps aux columns: USER PID %CPU %MEM VSZ RSS TTY STAT START TIME COMMAND
+      const output = [
+        'USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND',
+        'root         1  0.5  0.1  12345  5120 ?        Ss   Jan01   1:23 /sbin/init',
+        'user      1234 15.5  2.3  98765 524288 ?       Sl   10:00   5:00 /usr/bin/chrome',
+      ].join('\n');
+
+      const procs = parseFn(output, 10);
+      expect(procs).toHaveLength(2);
+      expect(procs[0].name).toBe('init');
+      expect(procs[0].pid).toBe(1);
+      expect(procs[0].cpuPercent).toBe(0.5);
+      expect(procs[0].memoryMB).toBeCloseTo(5120 / 1024, 1);
+      expect(procs[1].name).toBe('chrome');
+    });
+
+    it.runIf(isWindows)('respects limit (Windows)', () => {
       const lines = ['"Name","Id","CpuPct","MemMB"'];
       for (let i = 0; i < 20; i++) {
         lines.push(`"proc${i}","${i}","1.0","100.0"`);
+      }
+      const procs = parseFn(lines.join('\n'), 5);
+      expect(procs).toHaveLength(5);
+    });
+
+    it.runIf(!isWindows)('respects limit (Linux)', () => {
+      const lines = ['USER       PID %CPU %MEM    VSZ   RSS TTY      STAT START   TIME COMMAND'];
+      for (let i = 0; i < 20; i++) {
+        lines.push(`user    ${i}  1.0  0.5  1000  ${(i + 1) * 1024} ?  Sl  10:00  0:01 /usr/bin/proc${i}`);
       }
       const procs = parseFn(lines.join('\n'), 5);
       expect(procs).toHaveLength(5);
