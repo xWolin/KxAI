@@ -40,8 +40,10 @@ const container = new ServiceContainer();
 // ─── Single Instance Lock ───
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
-  // Another instance is already running — focus it and quit
+  // Another instance is already running — focus it and quit immediately
+  log.warn('Single instance lock failed — another instance is running. Exiting.');
   app.quit();
+  // CRITICAL: prevent further initialization (app.quit() is async, code below would still run)
 } else {
   app.on('second-instance', () => {
     if (mainWindow) {
@@ -347,115 +349,118 @@ async function initializeServices(): Promise<void> {
   await container.init();
 }
 
-app.whenReady().then(async () => {
-  await initializeServices();
-
-  mainWindow = createMainWindow();
-  createTray();
-
-  // Setup IPC handlers
-  setupIPC(mainWindow, container.getIPCServices());
-
-  // Wire config change events → push to renderer
-  const configService = container.get('config');
-  configService.on('change', (changes: Record<string, unknown>) => {
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send(Ev.CONFIG_CHANGED, changes);
-    }
-  });
-
-  // Initialize auto-updater (needs BrowserWindow for push events)
-  container.get('updater').initialize(mainWindow);
-
-  // Deferred init — non-critical services (dashboard, diagnostic, MCP)
-  // Runs after window is created so user sees UI immediately
-  container.initDeferred().catch((err) => {
-    log.error('Deferred service initialization failed:', err);
-  });
-
-  // Auto-restore proactive mode (smart companion) if it was enabled before restart
-  const proactiveSaved = container.get('config').get('proactiveMode');
-  if (proactiveSaved) {
-    log.info('Proactive mode was enabled — auto-starting screen monitor...');
-    startCompanionMonitor(mainWindow);
-    container.get('agentLoop').startHeartbeat(5 * 60 * 1000); // 5 min
-  }
-
-  // Global shortcut to toggle window
-  globalShortcut.register('Alt+K', () => {
-    if (mainWindow?.isVisible()) {
-      mainWindow.hide();
-    } else {
-      mainWindow?.show();
-      mainWindow?.focus();
-    }
-  });
-
-  // Global shortcut to toggle take-control mode
-  globalShortcut.register('Ctrl+Shift+K', async () => {
-    const windowRef = mainWindow;
-    if (!windowRef) return;
-
-    const safeSend = (channel: string, data?: any) => {
-      if (windowRef && !windowRef.isDestroyed()) {
-        windowRef.webContents.send(channel, data);
-      }
-    };
-
-    const agentLoop = container.get('agentLoop');
-
-    if (agentLoop.isTakeControlActive()) {
-      // Stop take-control
-      agentLoop.stopTakeControl();
-      safeSend(Ev.AUTOMATION_STATUS_UPDATE, '⛔ Sterowanie przerwane (Ctrl+Shift+K)');
-      safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
-    } else {
-      // Start take-control — ask AI what to do based on current screen
-      safeSend(Ev.AGENT_CONTROL_STATE, { active: true, pending: true });
-      safeSend(Ev.AI_STREAM, { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie (Ctrl+Shift+K)...\n' });
-
-      try {
-        const result = await agentLoop.startTakeControl(
-          'Użytkownik nacisnął Ctrl+Shift+K — przejmujesz sterowanie. Obserwuj ekran i kontynuuj pracę użytkownika. Gdy skończysz lub nie masz co robić, odpowiedz TASK_COMPLETE.',
-          (status) => safeSend(Ev.AUTOMATION_STATUS_UPDATE, status),
-          (chunk) => safeSend(Ev.AI_STREAM, { chunk }),
-          true, // confirmed via keyboard shortcut
-        );
-        safeSend(Ev.AI_STREAM, { done: true });
-        safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
-      } catch (err: any) {
-        log.error('Take-control shortcut error:', err);
-        safeSend(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${err.message}\n` });
-        safeSend(Ev.AI_STREAM, { done: true });
-        safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
-      }
-    }
-  });
-
-  // Global shortcut: Agent speaks — force screen analysis + insight
-  globalShortcut.register('Ctrl+Shift+P', async () => {
-    const windowRef = mainWindow;
-    if (!windowRef || windowRef.isDestroyed()) return;
-
-    const safeSend = (channel: string, data?: any) => {
-      if (windowRef && !windowRef.isDestroyed()) {
-        windowRef.webContents.send(channel, data);
-      }
-    };
-
-    const agentLoop = container.get('agentLoop');
-    const screenMonitorService = container.get('screenMonitor');
-
-    // Show chat and open stream
-    safeSend(Ev.AI_STREAM, { takeControlStart: true, chunk: '👁️ Analizuję co widzę na ekranie...\n' });
-
+// Only proceed if we hold the single instance lock
+if (gotLock) {
+  app.whenReady().then(async () => {
     try {
-      // Force an OCR check to get fresh screen context
-      const ocrText = await screenMonitorService.forceOcrCheck();
-      const ctx = screenMonitorService.buildMonitorContext();
+      await initializeServices();
 
-      // Ask AI for insight based on screen context
-      const prompt = `Użytkownik nacisnął Ctrl+Shift+P — chce żebyś się odezwał. 
+      mainWindow = createMainWindow();
+      createTray();
+
+      // Setup IPC handlers
+      setupIPC(mainWindow, container.getIPCServices());
+
+      // Wire config change events → push to renderer
+      const configService = container.get('config');
+      configService.on('change', (changes: Record<string, unknown>) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(Ev.CONFIG_CHANGED, changes);
+        }
+      });
+
+      // Initialize auto-updater (needs BrowserWindow for push events)
+      container.get('updater').initialize(mainWindow);
+
+      // Deferred init — non-critical services (dashboard, diagnostic, MCP)
+      // Runs after window is created so user sees UI immediately
+      container.initDeferred().catch((err) => {
+        log.error('Deferred service initialization failed:', err);
+      });
+
+      // Auto-restore proactive mode (smart companion) if it was enabled before restart
+      const proactiveSaved = container.get('config').get('proactiveMode');
+      if (proactiveSaved) {
+        log.info('Proactive mode was enabled — auto-starting screen monitor...');
+        startCompanionMonitor(mainWindow);
+        container.get('agentLoop').startHeartbeat(5 * 60 * 1000); // 5 min
+      }
+
+      // Global shortcut to toggle window
+      globalShortcut.register('Alt+K', () => {
+        if (mainWindow?.isVisible()) {
+          mainWindow.hide();
+        } else {
+          mainWindow?.show();
+          mainWindow?.focus();
+        }
+      });
+
+      // Global shortcut to toggle take-control mode
+      globalShortcut.register('Ctrl+Shift+K', async () => {
+        const windowRef = mainWindow;
+        if (!windowRef) return;
+
+        const safeSend = (channel: string, data?: any) => {
+          if (windowRef && !windowRef.isDestroyed()) {
+            windowRef.webContents.send(channel, data);
+          }
+        };
+
+        const agentLoop = container.get('agentLoop');
+
+        if (agentLoop.isTakeControlActive()) {
+          // Stop take-control
+          agentLoop.stopTakeControl();
+          safeSend(Ev.AUTOMATION_STATUS_UPDATE, '⛔ Sterowanie przerwane (Ctrl+Shift+K)');
+          safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
+        } else {
+          // Start take-control — ask AI what to do based on current screen
+          safeSend(Ev.AGENT_CONTROL_STATE, { active: true, pending: true });
+          safeSend(Ev.AI_STREAM, { takeControlStart: true, chunk: '🎮 Przejmuję sterowanie (Ctrl+Shift+K)...\n' });
+
+          try {
+            const result = await agentLoop.startTakeControl(
+              'Użytkownik nacisnął Ctrl+Shift+K — przejmujesz sterowanie. Obserwuj ekran i kontynuuj pracę użytkownika. Gdy skończysz lub nie masz co robić, odpowiedz TASK_COMPLETE.',
+              (status) => safeSend(Ev.AUTOMATION_STATUS_UPDATE, status),
+              (chunk) => safeSend(Ev.AI_STREAM, { chunk }),
+              true, // confirmed via keyboard shortcut
+            );
+            safeSend(Ev.AI_STREAM, { done: true });
+            safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
+          } catch (err: any) {
+            log.error('Take-control shortcut error:', err);
+            safeSend(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${err.message}\n` });
+            safeSend(Ev.AI_STREAM, { done: true });
+            safeSend(Ev.AGENT_CONTROL_STATE, { active: false });
+          }
+        }
+      });
+
+      // Global shortcut: Agent speaks — force screen analysis + insight
+      globalShortcut.register('Ctrl+Shift+P', async () => {
+        const windowRef = mainWindow;
+        if (!windowRef || windowRef.isDestroyed()) return;
+
+        const safeSend = (channel: string, data?: any) => {
+          if (windowRef && !windowRef.isDestroyed()) {
+            windowRef.webContents.send(channel, data);
+          }
+        };
+
+        const agentLoop = container.get('agentLoop');
+        const screenMonitorService = container.get('screenMonitor');
+
+        // Show chat and open stream
+        safeSend(Ev.AI_STREAM, { takeControlStart: true, chunk: '👁️ Analizuję co widzę na ekranie...\n' });
+
+        try {
+          // Force an OCR check to get fresh screen context
+          const ocrText = await screenMonitorService.forceOcrCheck();
+          const ctx = screenMonitorService.buildMonitorContext();
+
+          // Ask AI for insight based on screen context
+          const prompt = `Użytkownik nacisnął Ctrl+Shift+P — chce żebyś się odezwał. 
 Oto co widzisz na ekranie:
 
 ${ctx || '(brak kontekstu ekranu)'}
@@ -463,65 +468,71 @@ ${ctx || '(brak kontekstu ekranu)'}
 Powiedz użytkownikowi co widzisz, zaproponuj coś przydatnego, daj wskazówkę lub skomentuj to co robi.
 Bądź pomocny, krótki i konkretny. Mów po polsku.`;
 
-      // Stream the response
-      await agentLoop.streamWithTools(
-        prompt,
-        undefined, // no extra context
-        (chunk: string) => safeSend(Ev.AI_STREAM, { chunk }),
-        true, // skip intent detection for this forced interaction
-      );
-      safeSend(Ev.AI_STREAM, { done: true });
+          // Stream the response
+          await agentLoop.streamWithTools(
+            prompt,
+            undefined, // no extra context
+            (chunk: string) => safeSend(Ev.AI_STREAM, { chunk }),
+            true, // skip intent detection for this forced interaction
+          );
+          safeSend(Ev.AI_STREAM, { done: true });
 
-      // Clear companion state
-      safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: false, wantsToSpeak: false });
+          // Clear companion state
+          safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: false, wantsToSpeak: false });
+        } catch (err: any) {
+          log.error('Ctrl+Shift+P error:', err);
+          safeSend(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${err.message}\n` });
+          safeSend(Ev.AI_STREAM, { done: true });
+        }
+      });
     } catch (err: any) {
-      log.error('Ctrl+Shift+P error:', err);
-      safeSend(Ev.AI_STREAM, { chunk: `\n❌ Błąd: ${err.message}\n` });
-      safeSend(Ev.AI_STREAM, { done: true });
+      log.error('FATAL: app.whenReady() failed:', err);
+      console.error('FATAL: app.whenReady() failed:', err);
+      // Keep process alive for log inspection
     }
   });
-});
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit();
-  }
-});
-
-let isQuitting = false;
-app.on('will-quit', (event) => {
-  if (isQuitting) return;
-  event.preventDefault();
-  isQuitting = true;
-
-  const SHUTDOWN_TIMEOUT_MS = 5_000;
-
-  const gracefulShutdown = async () => {
-    log.info('Graceful shutdown started');
-    const t0 = Date.now();
-
-    globalShortcut.unregisterAll();
-    await container.shutdown();
-
-    log.info(`Graceful shutdown completed in ${Date.now() - t0}ms`);
-  };
-
-  // Race: graceful shutdown vs timeout
-  Promise.race([
-    gracefulShutdown(),
-    new Promise<void>((resolve) =>
-      setTimeout(() => {
-        log.warn(`Shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms — forcing exit`);
-        resolve();
-      }, SHUTDOWN_TIMEOUT_MS),
-    ),
-  ]).finally(() => {
-    app.exit();
+  app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+      app.quit();
+    }
   });
-});
 
-app.on('activate', () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    mainWindow = createMainWindow();
-  }
-});
+  let isQuitting = false;
+  app.on('will-quit', (event) => {
+    if (isQuitting) return;
+    event.preventDefault();
+    isQuitting = true;
+
+    const SHUTDOWN_TIMEOUT_MS = 5_000;
+
+    const gracefulShutdown = async () => {
+      log.info('Graceful shutdown started');
+      const t0 = Date.now();
+
+      globalShortcut.unregisterAll();
+      await container.shutdown();
+
+      log.info(`Graceful shutdown completed in ${Date.now() - t0}ms`);
+    };
+
+    // Race: graceful shutdown vs timeout
+    Promise.race([
+      gracefulShutdown(),
+      new Promise<void>((resolve) =>
+        setTimeout(() => {
+          log.warn(`Shutdown timed out after ${SHUTDOWN_TIMEOUT_MS}ms — forcing exit`);
+          resolve();
+        }, SHUTDOWN_TIMEOUT_MS),
+      ),
+    ]).finally(() => {
+      app.exit();
+    });
+  });
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      mainWindow = createMainWindow();
+    }
+  });
+} // end if (gotLock)

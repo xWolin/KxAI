@@ -67,11 +67,13 @@ const ConfigCompleteOnboardingParams = z.tuple([
 
 // ─── Security ───
 
-const SecuritySetApiKeyParams = z.tuple([z.enum(['openai', 'anthropic', 'elevenlabs', 'deepgram']), nonEmptyString]);
+const apiProviderEnum = z.enum(['openai', 'anthropic', 'elevenlabs', 'deepgram', 'openai-embeddings', 'openai-tts']);
 
-const SecurityHasApiKeyParams = z.tuple([z.enum(['openai', 'anthropic', 'elevenlabs', 'deepgram'])]);
+const SecuritySetApiKeyParams = z.tuple([apiProviderEnum, nonEmptyString]);
 
-const SecurityDeleteApiKeyParams = z.tuple([z.enum(['openai', 'anthropic', 'elevenlabs', 'deepgram'])]);
+const SecurityHasApiKeyParams = z.tuple([apiProviderEnum]);
+
+const SecurityDeleteApiKeyParams = z.tuple([apiProviderEnum]);
 
 const SecurityAuditLogParams = z.tuple([optionalPositiveInt]);
 
