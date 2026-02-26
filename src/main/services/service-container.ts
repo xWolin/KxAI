@@ -280,7 +280,7 @@ export class ServiceContainer {
 
     // Proactive Engine wiring (optional deps set here, started by IPC toggle)
     proactiveEngine.setCalendarService(calendar);
-    proactiveEngine.setSystemMonitor(this.get('systemMonitor'));
+    proactiveEngine.setSystemMonitor(systemMonitor);
     proactiveEngine.setKnowledgeGraphService(knowledgeGraph);
     proactiveEngine.setScreenMonitor(screenMonitor);
 
