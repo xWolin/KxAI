@@ -227,6 +227,14 @@ export class AIService {
   }
 
   /**
+   * Returns the model's maximum output token limit from official API docs.
+   * Delegates to ContextManager.getModelMaxOutputTokens (verified February 2026).
+   */
+  private getMaxOutputTokens(model: string): number {
+    return ContextManager.getModelMaxOutputTokens(model);
+  }
+
+  /**
    * Send a message with a screenshot for vision analysis (non-streaming).
    * Used by take-control mode for real-time screen awareness.
    * @param detail - OpenAI image detail level: 'low' (faster/cheaper), 'high' (better coords), 'auto'
@@ -262,7 +270,7 @@ export class AIService {
               ],
             },
           ],
-          ...this.openaiTokenParam(2048),
+          ...this.openaiTokenParam(Math.min(this.getMaxOutputTokens(model), 16384)),
           temperature: 0.5,
         },
         { signal: options?.signal },
@@ -295,7 +303,7 @@ export class AIService {
 
       const createOpts: Record<string, any> = {
         model,
-        max_tokens: 2048,
+        max_tokens: Math.min(this.getMaxOutputTokens(model), 16384),
         system: systemContext,
         messages: [
           {
@@ -399,7 +407,7 @@ export class AIService {
         const response = await this.anthropicClient.messages.create(
           {
             model,
-            max_tokens: 4096,
+            max_tokens: this.getMaxOutputTokens(model),
             system: systemParam,
             messages: anthropicMessages,
           },
@@ -462,7 +470,7 @@ export class AIService {
           { role: systemRole, content: system },
           { role: 'user', content },
         ],
-        ...this.openaiTokenParam(1024),
+        ...this.openaiTokenParam(Math.min(this.getMaxOutputTokens(model), 16384)),
         temperature: 0.3,
       });
       return response.choices[0]?.message?.content || '';
@@ -489,7 +497,7 @@ export class AIService {
 
       const response = await this.anthropicClient.messages.create({
         model,
-        max_tokens: 1024,
+        max_tokens: Math.min(this.getMaxOutputTokens(model), 16384),
         system,
         messages: [{ role: 'user', content }],
       });
@@ -558,7 +566,7 @@ export class AIService {
         {
           model,
           messages,
-          ...this.openaiTokenParam(4096),
+          ...this.openaiTokenParam(this.getMaxOutputTokens(model)),
           temperature: 0.7,
           stream: true,
         },
@@ -586,7 +594,7 @@ export class AIService {
       const stream = this.anthropicClient.messages.stream(
         {
           model,
-          max_tokens: 4096,
+          max_tokens: this.getMaxOutputTokens(model),
           system: systemParam,
           messages: anthropicMessages,
         },
@@ -749,7 +757,7 @@ export class AIService {
           tools: openaiTools.length > 0 ? openaiTools : undefined,
           tool_choice: openaiTools.length > 0 ? 'auto' : undefined,
           parallel_tool_calls: true,
-          ...this.openaiTokenParam(4096),
+          ...this.openaiTokenParam(this.getMaxOutputTokens(model)),
           temperature: 0.7,
           stream: true,
         },
@@ -834,7 +842,7 @@ export class AIService {
       const stream = this.anthropicClient.messages.stream(
         {
           model,
-          max_tokens: 4096,
+          max_tokens: this.getMaxOutputTokens(model),
           system: systemParam,
           messages: anthropicMessages,
           tools: anthropicTools.length > 0 ? anthropicTools : undefined,
@@ -948,7 +956,7 @@ export class AIService {
             content: [{ type: 'text', text: enrichedMessage }, ...imageContents],
           },
         ],
-        ...this.openaiTokenParam(4096),
+        ...this.openaiTokenParam(this.getMaxOutputTokens(model)),
         temperature: 0.7,
         stream: true,
       });
@@ -975,7 +983,7 @@ export class AIService {
 
       const stream = this.anthropicClient.messages.stream({
         model,
-        max_tokens: 4096,
+        max_tokens: this.getMaxOutputTokens(model),
         system: systemContext,
         messages: [
           {
@@ -1043,7 +1051,7 @@ export class AIService {
               content: [{ type: 'text', text: analysisUserText }, ...imageContents],
             },
           ],
-          ...this.openaiTokenParam(2048),
+          ...this.openaiTokenParam(4096),
           temperature: 0.5,
           response_format: buildOpenAIJsonSchema('screen_analysis', ScreenAnalysisSchema),
         });
@@ -1087,7 +1095,7 @@ export class AIService {
 
         const response = await this.anthropicClient.messages.create({
           model,
-          max_tokens: 2048,
+          max_tokens: 4096,
           system: analysisPrompt,
           messages: [
             {
@@ -1240,7 +1248,7 @@ export class AIService {
     const response = await this.anthropicClient.beta.messages.create(
       {
         model,
-        max_tokens: 1024,
+        max_tokens: Math.min(this.getMaxOutputTokens(model), 16384),
         system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
         tools: [
           {

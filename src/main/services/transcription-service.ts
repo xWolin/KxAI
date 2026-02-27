@@ -113,7 +113,8 @@ export class TranscriptionService extends EventEmitter {
       log.info(`[Transcription] Session '${label}' connected (Deepgram Nova-3, diarize=true)`);
       this.emit('session:connected', { sessionId, label });
 
-      // Deepgram requires KeepAlive messages if no audio for >12s
+      // Deepgram closes the WebSocket if no audio AND no KeepAlive arrives for >12s.
+      // Sending KeepAlive every 8s gives a 4s safety margin regardless of silence length.
       session.keepAliveTimer = setInterval(() => {
         if (session.ws && session.connected && session.ws.readyState === WebSocket.OPEN) {
           session.ws.send(JSON.stringify({ type: 'KeepAlive' }));

@@ -272,6 +272,45 @@ export class ContextManager {
   }
 
   /**
+   * Determine the max OUTPUT tokens for a given model.
+   * Sources: developers.openai.com/api/docs/models, platform.claude.com/docs — verified February 2026.
+   */
+  static getModelMaxOutputTokens(model: string): number {
+    // GPT-5.x family (gpt-5, gpt-5.1, gpt-5.2, gpt-5-mini, gpt-5-nano, gpt-5.2-pro, etc.) — 128K output
+    if (/^gpt-5/.test(model)) return 128000;
+
+    // GPT-4.1 family — 32K output
+    if (/^gpt-4\.?1/.test(model)) return 32768;
+
+    // GPT-4o family — 16K output
+    if (/^gpt-4o/.test(model)) return 16384;
+
+    // Legacy GPT-4 / GPT-4-turbo — 4K output
+    if (/^gpt-4/.test(model)) return 4096;
+
+    // O-series reasoning (o3, o4-mini, o3-pro) — 100K output (includes reasoning tokens)
+    if (/^o[0-9]/.test(model)) return 100000;
+
+    // Claude Opus 4.x — 128K output
+    if (/claude-opus-4/.test(model)) return 128000;
+
+    // Claude Sonnet 4.x — 64K output
+    if (/claude-sonnet-4/.test(model)) return 64000;
+
+    // Claude Haiku 4.x — 64K output
+    if (/claude-haiku-4/.test(model)) return 64000;
+
+    // Legacy Claude 3.x — 8K output
+    if (/claude/.test(model)) return 8192;
+
+    // Gemini — varies, conservative default
+    if (/gemini/i.test(model)) return 8192;
+
+    // Default — safe floor for unknown modern models
+    return 16384;
+  }
+
+  /**
    * Determine the optimal token limit for a given model.
    */
   static getModelContextLimit(model: string): number {
@@ -309,10 +348,12 @@ export class ContextManager {
    */
   configureForModel(model: string): void {
     const limit = ContextManager.getModelContextLimit(model);
+    const maxOutput = ContextManager.getModelMaxOutputTokens(model);
     // Use 60% of model's context window for conversation history
     // (rest is for system prompt ~10%, RAG ~10%, tool results ~10%, response ~10%)
     this.config.maxContextTokens = Math.floor(limit * 0.6);
-    this.config.reserveForResponse = Math.min(16384, Math.floor(limit * 0.08));
+    // Reserve for response = actual model output limit, capped at 15% of context window
+    this.config.reserveForResponse = Math.min(maxOutput, Math.floor(limit * 0.15));
     // Larger models can keep more messages before summarizing
     this.config.summaryThreshold = limit > 100000 ? 100 : 60;
     this.config.minMessagesToKeep = limit > 100000 ? 20 : 10;

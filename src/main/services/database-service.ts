@@ -736,7 +736,7 @@ export class DatabaseService {
 
     try {
       // Sanitize FTS5 query — strip all special characters that FTS5 interprets
-      const sanitized = query.replace(/['"*()\-?:^~{}[@\]#$%&+=<>!\\/|]/g, ' ').trim();
+      const sanitized = query.replace(/['"*()\-?:^~{}[@\]#$%&+=<>!\\/|,.;]/g, ' ').trim();
       if (!sanitized) return [];
 
       const rows = this.getStmt('searchMessages').all(sanitized, limit) as (MessageRow & { rank: number })[];
@@ -1122,7 +1122,7 @@ export class DatabaseService {
 
     try {
       // Sanitize FTS5 query — strip all special characters that FTS5 interprets
-      const sanitized = query.replace(/['"*()\-?:^~{}[@\]#$%&+=<>!\\/|]/g, ' ').trim();
+      const sanitized = query.replace(/['"*()\-?:^~{}[@\]#$%&+=<>!\\/|,.;]/g, ' ').trim();
       if (!sanitized) return [];
 
       const rows = this.db

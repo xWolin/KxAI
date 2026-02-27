@@ -178,7 +178,7 @@ export class AnthropicProvider implements AIProvider {
     const response = await this.client.messages.create(
       {
         model: options.model,
-        max_tokens: options.maxTokens ?? 4096,
+        max_tokens: options.maxTokens ?? 64000,
         system: systemParam,
         messages: conversationMessages,
       },
@@ -225,7 +225,7 @@ export class AnthropicProvider implements AIProvider {
     const stream = this.client.messages.stream(
       {
         model: options.model,
-        max_tokens: options.maxTokens ?? 4096,
+        max_tokens: options.maxTokens ?? 64000,
         system: systemParam,
         messages: conversationMessages,
       },
@@ -259,7 +259,7 @@ export class AnthropicProvider implements AIProvider {
     const response = await this.client.messages.create(
       {
         model: options.model,
-        max_tokens: options.maxTokens ?? 1024,
+        max_tokens: options.maxTokens ?? 16384,
         system: systemPrompt,
         messages: [
           {
@@ -307,7 +307,7 @@ export class AnthropicProvider implements AIProvider {
     const stream = this.client.messages.stream(
       {
         model: options.model,
-        max_tokens: options.maxTokens ?? 4096,
+        max_tokens: options.maxTokens ?? 64000,
         system: systemParam,
         messages: conversationMessages,
         tools: anthropicTools.length > 0 ? anthropicTools : undefined,
@@ -406,7 +406,7 @@ export class AnthropicProvider implements AIProvider {
     const response = await this.client.beta.messages.create(
       {
         model,
-        max_tokens: 1024,
+        max_tokens: 16384,
         system: [{ type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } }],
         tools: [
           {
