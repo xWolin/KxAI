@@ -88,6 +88,51 @@ jobs:
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
+      - name: Cache electron-builder binaries
+        id: eb-cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~\AppData\Local\electron-builder\Cache
+            ~/Library/Caches/electron-builder
+            ~/.cache/electron-builder
+          # Stable key — not tied to package-lock hash, only update when upgrading electron-builder
+          key: electron-builder-${{ matrix.os }}-v25
+          restore-keys: |
+            electron-builder-${{ matrix.os }}-
+
+      # Pre-download winCodeSign with retries to avoid transient 503 from GitHub releases
+      - name: Pre-fetch winCodeSign (Windows)
+        if: matrix.platform == 'win'
+        shell: pwsh
+        run: |
+          $dest = "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0"
+          if (Test-Path (Join-Path $dest "rcedit.exe")) {
+            Write-Host "winCodeSign already cached, skipping download"
+            exit 0
+          }
+          New-Item -ItemType Directory -Force -Path $dest | Out-Null
+          $url = "https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z"
+          $tmp = Join-Path $env:TEMP "winCodeSign-2.6.0.7z"
+          $maxRetries = 5; $delay = 15
+          for ($i = 1; $i -le $maxRetries; $i++) {
+            Write-Host "Downloading winCodeSign attempt $i/$maxRetries..."
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $tmp -TimeoutSec 120 -ErrorAction Stop
+              Write-Host "Downloaded OK"
+              break
+            } catch {
+              if ($i -eq $maxRetries) { throw "winCodeSign download failed after $maxRetries attempts: $_" }
+              Write-Host "Failed: $_ — retrying in ${delay}s..."
+              Start-Sleep -Seconds $delay
+              $delay = [Math]::Min($delay * 2, 60)
+            }
+          }
+          7z x $tmp -o"$dest" -y | Out-Null
+          Remove-Item $tmp -Force
+          Write-Host "winCodeSign ready:"
+          Get-ChildItem $dest | Select-Object Name
+
       - name: Generate changelog
         if: matrix.platform == 'win'
         run: node scripts/generate-changelog.js
