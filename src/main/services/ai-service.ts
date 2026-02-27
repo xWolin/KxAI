@@ -1043,13 +1043,29 @@ export class AIService {
               content: [{ type: 'text', text: analysisUserText }, ...imageContents],
             },
           ],
-          ...this.openaiTokenParam(1024),
+          ...this.openaiTokenParam(2048),
           temperature: 0.5,
           response_format: buildOpenAIJsonSchema('screen_analysis', ScreenAnalysisSchema),
         });
 
+        // Guard against truncated response (token limit hit)
+        const finishReason = response.choices[0]?.finish_reason;
+        if (finishReason === 'length') {
+          log.warn(
+            'Screen analysis response truncated (finish_reason=length) — increase token limit or simplify prompt',
+          );
+          return null;
+        }
+
         const text = response.choices[0]?.message?.content || '{}';
-        const parsed = ScreenAnalysisSchema.safeParse(JSON.parse(text));
+        let jsonObj: unknown;
+        try {
+          jsonObj = JSON.parse(text);
+        } catch (parseErr) {
+          log.warn('Screen analysis: failed to parse JSON response (possibly truncated):', (parseErr as Error).message);
+          return null;
+        }
+        const parsed = ScreenAnalysisSchema.safeParse(jsonObj);
         if (!parsed.success) {
           log.warn('Screen analysis response failed schema validation:', parsed.error.message);
           return null;
@@ -1071,7 +1087,7 @@ export class AIService {
 
         const response = await this.anthropicClient.messages.create({
           model,
-          max_tokens: 1024,
+          max_tokens: 2048,
           system: analysisPrompt,
           messages: [
             {
