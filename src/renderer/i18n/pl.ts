@@ -129,8 +129,22 @@ export const pl: TranslationDict = {
   'settings.general.deepgramKeyPlaceholder': 'Wklej klucz API Deepgram',
   'settings.general.deepgramHint':
     'Wymagany do transkrypcji w czasie rzeczywistym (Nova-3 z diaryzacją). Pay-as-you-go: ~$0.0043/min.',
+  'settings.general.ttsSection': '🔊 Synteza Mowy (TTS)',
+  'settings.general.ttsEnabled': 'Włącz TTS',
+  'settings.general.ttsEnabledHint': 'Agent będzie mówił głosem zamiast tylko pisać.',
+  'settings.general.ttsProvider': 'Silnik TTS',
+  'settings.general.ttsProviderHint':
+    'ElevenLabs — najlepsza jakość. OpenAI TTS — dobra jakość. Web Speech — wbudowany, bezpłatny.',
+  'settings.general.ttsElevenLabsKey': 'Klucz API ElevenLabs',
+  'settings.general.ttsElevenLabsKeyPlaceholder': 'Wklej klucz API ElevenLabs (sk-...)',
+  'settings.general.ttsVoiceId': 'ID głosu ElevenLabs',
+  'settings.general.ttsVoiceIdHint': 'ID głosu z ElevenLabs Voice Library. Domyślny: Daniel (onwK4e9ZLuTAKqWW03F9).',
+  'settings.general.ttsElModel': 'Model ElevenLabs',
+  'settings.general.ttsOpenaiVoice': 'Głos OpenAI TTS',
+  'settings.general.ttsOpenaiModel': 'Model OpenAI TTS',
+  'settings.general.ttsWebHint':
+    'Używa wbudowanego silnika mowy Chromium. Zero kosztów, dostępne offline, ale najniższa jakość.',
   'settings.general.embeddingsSection': '🧬 Embeddingi (RAG)',
-  'settings.general.embeddingKey': 'Klucz API OpenAI (embeddingi)',
   'settings.general.embeddingKeyShared': '🔗 (główny)',
   'settings.general.embeddingKeyPlaceholder': 'Osobny klucz OpenAI do embeddingów (opcjonalnie)',
   'settings.general.embeddingHint':

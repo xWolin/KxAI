@@ -211,26 +211,29 @@ export class RAGService {
     const savedModel = this.dbService.getRAGMeta('embedding_model');
     const savedDim = this.dbService.getRAGMeta('embedding_dim');
 
-    // Always ensure database service has the correct dimension first
-    this.dbService.setEmbeddingDim(currentDim);
+    // NOTE: do NOT call setEmbeddingDim(currentDim) here unconditionally —
+    // it would make recreateEmbeddingsTable see embeddingDim===newDim and bail
+    // out without dropping/recreating the physical vec0 table, leaving a stale
+    // float[1536] table while the rest of the code expects float[currentDim].
 
     // First run — store current model info and ensure vec0 table matches
     if (!savedModel) {
       this.dbService.setRAGMeta('embedding_model', currentModel);
       this.dbService.setRAGMeta('embedding_dim', String(currentDim));
-      // Vec0 table may already exist with default 1536 dim — recreate if needed
+      // Vec0 table may exist with default 1536 dim — recreate if needed.
+      // recreateEmbeddingsTable sets embeddingDim internally on success.
       this.dbService.recreateEmbeddingsTable(currentDim);
       return false;
     }
 
     const savedDimNum = savedDim ? parseInt(savedDim, 10) : 1536;
 
-    // Model or dimension changed
+    // Model or dimension changed — rebuild vec0 table with correct dimension
     if (savedModel !== currentModel || savedDimNum !== currentDim) {
       log.warn(
         `Embedding model changed: ${savedModel} (${savedDimNum}D) → ${currentModel} (${currentDim}D). Rebuilding vector index...`,
       );
-      // Recreate vec0 table with new dimension
+      // Recreate vec0 table — also updates embeddingDim to newDim internally
       this.dbService.recreateEmbeddingsTable(currentDim);
       // Update metadata
       this.dbService.setRAGMeta('embedding_model', currentModel);
@@ -238,6 +241,8 @@ export class RAGService {
       return true;
     }
 
+    // No model/dim change — sync the in-memory dimension to the current value
+    this.dbService.setEmbeddingDim(currentDim);
     return false;
   }
 

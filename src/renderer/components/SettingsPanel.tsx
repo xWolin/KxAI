@@ -200,6 +200,14 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [hasDeepgramKey, setHasDeepgramKey] = useState(false);
   const [embeddingKey, setEmbeddingKey] = useState('');
   const [hasEmbeddingKey, setHasEmbeddingKey] = useState(false);
+  const [elevenLabsKey, setElevenLabsKey] = useState('');
+  const [hasElevenLabsKey, setHasElevenLabsKey] = useState(false);
+  const [ttsEnabled, setTtsEnabled] = useState(true);
+  const [ttsProvider, setTtsProvider] = useState<'elevenlabs' | 'openai' | 'web'>('elevenlabs');
+  const [ttsElVoiceId, setTtsElVoiceId] = useState('onwK4e9ZLuTAKqWW03F9');
+  const [ttsElModel, setTtsElModel] = useState('eleven_multilingual_v2');
+  const [ttsOpenaiVoice, setTtsOpenaiVoice] = useState('onyx');
+  const [ttsOpenaiModel, setTtsOpenaiModel] = useState('tts-1-hd');
   const [proactiveMode, setProactiveMode] = useState(Boolean(config.proactiveMode));
   const [embeddingModel, setEmbeddingModel] = useState(config.embeddingModel || 'text-embedding-3-small');
   const [useNativeFunctionCalling, setUseNativeFunctionCalling] = useState(config.useNativeFunctionCalling ?? true);
@@ -364,6 +372,17 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     setHasDeepgramKey(hasEl);
     const hasEmb = await window.kxai.hasApiKey('openai-embeddings');
     setHasEmbeddingKey(hasEmb);
+    const hasEL = await window.kxai.hasApiKey('elevenlabs');
+    setHasElevenLabsKey(hasEL);
+    try {
+      const tts = await window.kxai.ttsGetConfig();
+      setTtsEnabled(tts.enabled);
+      setTtsProvider(tts.provider);
+      setTtsElVoiceId(tts.elevenLabsVoiceId);
+      setTtsElModel(tts.elevenLabsModel);
+      setTtsOpenaiVoice(tts.openaiVoice);
+      setTtsOpenaiModel(tts.openaiModel);
+    } catch {}
   }
 
   async function loadFiles() {
@@ -418,6 +437,23 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         await window.kxai.setApiKey('openai-embeddings', embeddingKey.trim());
         setEmbeddingKey('');
         setHasEmbeddingKey(true);
+      }
+
+      // Save TTS config
+      await window.kxai.ttsSetConfig({
+        enabled: ttsEnabled,
+        provider: ttsProvider,
+        elevenLabsVoiceId: ttsElVoiceId,
+        elevenLabsModel: ttsElModel,
+        openaiVoice: ttsOpenaiVoice,
+        openaiModel: ttsOpenaiModel,
+      });
+
+      // Save ElevenLabs API key if provided
+      if (elevenLabsKey.trim()) {
+        await window.kxai.setApiKey('elevenlabs', elevenLabsKey.trim());
+        setElevenLabsKey('');
+        setHasElevenLabsKey(true);
       }
 
       onConfigUpdate();
@@ -1017,6 +1053,98 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                 }
               />
               <p className={s.hint}>{t('settings.general.deepgramHint')}</p>
+            </div>
+
+            {/* TTS */}
+            <div className={s.section}>
+              <h3 className={s.sectionTitle}>{t('settings.general.ttsSection')}</h3>
+
+              <div className={s.toggleRow}>
+                <div className={s.toggleMeta}>
+                  <div className={s.toggleTitle}>{t('settings.general.ttsEnabled')}</div>
+                  <p className={s.hint}>{t('settings.general.ttsEnabledHint')}</p>
+                </div>
+                <Toggle checked={ttsEnabled} onChange={setTtsEnabled} aria-label={t('settings.general.ttsEnabled')} />
+              </div>
+
+              {ttsEnabled && (
+                <>
+                  <label className={s.label}>{t('settings.general.ttsProvider')}</label>
+                  <select
+                    className={s.select}
+                    value={ttsProvider}
+                    onChange={(e) => setTtsProvider(e.target.value as 'elevenlabs' | 'openai' | 'web')}
+                  >
+                    <option value="elevenlabs">ElevenLabs (najlepsza jakość)</option>
+                    <option value="openai">OpenAI TTS</option>
+                    <option value="web">Web Speech API (wbudowany)</option>
+                  </select>
+                  <p className={s.hint}>{t('settings.general.ttsProviderHint')}</p>
+
+                  {ttsProvider === 'elevenlabs' && (
+                    <>
+                      <label className={s.label}>
+                        {t('settings.general.ttsElevenLabsKey')} {hasElevenLabsKey ? '✅' : '❌'}
+                      </label>
+                      <input
+                        type="password"
+                        className={s.input}
+                        value={elevenLabsKey}
+                        onChange={(e) => setElevenLabsKey(e.target.value)}
+                        placeholder={
+                          hasElevenLabsKey
+                            ? t('settings.general.apiKeyChangePlaceholder')
+                            : t('settings.general.ttsElevenLabsKeyPlaceholder')
+                        }
+                      />
+                      <label className={s.label}>{t('settings.general.ttsVoiceId')}</label>
+                      <input
+                        className={s.input}
+                        value={ttsElVoiceId}
+                        onChange={(e) => setTtsElVoiceId(e.target.value)}
+                        placeholder="onwK4e9ZLuTAKqWW03F9"
+                      />
+                      <p className={s.hint}>{t('settings.general.ttsVoiceIdHint')}</p>
+                      <label className={s.label}>{t('settings.general.ttsElModel')}</label>
+                      <select className={s.select} value={ttsElModel} onChange={(e) => setTtsElModel(e.target.value)}>
+                        <option value="eleven_multilingual_v2">eleven_multilingual_v2 (PL/EN)</option>
+                        <option value="eleven_flash_v2_5">eleven_flash_v2_5 (szybki, tani)</option>
+                        <option value="eleven_turbo_v2_5">eleven_turbo_v2_5 (szybki, dobry)</option>
+                        <option value="eleven_monolingual_v1">eleven_monolingual_v1 (EN only)</option>
+                      </select>
+                    </>
+                  )}
+
+                  {ttsProvider === 'openai' && (
+                    <>
+                      <label className={s.label}>{t('settings.general.ttsOpenaiVoice')}</label>
+                      <select
+                        className={s.select}
+                        value={ttsOpenaiVoice}
+                        onChange={(e) => setTtsOpenaiVoice(e.target.value)}
+                      >
+                        <option value="onyx">onyx (głęboki, męski)</option>
+                        <option value="alloy">alloy (neutralny)</option>
+                        <option value="echo">echo (męski)</option>
+                        <option value="fable">fable (brytyjski)</option>
+                        <option value="nova">nova (kobiecy)</option>
+                        <option value="shimmer">shimmer (kobiecy, ciepły)</option>
+                      </select>
+                      <label className={s.label}>{t('settings.general.ttsOpenaiModel')}</label>
+                      <select
+                        className={s.select}
+                        value={ttsOpenaiModel}
+                        onChange={(e) => setTtsOpenaiModel(e.target.value)}
+                      >
+                        <option value="tts-1-hd">tts-1-hd (wysoka jakość)</option>
+                        <option value="tts-1">tts-1 (szybszy, tańszy)</option>
+                      </select>
+                    </>
+                  )}
+
+                  {ttsProvider === 'web' && <p className={s.hint}>{t('settings.general.ttsWebHint')}</p>}
+                </>
+              )}
             </div>
 
             {/* Embeddings (RAG) */}
