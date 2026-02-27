@@ -88,7 +88,13 @@ export class ResponseProcessor {
     if (!cronMatch) return null;
 
     try {
-      const raw = JSON.parse(cronMatch[1]);
+      // Strip comment lines (# ...) that AI sometimes prepends before the JSON object
+      const cleaned = cronMatch[1]
+        .split('\n')
+        .filter((line) => !line.trim().startsWith('#'))
+        .join('\n')
+        .trim();
+      const raw = JSON.parse(cleaned);
       const parsed = CronSuggestionSchema.safeParse(raw);
       if (!parsed.success) {
         log.warn('Invalid cron suggestion schema:', parsed.error.message);
@@ -143,7 +149,13 @@ export class ResponseProcessor {
 
     while ((match = regex.exec(response)) !== null) {
       try {
-        const raw = JSON.parse(match[1]);
+        // Strip comment/header lines (# or ## ...) that AI sometimes writes before JSON
+        const cleaned = match[1]
+          .split('\n')
+          .filter((line) => !line.trim().startsWith('#'))
+          .join('\n')
+          .trim();
+        const raw = JSON.parse(cleaned);
         const parsed = MemoryUpdateSchema.safeParse(raw);
         if (!parsed.success) {
           log.warn('Invalid memory update schema:', parsed.error.message);

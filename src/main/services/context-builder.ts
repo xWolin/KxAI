@@ -215,7 +215,13 @@ export class ContextBuilder {
       const response = await this.ai.sendMessage(
         '[MEMORY FLUSH — Pre-kompakcja]\n\n' +
           'Sesja zbliża się do limitu kontekstu. Zapisz trwałe wspomnienia do pamięci.\n' +
-          'Użyj bloków ```update_memory aby zapisać ważne informacje z tej rozmowy:\n' +
+          'Użyj bloków ```update_memory z JSON wewnątrz — TYLKO JSON, bez żadnego innego tekstu w bloku:\n\n' +
+          '```update_memory\n' +
+          '{"file":"user","section":"Preferencje","content":"Ważna informacja o użytkowniku"}\n' +
+          '```\n\n' +
+          'Dozwolone wartości pola "file": "soul", "user", "memory"\n' +
+          'Możesz użyć wielu bloków update_memory.\n\n' +
+          'Co zapisać:\n' +
           '- Nowe fakty o użytkowniku\n' +
           '- Ważne decyzje\n' +
           '- Kontekst który powinien przetrwać reset kontekstu\n\n' +
@@ -769,12 +775,14 @@ export class ContextBuilder {
       const nudges: string[] = [];
       if (memIsEmpty) {
         nudges.push(
-          '⚠️ MEMORY.md jest PUSTY! Zapisuj obserwacje o użytkowniku po każdej rozmowie za pomocą bloków ```update_memory.',
+          '⚠️ MEMORY.md jest PUSTY! Zapisuj obserwacje o użytkowniku po każdej rozmowie za pomocą bloków ```update_memory z JSON w środku:\n' +
+            '```update_memory\n{"file":"memory","section":"Obserwacje","content":"treść"}\n```',
         );
       }
       if (!hasCrons) {
         nudges.push(
-          '⚠️ Nie masz żadnych cron jobów! Zasugeruj przydatne zadania cykliczne (poranny briefing, przypomnienie o przerwie, podsumowanie dnia) za pomocą bloków ```cron.',
+          '⚠️ Nie masz żadnych cron jobów! Zasugeruj przydatne zadania cykliczne za pomocą bloków ```cron z JSON w środku:\n' +
+            '```cron\n{"name":"Poranny briefing","schedule":"0 8 * * 1-5","action":"Zrób poranny briefing","category":"routine"}\n```',
         );
       }
       if (nudges.length === 0) return '';
