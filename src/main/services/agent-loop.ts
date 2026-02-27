@@ -863,8 +863,11 @@ export class AgentLoop {
       type: 'chat',
     });
 
-    // Get tool definitions (excluding categories not relevant for the current context)
-    const toolDefs = this.tools.getDefinitions();
+    // Select tools relevant to this message (keyword-based dynamic selection).
+    // Core tools (system, memory, agent, observation, cron) are always included;
+    // additional categories are triggered by keywords in the message.
+    // This keeps the payload within the OpenAI 128-tool limit without hard truncation.
+    const toolDefs = this.tools.selectToolsForMessage(userMessage);
 
     let result: NativeToolStreamResult;
     let fullResponse = '';

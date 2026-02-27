@@ -24,14 +24,13 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
         env:
           SKIP_ELECTRON_REBUILD: 1
-          PHANTOMJS_SKIP_DOWNLOAD: 'true'
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
 
       - name: Environment preflight
@@ -84,13 +83,12 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
         env:
-          PHANTOMJS_SKIP_DOWNLOAD: 'true'
           ELECTRON_SKIP_BINARY_DOWNLOAD: 1
 
       - name: Cache electron-builder binaries

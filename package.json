@@ -165,6 +165,9 @@
       "installerHeaderIcon": "assets/icons/win/icon.ico"
     }
   },
+  "overrides": {
+    "phantomjs-prebuilt": "npm:noop3@1000.0.0"
+  },
   "lint-staged": {
     "src/**/*.{ts,tsx}": [
       "prettier --write"

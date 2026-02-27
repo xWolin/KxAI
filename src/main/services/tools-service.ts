@@ -11,6 +11,7 @@ import { PluginService } from './plugin-service';
 import { CronService } from './cron-service';
 import { FileIntelligenceService } from './file-intelligence';
 import { CalendarService } from './calendar-service';
+import type { CalendarConnectionStatus } from '../../shared/types/calendar';
 import { PrivacyService } from './privacy-service';
 import { MemoryService } from './memory';
 import { SecurityGuard } from './security-guard';
@@ -2222,6 +2223,224 @@ export class ToolsService {
   }
 
   /**
+   * Keyword → category triggers (Polish + English).
+   * Each entry: if any keyword appears in the lowercased message → add listed categories.
+   */
+  private static readonly KEYWORD_TRIGGERS: Array<{ keywords: string[]; categories: string[] }> = [
+    {
+      keywords: [
+        'stron',
+        'przeglądark',
+        'url',
+        'http',
+        'https',
+        'klikn',
+        'zaloguj',
+        'witryn',
+        'website',
+        'browser',
+        'navigate',
+        'login',
+        'scroll',
+        'open site',
+        'otwórz stronę',
+      ],
+      categories: ['browser', 'web'],
+    },
+    {
+      keywords: ['pobierz', 'download', 'fetch', 'curl', 'zapytanie http', 'żądanie http'],
+      categories: ['web'],
+    },
+    {
+      keywords: [
+        'plik',
+        'folder',
+        'katalog',
+        'dokument',
+        'pdf',
+        'docx',
+        'xlsx',
+        'epub',
+        'ścieżk',
+        'file',
+        'directory',
+        'document',
+        'path',
+        'read file',
+        'write file',
+        'analizuj plik',
+        'analyze file',
+        'otwórz plik',
+        'zapisz plik',
+      ],
+      categories: ['files'],
+    },
+    {
+      keywords: [
+        'automat',
+        'kliknij myszą',
+        'ruch myszy',
+        'klawiatur',
+        'wpisz tekst',
+        'naciśnij klawisz',
+        'mouse',
+        'keyboard',
+        'press key',
+        'desktop automation',
+        'okno aplikacji',
+        'drag',
+      ],
+      categories: ['automation'],
+    },
+    {
+      keywords: [
+        'kalendarz',
+        'spotkanie',
+        'event',
+        'termin',
+        'meeting',
+        'schedule event',
+        'appointment',
+        'caldav',
+        'google calendar',
+        'dodaj do kalendarza',
+      ],
+      categories: ['calendar'],
+    },
+    {
+      keywords: [
+        'kod',
+        'code',
+        'debug',
+        'skrypt',
+        'script',
+        'program',
+        'compile',
+        'execute code',
+        'terminal',
+        'powershell',
+        'bash',
+        'python ',
+        'javascript',
+        'typescript',
+      ],
+      categories: ['coding'],
+    },
+    {
+      keywords: [
+        'wyszukaj w dokumentach',
+        'szukaj w bazie',
+        'indeksuj',
+        'semantic search',
+        'embed',
+        'rag',
+        'chunk',
+        'przeszukaj dokumenty',
+        'znajdź dokument',
+      ],
+      categories: ['rag'],
+    },
+    {
+      keywords: ['knowledge graph', 'encja', 'entity', 'relacj', 'graf wiedzy', 'kg_'],
+      categories: ['knowledge'],
+    },
+    {
+      keywords: ['makro', 'macro', 'nagraj sekwencj', 'record macro', 'replay', 'odtwórz makro'],
+      categories: ['workflow'],
+    },
+    {
+      keywords: ['prywatność', 'privacy', 'gdpr', 'moje dane osobowe', 'eksportuj dane', 'usuń moje dane'],
+      categories: ['privacy'],
+    },
+    {
+      keywords: [
+        'gmail',
+        'email',
+        'mail',
+        'e-mail',
+        'wiadomość email',
+        'send email',
+        'wyślij email',
+        'slack',
+        'notion',
+        'github issue',
+        'outlook',
+        'mcp_',
+      ],
+      categories: ['mcp'],
+    },
+    {
+      keywords: ['przypomnij', 'remind', 'reminder', 'set reminder', 'ustaw przypomnienie'],
+      categories: ['cron'],
+    },
+    {
+      keywords: ['schowek', 'clipboard', 'historia schowka', 'skopiowany tekst'],
+      categories: ['memory'],
+    },
+  ];
+
+  /**
+   * Categories always included regardless of message content.
+   * These are the "core" tools the agent needs for every interaction.
+   */
+  private static readonly ALWAYS_INCLUDE_CATEGORIES = new Set<string>([
+    'system',
+    'memory',
+    'agent',
+    'observation',
+    'cron',
+  ]);
+
+  /**
+   * Select tools relevant to a specific user message.
+   *
+   * Strategy:
+   * 1. Always include core categories (system, memory, agent, observation, cron)
+   * 2. Add categories triggered by keywords found in the message (PL + EN)
+   * 3. Fill remaining capacity with all other tools up to `limit`
+   * 4. Hard cap at `limit` as a safety net
+   *
+   * This keeps the payload lean for simple tasks (e.g. ~30 tools for a casual chat)
+   * while providing all relevant tools for specific tasks (e.g. browser tools for URLs).
+   *
+   * @param message - The user's message
+   * @param limit   - Maximum number of tools to return (default: 128 for OpenAI compat)
+   */
+  selectToolsForMessage(message: string, limit = 128): ToolDefinition[] {
+    const msg = message.toLowerCase();
+
+    // Start with always-include categories
+    const triggered = new Set<string>(ToolsService.ALWAYS_INCLUDE_CATEGORIES);
+
+    // Add keyword-triggered categories
+    for (const { keywords, categories } of ToolsService.KEYWORD_TRIGGERS) {
+      if (keywords.some((kw) => msg.includes(kw))) {
+        categories.forEach((c) => triggered.add(c));
+      }
+    }
+
+    // Partition definitions: triggered first, rest second
+    const selected: ToolDefinition[] = [];
+    const rest: ToolDefinition[] = [];
+    for (const def of this.definitions) {
+      if (triggered.has(def.category)) {
+        selected.push(def);
+      } else {
+        rest.push(def);
+      }
+    }
+
+    // Fill remaining slots with non-triggered tools (keeps all tools reachable
+    // for messages that don't match any keyword)
+    if (selected.length < limit) {
+      const remaining = limit - selected.length;
+      selected.push(...rest.slice(0, remaining));
+    }
+
+    return selected.slice(0, limit);
+  }
+
+  /**
    * Returns tool descriptions formatted for AI system prompt injection.
    */
   /**
@@ -3145,7 +3364,9 @@ export class ToolsService {
         }
         try {
           const status = cal.getStatus();
-          const failed = status.connections.filter((c) => c.status === 'error' || c.status === 'disconnected');
+          const failed = status.connections.filter(
+            (c: { status: CalendarConnectionStatus }) => c.status === 'error' || c.status === 'disconnected',
+          );
 
           if (failed.length === 0) {
             return {
@@ -3159,7 +3380,7 @@ export class ToolsService {
           for (const conn of failed) {
             try {
               await cal.connect(conn.id);
-              const newStatus = cal.getStatus().connections.find((c) => c.id === conn.id);
+              const newStatus = cal.getStatus().connections.find((c: { id: string }) => c.id === conn.id);
               results.push(
                 `• ${conn.name}: ${newStatus?.status === 'connected' ? '✅ połączono' : `❌ nadal błąd: ${newStatus?.error ?? 'nieznany'}`}`,
               );

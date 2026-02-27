@@ -26,6 +26,9 @@ import { v4 as uuidv4 } from 'uuid';
 
 const log = createLogger('AIService');
 
+/** OpenAI hard limit on number of tools per request. */
+const OPENAI_MAX_TOOLS = 128;
+
 export type { NativeToolCall, NativeToolStreamResult } from './tool-schema-converter';
 export type { ScreenAnalysisResult } from '../../shared/schemas/ai-responses';
 
@@ -748,7 +751,17 @@ export class AIService {
     const toolCalls: NativeToolCall[] = [];
 
     if (provider === 'openai' && this.openaiClient) {
-      const openaiTools = toOpenAITools(tools);
+      // Safety net: OpenAI hard-limits tools to 128 per request.
+      // Normally selectToolsForMessage() handles this upstream, but guard here too.
+      let cappedTools = tools;
+      if (tools.length > OPENAI_MAX_TOOLS) {
+        cappedTools = tools.slice(0, OPENAI_MAX_TOOLS);
+        log.warn(
+          `Tool count (${tools.length}) exceeds OpenAI limit (${OPENAI_MAX_TOOLS}). ` +
+            `Truncated to ${OPENAI_MAX_TOOLS}. Consider using selectToolsForMessage().`,
+        );
+      }
+      const openaiTools = toOpenAITools(cappedTools);
 
       const stream = await this.openaiClient.chat.completions.create(
         {
