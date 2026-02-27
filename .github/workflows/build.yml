@@ -97,41 +97,62 @@ jobs:
             ~/Library/Caches/electron-builder
             ~/.cache/electron-builder
           # Stable key — not tied to package-lock hash, only update when upgrading electron-builder
-          key: electron-builder-${{ matrix.os }}-v25
+          key: electron-builder-${{ matrix.os }}-v33-eb25
           restore-keys: |
+            electron-builder-${{ matrix.os }}-v33-
             electron-builder-${{ matrix.os }}-
 
-      # Pre-download winCodeSign with retries to avoid transient 503 from GitHub releases
-      - name: Pre-fetch winCodeSign (Windows)
+      # Pre-download electron-builder binaries with retries to avoid transient network failures
+      - name: Pre-fetch binaries (Windows)
         if: matrix.platform == 'win'
         shell: pwsh
         run: |
-          $dest = "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0"
-          if (Test-Path (Join-Path $dest "rcedit.exe")) {
-            Write-Host "winCodeSign already cached, skipping download"
-            exit 0
-          }
-          New-Item -ItemType Directory -Force -Path $dest | Out-Null
-          $url = "https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z"
-          $tmp = Join-Path $env:TEMP "winCodeSign-2.6.0.7z"
-          $maxRetries = 5; $delay = 15
-          for ($i = 1; $i -le $maxRetries; $i++) {
-            Write-Host "Downloading winCodeSign attempt $i/$maxRetries..."
-            try {
-              Invoke-WebRequest -Uri $url -OutFile $tmp -TimeoutSec 120 -ErrorAction Stop
-              Write-Host "Downloaded OK"
-              break
-            } catch {
-              if ($i -eq $maxRetries) { throw "winCodeSign download failed after $maxRetries attempts: $_" }
-              Write-Host "Failed: $_ — retrying in ${delay}s..."
-              Start-Sleep -Seconds $delay
-              $delay = [Math]::Min($delay * 2, 60)
+          function Download-WithRetry($url, $dest, $name) {
+            $maxRetries = 5; $delay = 15
+            for ($i = 1; $i -le $maxRetries; $i++) {
+              Write-Host "Downloading $name (attempt $i/$maxRetries)..."
+              try {
+                Invoke-WebRequest -Uri $url -OutFile $dest -TimeoutSec 300 -ErrorAction Stop
+                Write-Host "$name downloaded OK"
+                return
+              } catch {
+                if ($i -eq $maxRetries) { throw "$name download failed after $maxRetries attempts: $_" }
+                Write-Host "Failed: $_ — retrying in ${delay}s..."
+                Start-Sleep -Seconds $delay
+                $delay = [Math]::Min($delay * 2, 60)
+              }
             }
           }
-          7z x $tmp -o"$dest" -y | Out-Null
-          Remove-Item $tmp -Force
-          Write-Host "winCodeSign ready:"
-          Get-ChildItem $dest | Select-Object Name
+
+          # 1. winCodeSign — needed by rcedit to set exe icon/version info
+          $wcsDir = "$env:LOCALAPPDATA\electron-builder\Cache\winCodeSign\winCodeSign-2.6.0"
+          if (-not (Test-Path (Join-Path $wcsDir "rcedit.exe"))) {
+            New-Item -ItemType Directory -Force -Path $wcsDir | Out-Null
+            $tmp = Join-Path $env:TEMP "winCodeSign-2.6.0.7z"
+            Download-WithRetry `
+              "https://github.com/electron-userland/electron-builder-binaries/releases/download/winCodeSign-2.6.0/winCodeSign-2.6.0.7z" `
+              $tmp "winCodeSign"
+            7z x $tmp -o"$wcsDir" -y | Out-Null
+            Remove-Item $tmp -Force
+            Write-Host "winCodeSign ready at $wcsDir"
+          } else {
+            Write-Host "winCodeSign already cached"
+          }
+
+          # 2. Electron binary — 115 MB, prone to EOF on Windows runners
+          $electronVer = "33.4.11"
+          $zipName = "electron-v${electronVer}-win32-x64.zip"
+          $electronCacheDir = "$env:LOCALAPPDATA\electron-builder\Cache\electron\electron-v${electronVer}-win32-x64"
+          $legacyCachePath = "$env:LOCALAPPDATA\electron-builder\Cache\electron\${zipName}"
+          if ((Test-Path $electronCacheDir) -or (Test-Path $legacyCachePath)) {
+            Write-Host "Electron binary already cached"
+          } else {
+            New-Item -ItemType Directory -Force -Path (Split-Path $legacyCachePath) | Out-Null
+            Download-WithRetry `
+              "https://github.com/electron/electron/releases/download/v${electronVer}/${zipName}" `
+              $legacyCachePath "Electron v$electronVer"
+            Write-Host "Electron binary cached at $legacyCachePath"
+          }
 
       - name: Generate changelog
         if: matrix.platform == 'win'
@@ -143,7 +164,21 @@ jobs:
       # ── Windows (unsigned fallback / code-signed when CSC_LINK secret exists) ──
       - name: Build installer (Windows)
         if: matrix.platform == 'win'
-        run: npx electron-builder --win --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        shell: pwsh
+        run: |
+          $publish = '${{ startsWith(github.ref, "refs/tags/v") && "always" || "never" }}'
+          $maxAttempts = 3
+          for ($i = 1; $i -le $maxAttempts; $i++) {
+            Write-Host "electron-builder attempt $i/$maxAttempts..."
+            npx electron-builder --win --publish $publish
+            if ($LASTEXITCODE -eq 0) { Write-Host "Build succeeded"; exit 0 }
+            if ($i -lt $maxAttempts) {
+              Write-Host "Build failed (exit $LASTEXITCODE) — retrying in 30s..."
+              Start-Sleep -Seconds 30
+            }
+          }
+          Write-Error "electron-builder failed after $maxAttempts attempts"
+          exit 1
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
