@@ -584,6 +584,17 @@ export class AgentLoop {
           onChunk?.('📸 Robię screenshot...\n\n');
           const capture = await this.screenCapture.captureForComputerUse();
           if (capture) {
+            // Save user message to history BEFORE calling AI — same as normal paths.
+            // Without this, loadHistory() after IPC returns overwrites UI messages with
+            // stale SQLite data and both user + assistant messages disappear.
+            this.memory.addMessage({
+              id: uuidv4(),
+              role: 'user',
+              content: userMessage,
+              timestamp: Date.now(),
+              type: 'chat',
+            });
+
             // Use vision API to understand the screen + answer the user
             const visionResponse = await this.ai.sendMessageWithVision(
               userMessage,
@@ -594,12 +605,21 @@ export class AgentLoop {
             );
             onChunk?.(visionResponse);
 
-            // Process any tool calls, memory updates, etc. from the vision response
+            // Process any memory updates, cron suggestions from the vision response
             await this.responseProcessor.processMemoryUpdates(visionResponse);
             const cronSuggestion = this.responseProcessor.parseCronSuggestion(visionResponse);
             if (cronSuggestion) {
               this.pendingCronSuggestions.push(cronSuggestion);
             }
+
+            // Save assistant response to history — required so loadHistory() sees the reply
+            this.memory.addMessage({
+              id: uuidv4(),
+              role: 'assistant',
+              content: visionResponse,
+              timestamp: Date.now(),
+              type: 'chat',
+            });
 
             // Track token usage
             this.contextBuilder.addTokens(Math.ceil((userMessage.length + visionResponse.length) / 3.5));
