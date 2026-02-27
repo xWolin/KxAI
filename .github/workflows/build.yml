@@ -165,12 +165,17 @@ jobs:
       - name: Build installer (Windows)
         if: matrix.platform == 'win'
         shell: pwsh
+        env:
+          EB_PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK && 'true' || 'false' }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $publish = '${{ startsWith(github.ref, "refs/tags/v") && "always" || "never" }}'
           $maxAttempts = 3
           for ($i = 1; $i -le $maxAttempts; $i++) {
             Write-Host "electron-builder attempt $i/$maxAttempts..."
-            npx electron-builder --win --publish $publish
+            npx electron-builder --win --publish $env:EB_PUBLISH
             if ($LASTEXITCODE -eq 0) { Write-Host "Build succeeded"; exit 0 }
             if ($i -lt $maxAttempts) {
               Write-Host "Build failed (exit $LASTEXITCODE) — retrying in 30s..."
@@ -179,18 +184,22 @@ jobs:
           }
           Write-Error "electron-builder failed after $maxAttempts attempts"
           exit 1
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ secrets.CSC_LINK && 'true' || 'false' }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ── macOS (unsigned fallback / code-signed + notarized when secrets exist) ──
       - name: Build installer (macOS)
         if: matrix.platform == 'mac'
         shell: bash
+        env:
+          EB_PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+          CSC_LINK_SECRET: ${{ secrets.CSC_LINK_MAC }}
+          CSC_KEY_PASSWORD_SECRET: ${{ secrets.CSC_KEY_PASSWORD_MAC }}
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          PUBLISH=${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+          PUBLISH="$EB_PUBLISH"
           if [ -n "$CSC_LINK_SECRET" ]; then
             export CSC_LINK="$CSC_LINK_SECRET"
             export CSC_KEY_PASSWORD="$CSC_KEY_PASSWORD_SECRET"
@@ -199,19 +208,12 @@ jobs:
             # No signing cert — build unsigned (user needs right-click → Open on first launch)
             npx electron-builder --mac --publish "$PUBLISH" -c.mac.identity=null
           fi
-        env:
-          CSC_LINK_SECRET: ${{ secrets.CSC_LINK_MAC }}
-          CSC_KEY_PASSWORD_SECRET: ${{ secrets.CSC_KEY_PASSWORD_MAC }}
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_ID_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build installer (Linux)
         if: matrix.platform == 'linux'
-        run: npx electron-builder --linux --publish ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
+        run: npx electron-builder --linux --publish $EB_PUBLISH
         env:
+          EB_PUBLISH: ${{ startsWith(github.ref, 'refs/tags/v') && 'always' || 'never' }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload artifacts
