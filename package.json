@@ -127,8 +127,7 @@
       "icon": "assets/icons/win/icon.ico",
       "signingHashAlgorithms": [
         "sha256"
-      ],
-      "sign": null
+      ]
     },
     "mac": {
       "target": [
