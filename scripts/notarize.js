@@ -10,8 +10,8 @@
  *
  * Skip notarization:
  *   - On non-macOS platforms (Windows/Linux CI)
- *   - When env vars are not set (local dev builds)
- *   - When CSC_IDENTITY_AUTO_DISCOVERY=false (unsigned builds)
+ *   - When Apple credentials are not set (local dev builds)
+ *   - When CSC_LINK is not set (unsigned builds)
  */
 
 const { notarize } = require('@electron/notarize');
@@ -31,9 +31,9 @@ exports.default = async function notarizing(context) {
     return;
   }
 
-  // Skip if code signing was explicitly disabled
-  if (process.env.CSC_IDENTITY_AUTO_DISCOVERY === 'false') {
-    console.log('Skipping notarization — code signing disabled (CSC_IDENTITY_AUTO_DISCOVERY=false)');
+  // Skip if no signing certificate was provided (unsigned build)
+  if (!process.env.CSC_LINK) {
+    console.log('Skipping notarization — no signing certificate provided (CSC_LINK not set)');
     return;
   }
 

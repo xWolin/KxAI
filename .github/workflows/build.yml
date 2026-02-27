@@ -99,10 +99,10 @@ jobs:
             ~\AppData\Local\electron-builder\Cache
             ~/Library/Caches/electron-builder
             ~/.cache/electron-builder
-          # Stable key — not tied to package-lock hash, only update when upgrading electron-builder
-          key: electron-builder-${{ matrix.os }}-v33-eb25
+          # Stable key — not tied to package-lock hash, only update when upgrading electron/electron-builder
+          key: electron-builder-${{ matrix.os }}-v35-eb26
           restore-keys: |
-            electron-builder-${{ matrix.os }}-v33-
+            electron-builder-${{ matrix.os }}-v35-
             electron-builder-${{ matrix.os }}-
 
       # Pre-download electron-builder binaries with retries to avoid transient network failures
@@ -144,7 +144,7 @@ jobs:
 
           # 2. Electron binary — 115 MB, prone to EOF on Windows runners
           # electron-builder (app-builder.exe) caches at: {cacheDir}\electron\{zipBaseName}\{zipName}
-          $electronVer = "33.4.11"
+          $electronVer = "35.7.5"
           $zipName = "electron-v${electronVer}-win32-x64.zip"
           $electronCacheDir = "$env:LOCALAPPDATA\electron-builder\Cache\electron\electron-v${electronVer}-win32-x64"
           $zipPath = "$electronCacheDir\$zipName"
@@ -163,7 +163,7 @@ jobs:
         if: matrix.platform == 'mac'
         shell: bash
         run: |
-          ELECTRON_VER="33.4.11"
+          ELECTRON_VER="35.7.5"
           # macOS runners are arm64 (M1)
           ZIP_NAME="electron-v${ELECTRON_VER}-darwin-arm64.zip"
           CACHE_DIR="$HOME/Library/Caches/electron-builder/electron/electron-v${ELECTRON_VER}-darwin-arm64"
@@ -195,7 +195,7 @@ jobs:
         if: matrix.platform == 'linux'
         shell: bash
         run: |
-          ELECTRON_VER="33.4.11"
+          ELECTRON_VER="35.7.5"
           ZIP_NAME="electron-v${ELECTRON_VER}-linux-x64.zip"
           CACHE_DIR="$HOME/.cache/electron-builder/electron/electron-v${ELECTRON_VER}-linux-x64"
           ZIP_PATH="${CACHE_DIR}/${ZIP_NAME}"
@@ -270,10 +270,13 @@ jobs:
           if [ -n "$CSC_LINK_SECRET" ]; then
             export CSC_LINK="$CSC_LINK_SECRET"
             export CSC_KEY_PASSWORD="$CSC_KEY_PASSWORD_SECRET"
+            export CSC_IDENTITY_AUTO_DISCOVERY="true"
             npx electron-builder --mac --publish "$PUBLISH"
           else
-            # No signing cert — build unsigned (user needs right-click → Open on first launch)
-            npx electron-builder --mac --publish "$PUBLISH" -c.mac.identity=null
+            # No signing cert — build unsigned without hardened runtime so Gatekeeper allows opening
+            npx electron-builder --mac --publish "$PUBLISH" \
+              --config.mac.identity=null \
+              --config.mac.hardenedRuntime=false
           fi
 
       - name: Build installer (Linux)
