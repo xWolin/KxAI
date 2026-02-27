@@ -32,6 +32,7 @@ jobs:
         env:
           SKIP_ELECTRON_REBUILD: 1
           PHANTOMJS_SKIP_DOWNLOAD: 1
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
 
       - name: Environment preflight
         run: npx vitest run tests/environment/ --reporter=verbose
@@ -90,6 +91,7 @@ jobs:
         run: npm ci --legacy-peer-deps
         env:
           PHANTOMJS_SKIP_DOWNLOAD: 1
+          ELECTRON_SKIP_BINARY_DOWNLOAD: 1
 
       - name: Cache electron-builder binaries
         id: eb-cache
