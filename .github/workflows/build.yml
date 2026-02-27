@@ -145,18 +145,19 @@ jobs:
           }
 
           # 2. Electron binary — 115 MB, prone to EOF on Windows runners
+          # electron-builder (app-builder.exe) caches at: {cacheDir}\electron\{zipBaseName}\{zipName}
           $electronVer = "33.4.11"
           $zipName = "electron-v${electronVer}-win32-x64.zip"
           $electronCacheDir = "$env:LOCALAPPDATA\electron-builder\Cache\electron\electron-v${electronVer}-win32-x64"
-          $legacyCachePath = "$env:LOCALAPPDATA\electron-builder\Cache\electron\${zipName}"
-          if ((Test-Path $electronCacheDir) -or (Test-Path $legacyCachePath)) {
-            Write-Host "Electron binary already cached"
+          $zipPath = "$electronCacheDir\$zipName"
+          if (Test-Path $zipPath) {
+            Write-Host "Electron binary already cached at $zipPath"
           } else {
-            New-Item -ItemType Directory -Force -Path (Split-Path $legacyCachePath) | Out-Null
+            New-Item -ItemType Directory -Force -Path $electronCacheDir | Out-Null
             Download-WithRetry `
               "https://github.com/electron/electron/releases/download/v${electronVer}/${zipName}" `
-              $legacyCachePath "Electron v$electronVer"
-            Write-Host "Electron binary cached at $legacyCachePath"
+              $zipPath "Electron v$electronVer"
+            Write-Host "Electron binary cached at $zipPath"
           }
 
       - name: Generate changelog
