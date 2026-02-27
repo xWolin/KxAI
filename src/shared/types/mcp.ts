@@ -93,6 +93,7 @@ export type McpCategory =
   | 'Bezpieczeństwo'
   | 'Monitoring'
   | 'Dane'
+  | 'Media'
   | 'Inne';
 
 /** Entry in the curated MCP server registry (popular servers) */
