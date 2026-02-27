@@ -433,6 +433,16 @@ export class ServiceContainer {
       },
     );
 
+    // Wire repair & self-healing tools — avoids circular dep by passing runDiagnostic as callback
+    tools.setRepairServices({
+      database: this.get('database'),
+      embedding: this.get('embedding'),
+      runDiagnostic: async () => {
+        const report = await diagnostic.runFullDiagnostic();
+        return DiagnosticService.formatReport(report);
+      },
+    });
+
     // Initialize MCP Client (auto-connects configured servers — network I/O)
     await mcpClient.initialize();
 

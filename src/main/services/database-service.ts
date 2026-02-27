@@ -167,6 +167,42 @@ export class DatabaseService {
     }
   }
 
+  // ─── Self-Repair ───
+
+  /**
+   * Run SQLite integrity check + WAL checkpoint + VACUUM.
+   * Returns a repair report for the AI to analyse.
+   */
+  repairDatabase(): { status: 'ok' | 'repaired' | 'corrupt'; details: string; durationMs: number } {
+    const t0 = Date.now();
+    if (!this.db) {
+      return { status: 'corrupt', details: 'Baza danych nie jest otwarta.', durationMs: 0 };
+    }
+    try {
+      const rows = this.db.pragma('integrity_check') as Array<{ integrity_check: string }>;
+      const integrityOk = rows.length === 1 && rows[0]?.integrity_check === 'ok';
+
+      if (!integrityOk) {
+        const issues = rows.map((r) => r.integrity_check).join('; ');
+        log.error(`Database integrity issues: ${issues}`);
+        return { status: 'corrupt', details: `Problemy z integralnością: ${issues}`, durationMs: Date.now() - t0 };
+      }
+
+      // Checkpoint WAL — flush wal to main db file
+      this.db.pragma('wal_checkpoint(TRUNCATE)');
+
+      // VACUUM — defragment and reclaim space
+      this.db.exec('VACUUM');
+
+      const details = `Integrity OK. WAL checkpoint wykonany. VACUUM zakończony. (${Date.now() - t0}ms)`;
+      log.info('Database repair complete:', details);
+      return { status: 'repaired', details, durationMs: Date.now() - t0 };
+    } catch (err: any) {
+      log.error('Database repair error:', err);
+      return { status: 'corrupt', details: `Błąd naprawy: ${err.message}`, durationMs: Date.now() - t0 };
+    }
+  }
+
   // ─── Migrations ───
 
   private runMigrations(): void {

@@ -404,7 +404,7 @@ export class ReflectionEngine {
     if (type !== 'deep') {
       try {
         if (this.calendar) {
-          const events = (await this.calendar.getUpcomingEvents?.(7)) ?? [];
+          const events = (await this.calendar.getUpcomingEvents?.(7 * 24 * 60)) ?? [];
           if (events.length > 0) {
             calendarSummary = events
               .slice(0, 10)

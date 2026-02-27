@@ -15,6 +15,8 @@ import { PrivacyService } from './privacy-service';
 import { MemoryService } from './memory';
 import { SecurityGuard } from './security-guard';
 import { SystemMonitor } from './system-monitor';
+import { DatabaseService } from './database-service';
+import { EmbeddingService } from './embedding-service';
 
 // Re-export from shared types (canonical source)
 export type { ToolDefinition, ToolResult, ToolCategory } from '../../shared/types/tools';
@@ -34,6 +36,10 @@ export class ToolsService {
   private memoryService?: MemoryService;
   private securityGuard!: SecurityGuard;
   private systemMonitor!: SystemMonitor;
+  private databaseService?: DatabaseService;
+  private embeddingService?: EmbeddingService;
+  /** Callback — avoids circular dep with DiagnosticService (which imports ToolsService) */
+  private runDiagnosticFn?: () => Promise<string>;
 
   /** Callback for workflow recording — called after every tool execution */
   private onToolExecuted?: (name: string, params: any, result: ToolResult, durationMs: number) => void;
@@ -185,6 +191,23 @@ export class ToolsService {
     this.registerCalendarTools();
     this.registerPrivacyTools();
     this.registerMemoryTools();
+  }
+
+  /**
+   * Wire repair/diagnostic services. Called separately from setServices() to avoid
+   * circular dependency (DiagnosticService imports ToolsService).
+   * Must be called AFTER setServices().
+   */
+  setRepairServices(services: {
+    database?: DatabaseService;
+    embedding?: EmbeddingService;
+    /** Pre-bound async function returning a formatted diagnostic report string */
+    runDiagnostic?: () => Promise<string>;
+  }): void {
+    this.databaseService = services.database;
+    this.embeddingService = services.embedding;
+    this.runDiagnosticFn = services.runDiagnostic;
+    this.registerRepairTools();
   }
 
   /**
@@ -2974,6 +2997,186 @@ export class ToolsService {
     });
 
     return `# Available Tools\n\nYou can use tools by responding with a JSON block:\n\`\`\`tool\n{"tool": "tool_name", "params": { ... }}\n\`\`\`\n\nAvailable tools:\n\n${tools.join('\n\n')}`;
+  }
+
+  // ─── Repair & Diagnostic Tools ───
+
+  private registerRepairTools(): void {
+    const db = this.databaseService;
+    const embedding = this.embeddingService;
+    const rag = this.ragService;
+    const cal = this.calendarService;
+    const runDiagnostic = this.runDiagnosticFn;
+
+    // --- system_check ---
+    this.register(
+      {
+        name: 'system_check',
+        description:
+          'Uruchamia pełną diagnostykę wszystkich podsystemów KxAI: AI, baza danych, pamięć, narzędzia, ' +
+          'RAG, przeglądarka, TTS, zasoby systemowe. ' +
+          'Używaj gdy coś nie działa poprawnie lub gdy chcesz sprawdzić stan agenta. ' +
+          'Zwraca szczegółowy raport z wynikami testów.',
+        category: 'system',
+        parameters: {},
+      },
+      async () => {
+        if (!runDiagnostic) {
+          return { success: false, error: 'Serwis diagnostyczny nie jest dostępny.' };
+        }
+        try {
+          const report = await runDiagnostic();
+          return { success: true, data: report };
+        } catch (err: any) {
+          return { success: false, error: `Błąd diagnostyki: ${err.message}` };
+        }
+      },
+    );
+
+    // --- repair_database ---
+    this.register(
+      {
+        name: 'repair_database',
+        description:
+          'Naprawia bazę danych SQLite: sprawdza integralność (PRAGMA integrity_check), ' +
+          'wykonuje WAL checkpoint i VACUUM. ' +
+          'Używaj gdy widzisz błędy SQLite, "database is locked", "disk I/O error" lub inne błędy bazy danych. ' +
+          'Operacja jest bezpieczna i nie usuwa danych.',
+        category: 'system',
+        parameters: {},
+      },
+      async () => {
+        if (!db) {
+          return { success: false, error: 'DatabaseService nie jest dostępny.' };
+        }
+        try {
+          const result = db.repairDatabase();
+          if (result.status === 'corrupt') {
+            return {
+              success: false,
+              error: `Baza danych jest uszkodzona: ${result.details}. Może być konieczne usunięcie pliku bazy i ponowne uruchomienie.`,
+            };
+          }
+          return {
+            success: true,
+            data: `✅ Naprawa bazy danych zakończona (${result.durationMs}ms):\n${result.details}`,
+          };
+        } catch (err: any) {
+          return { success: false, error: `Błąd naprawy: ${err.message}` };
+        }
+      },
+    );
+
+    // --- repair_embedding_cache ---
+    this.register(
+      {
+        name: 'repair_embedding_cache',
+        description:
+          'Czyści cache osadzeń (embeddings) — zarówno pamięć hot-cache jak i SQLite. ' +
+          'Używaj gdy wyszukiwanie semantyczne zwraca błędy, nieprawidłowe wyniki, ' +
+          'lub gdy model embeddings został zmieniony. ' +
+          'Po wyczyszczeniu embeddingi będą przeliczane przy następnym zapytaniu (wolniej przez chwilę).',
+        category: 'system',
+        parameters: {},
+      },
+      async () => {
+        if (!embedding) {
+          return { success: false, error: 'EmbeddingService nie jest dostępny.' };
+        }
+        try {
+          embedding.clearCache();
+          return {
+            success: true,
+            data: '✅ Cache osadzeń wyczyszczony (hot-cache + SQLite). Embeddingi będą przeliczane przy następnym zapytaniu.',
+          };
+        } catch (err: any) {
+          return { success: false, error: `Błąd czyszczenia cache: ${err.message}` };
+        }
+      },
+    );
+
+    // --- repair_rag ---
+    this.register(
+      {
+        name: 'repair_rag',
+        description:
+          'Uruchamia pełny reindeks RAG (Retrieval-Augmented Generation). ' +
+          'Skanuje wszystkie foldery, dzieli pliki na chunki i tworzy nowe embeddingi. ' +
+          'Używaj gdy wyszukiwanie w pamięci/plikach nie działa, zwraca stare wyniki, ' +
+          'lub po dodaniu dużej ilości nowych plików. ' +
+          'UWAGA: Operacja może potrwać kilka minut dla dużych folderów.',
+        category: 'system',
+        parameters: {},
+      },
+      async () => {
+        if (!rag) {
+          return { success: false, error: 'RAGService nie jest dostępny.' };
+        }
+        try {
+          // Kick off reindex in background (non-blocking)
+          void rag.reindex().catch((err) => {
+            // Error is logged by RAGService internally
+            void err;
+          });
+          return {
+            success: true,
+            data: '🔄 Reindeksacja RAG uruchomiona w tle. Możesz kontynuować pracę — postęp będzie widoczny w UI. Zakończenie zajmie od kilku sekund do kilku minut w zależności od liczby plików.',
+          };
+        } catch (err: any) {
+          return { success: false, error: `Błąd uruchamiania reindeksacji: ${err.message}` };
+        }
+      },
+    );
+
+    // --- repair_calendar ---
+    this.register(
+      {
+        name: 'repair_calendar',
+        description:
+          'Próbuje ponownie połączyć wszystkie kalendarze CalDAV które są w stanie błędu lub rozłączone. ' +
+          'Używaj gdy narzędzia kalendarza zwracają błędy połączenia, "nie można pobrać wydarzeń", ' +
+          'lub gdy synchronizacja zatrzymała się.',
+        category: 'system',
+        parameters: {},
+      },
+      async () => {
+        if (!cal) {
+          return { success: false, error: 'CalendarService nie jest dostępny.' };
+        }
+        try {
+          const status = cal.getStatus();
+          const failed = status.connections.filter((c) => c.status === 'error' || c.status === 'disconnected');
+
+          if (failed.length === 0) {
+            return {
+              success: true,
+              data: `✅ Wszystkie kalendarze (${status.connections.length}) są połączone. Nic do naprawy.`,
+            };
+          }
+
+          // Reconnect each failed connection
+          const results: string[] = [];
+          for (const conn of failed) {
+            try {
+              await cal.connect(conn.id);
+              const newStatus = cal.getStatus().connections.find((c) => c.id === conn.id);
+              results.push(
+                `• ${conn.name}: ${newStatus?.status === 'connected' ? '✅ połączono' : `❌ nadal błąd: ${newStatus?.error ?? 'nieznany'}`}`,
+              );
+            } catch (err: any) {
+              results.push(`• ${conn.name}: ❌ ${err.message}`);
+            }
+          }
+
+          return {
+            success: true,
+            data: `Próba ponownego połączenia (${failed.length} połączeń):\n${results.join('\n')}`,
+          };
+        } catch (err: any) {
+          return { success: false, error: `Błąd naprawy kalendarza: ${err.message}` };
+        }
+      },
+    );
   }
 }
 
