@@ -124,10 +124,7 @@
     ],
     "win": {
       "target": "nsis",
-      "icon": "assets/icons/win/icon.ico",
-      "signingHashAlgorithms": [
-        "sha256"
-      ]
+      "icon": "assets/icons/win/icon.ico"
     },
     "mac": {
       "target": [
