@@ -158,6 +158,69 @@ jobs:
             Write-Host "Electron binary cached at $zipPath"
           }
 
+      # Pre-download Electron binary with retries (macOS)
+      - name: Pre-fetch Electron binary (macOS)
+        if: matrix.platform == 'mac'
+        shell: bash
+        run: |
+          ELECTRON_VER="33.4.11"
+          # macOS runners are arm64 (M1)
+          ZIP_NAME="electron-v${ELECTRON_VER}-darwin-arm64.zip"
+          CACHE_DIR="$HOME/Library/Caches/electron-builder/electron/electron-v${ELECTRON_VER}-darwin-arm64"
+          ZIP_PATH="${CACHE_DIR}/${ZIP_NAME}"
+
+          if [ -f "$ZIP_PATH" ]; then
+            echo "Electron binary already cached at $ZIP_PATH"
+            exit 0
+          fi
+
+          mkdir -p "$CACHE_DIR"
+          URL="https://github.com/electron/electron/releases/download/v${ELECTRON_VER}/${ZIP_NAME}"
+          MAX_RETRIES=5; DELAY=15
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Downloading Electron v${ELECTRON_VER} darwin-arm64 (attempt $i/$MAX_RETRIES)..."
+            if curl -fSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 -o "$ZIP_PATH" "$URL"; then
+              echo "Electron binary cached at $ZIP_PATH"
+              exit 0
+            fi
+            echo "Failed — retrying in ${DELAY}s..."
+            sleep $DELAY
+            DELAY=$((DELAY * 2 > 60 ? 60 : DELAY * 2))
+          done
+          echo "::error::Electron download failed after $MAX_RETRIES attempts"
+          exit 1
+
+      # Pre-download Electron binary with retries (Linux)
+      - name: Pre-fetch Electron binary (Linux)
+        if: matrix.platform == 'linux'
+        shell: bash
+        run: |
+          ELECTRON_VER="33.4.11"
+          ZIP_NAME="electron-v${ELECTRON_VER}-linux-x64.zip"
+          CACHE_DIR="$HOME/.cache/electron-builder/electron/electron-v${ELECTRON_VER}-linux-x64"
+          ZIP_PATH="${CACHE_DIR}/${ZIP_NAME}"
+
+          if [ -f "$ZIP_PATH" ]; then
+            echo "Electron binary already cached at $ZIP_PATH"
+            exit 0
+          fi
+
+          mkdir -p "$CACHE_DIR"
+          URL="https://github.com/electron/electron/releases/download/v${ELECTRON_VER}/${ZIP_NAME}"
+          MAX_RETRIES=5; DELAY=15
+          for i in $(seq 1 $MAX_RETRIES); do
+            echo "Downloading Electron v${ELECTRON_VER} linux-x64 (attempt $i/$MAX_RETRIES)..."
+            if curl -fSL --retry 3 --retry-delay 5 --connect-timeout 30 --max-time 300 -o "$ZIP_PATH" "$URL"; then
+              echo "Electron binary cached at $ZIP_PATH"
+              exit 0
+            fi
+            echo "Failed — retrying in ${DELAY}s..."
+            sleep $DELAY
+            DELAY=$((DELAY * 2 > 60 ? 60 : DELAY * 2))
+          done
+          echo "::error::Electron download failed after $MAX_RETRIES attempts"
+          exit 1
+
       - name: Generate changelog
         if: matrix.platform == 'win'
         run: node scripts/generate-changelog.js
