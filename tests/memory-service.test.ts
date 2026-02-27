@@ -102,10 +102,10 @@ describe('MemoryService', () => {
 
   describe('initialize', () => {
     it('creates workspace directories', async () => {
-      fsMock.existsSync.mockReturnValue(false);
+      fspMock.access.mockRejectedValue(new Error('ENOENT'));
       await memory.initialize();
 
-      expect(fsMock.mkdirSync).toHaveBeenCalledWith(
+      expect(fspMock.mkdir).toHaveBeenCalledWith(
         expect.stringContaining('workspace'),
         { recursive: true },
       );
@@ -146,10 +146,10 @@ describe('MemoryService', () => {
     });
 
     it('creates default SOUL.md, USER.md, MEMORY.md, HEARTBEAT.md files', async () => {
-      fsMock.existsSync.mockReturnValue(false);
+      fspMock.access.mockRejectedValue(new Error('ENOENT'));
       await memory.initialize();
 
-      const writtenFiles = fsMock.writeFileSync.mock.calls.map(
+      const writtenFiles = fspMock.writeFile.mock.calls.map(
         (c: any[]) => path.basename(c[0] as string),
       );
       expect(writtenFiles).toContain('SOUL.md');
@@ -493,9 +493,9 @@ describe('MemoryService', () => {
       expect(memory.getSessionDates()).toEqual(['2024-01-01', '2024-01-02']);
     });
 
-    it('getDatabaseStats delegates to DB', () => {
-      db.getStats.mockReturnValue({ totalMessages: 100, totalSessions: 5, dbSizeBytes: 1024 });
-      expect(memory.getDatabaseStats()).toEqual({
+    it('getDatabaseStats delegates to DB', async () => {
+      db.getStats.mockResolvedValue({ totalMessages: 100, totalSessions: 5, dbSizeBytes: 1024 });
+      expect(await memory.getDatabaseStats()).toEqual({
         totalMessages: 100,
         totalSessions: 5,
         dbSizeBytes: 1024,

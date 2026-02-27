@@ -67,7 +67,7 @@ function renderMarkdown(text: string): string {
  */
 function MessageContent({ content, highlighterReady }: { content: string; highlighterReady: boolean }) {
   const { t } = useTranslation();
-  const html = useMemo(() => renderMarkdown(content), [content, highlighterReady]);
+  const html = useMemo(() => renderMarkdown(content), [content]);
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
@@ -164,13 +164,19 @@ export function ChatPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const recognitionRef = useRef<any>(null);
 
+  const loadHistory = useCallback(async () => {
+    const history = await window.kxai.getConversationHistory();
+    storeSetMessages(history);
+    // Screenshot preview ID remap is handled by the useEffect([messages]) above.
+  }, [storeSetMessages]);
+
   useEffect(() => {
     loadHistory();
     loadProactiveMode();
     initHighlighter().then(() => setHighlighterReady(true));
     // onAIStream is now registered globally in useStoreInit — it persists
     // across ChatPanel mount/unmount so progress is never lost.
-  }, []);
+  }, [loadHistory]);
 
   // Remap screenshot preview IDs when messages change (optimistic opt-* → real backend IDs)
   useEffect(() => {
@@ -203,13 +209,7 @@ export function ChatPanel({
     if (refreshTrigger && refreshTrigger > 0) {
       loadHistory();
     }
-  }, [refreshTrigger]);
-
-  async function loadHistory() {
-    const history = await window.kxai.getConversationHistory();
-    storeSetMessages(history);
-    // Screenshot preview ID remap is handled by the useEffect([messages]) above.
-  }
+  }, [refreshTrigger, loadHistory]);
 
   async function loadProactiveMode() {
     const mode = await window.kxai.getProactiveMode();
@@ -268,7 +268,7 @@ export function ChatPanel({
     setProactiveEnabled(newMode);
   }
 
-  async function captureAndAnalyze() {
+  const captureAndAnalyze = useCallback(async () => {
     setStreaming(true);
     storeSetStreamingContent('');
 
@@ -324,7 +324,7 @@ export function ChatPanel({
         timestamp: Date.now(),
       });
     }
-  }
+  }, [setStreaming, storeSetStreamingContent, t, addMessage, loadHistory]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {

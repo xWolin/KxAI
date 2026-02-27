@@ -407,7 +407,7 @@ export class PrivacyService {
       };
     }
 
-    const stats = this.db.getStats();
+    const stats = await this.db.getStats();
     return {
       category: 'conversations',
       label: meta.label,

@@ -208,12 +208,12 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
       } else if (this.platform === 'darwin') {
         // Write text to temp file and use osascript to read from file to avoid injection
         const tmpFile = path.join(os.tmpdir(), `kxai-type-${Date.now()}.txt`);
-        fs.writeFileSync(tmpFile, text, 'utf8');
+        await fs.promises.writeFile(tmpFile, text, 'utf8');
         const result = await this.runCommand(
           `osascript -e 'set theText to (read POSIX file "${tmpFile}" as «class utf8»)' -e 'tell application "System Events" to keystroke theText'`,
         );
         try {
-          fs.unlinkSync(tmpFile);
+          await fs.promises.unlink(tmpFile);
         } catch {
           /* ignore */
         }
@@ -221,10 +221,10 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
       } else {
         // Write text to temp file and pipe to xdotool to avoid injection
         const tmpFile = path.join(os.tmpdir(), `kxai-type-${Date.now()}.txt`);
-        fs.writeFileSync(tmpFile, text, 'utf8');
+        await fs.promises.writeFile(tmpFile, text, 'utf8');
         const result = await this.runCommand(`xdotool type --delay 20 --clearmodifiers -- "$(cat '${tmpFile}')"`);
         try {
-          fs.unlinkSync(tmpFile);
+          await fs.promises.unlink(tmpFile);
         } catch {
           /* ignore */
         }
@@ -394,7 +394,7 @@ public class Win32Window {
       exec(
         `powershell -NoProfile -NonInteractive -Command "${script.replace(/"/g, '\\"')}"`,
         { timeout: 10000 },
-        (error, stdout, stderr) => {
+        (error, stdout, _stderr) => {
           if (error) {
             resolve({ success: false, error: error.message });
           } else {

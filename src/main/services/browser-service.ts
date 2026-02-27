@@ -202,7 +202,7 @@ export class BrowserService {
    * Get the user's real browser profile directory based on the detected browser executable.
    * This allows the agent to use existing cookies, logins, and sessions.
    */
-  private getUserProfileDir(browserExe: string): string {
+  private async getUserProfileDir(browserExe: string): Promise<string> {
     const name = path.basename(browserExe).toLowerCase();
     const platform = process.platform;
 
@@ -229,9 +229,14 @@ export class BrowserService {
       else if (name.includes('brave')) profileDir = path.join(home, '.config', 'BraveSoftware', 'Brave-Browser');
     }
 
-    if (profileDir && fs.existsSync(profileDir)) {
-      log.info(`Znaleziono profil użytkownika: ${profileDir}`);
-      return profileDir;
+    if (profileDir) {
+      try {
+        await fs.promises.access(profileDir);
+        log.info(`Znaleziono profil użytkownika: ${profileDir}`);
+        return profileDir;
+      } catch {
+        // profile dir doesn't exist — fall through
+      }
     }
 
     log.info('Brak profilu użytkownika, używam profilu KxAI');
@@ -244,10 +249,14 @@ export class BrowserService {
    */
   private async tryConnectToExisting(profileDir: string): Promise<boolean> {
     const activePortFile = path.join(profileDir, 'DevToolsActivePort');
-    if (!fs.existsSync(activePortFile)) return false;
+    try {
+      await fs.promises.access(activePortFile);
+    } catch {
+      return false;
+    }
 
     try {
-      const content = fs.readFileSync(activePortFile, 'utf-8');
+      const content = await fs.promises.readFile(activePortFile, 'utf-8');
       const port = parseInt(content.split('\n')[0], 10);
       if (!port || port <= 0) return false;
 
@@ -279,12 +288,12 @@ export class BrowserService {
    * Check if the browser is already running with the given user data dir.
    * Chrome creates a lockfile 'SingletonLock' (Linux/Mac) or 'lockfile' (Windows).
    */
-  private isBrowserProfileLocked(profileDir: string, browserExe?: string): boolean {
+  private async isBrowserProfileLocked(profileDir: string, browserExe?: string): Promise<boolean> {
     const lockFiles = [path.join(profileDir, 'SingletonLock'), path.join(profileDir, 'lockfile')];
 
     for (const lf of lockFiles) {
       try {
-        fs.lstatSync(lf);
+        await fs.promises.lstat(lf);
         return true;
       } catch {
         /* not found */
@@ -510,19 +519,26 @@ export class BrowserService {
    * Prevent "Chrome didn't shut down correctly" crash bar by marking the profile
    * as cleanly exited. Mirrors OpenClaw's `ensureProfileCleanExit`.
    */
-  private ensureProfileCleanExit(userDataDir: string): void {
+  private async ensureProfileCleanExit(userDataDir: string): Promise<void> {
     const prefsPath = path.join(userDataDir, 'Default', 'Preferences');
     try {
       let prefs: Record<string, any> = {};
-      if (fs.existsSync(prefsPath)) {
-        const raw = fs.readFileSync(prefsPath, 'utf-8');
+      let prefsExists = false;
+      try {
+        await fs.promises.access(prefsPath);
+        prefsExists = true;
+      } catch {
+        prefsExists = false;
+      }
+      if (prefsExists) {
+        const raw = await fs.promises.readFile(prefsPath, 'utf-8');
         try {
           prefs = JSON.parse(raw);
         } catch {
           prefs = {};
         }
       } else {
-        fs.mkdirSync(path.join(userDataDir, 'Default'), { recursive: true });
+        await fs.promises.mkdir(path.join(userDataDir, 'Default'), { recursive: true });
       }
 
       // Mark as clean exit — prevents "Restore pages?" crash bar
@@ -533,7 +549,7 @@ export class BrowserService {
       if (!prefs['browser']) prefs['browser'] = {};
       prefs['browser']['check_default_browser'] = false;
 
-      fs.writeFileSync(prefsPath, JSON.stringify(prefs, null, 2), 'utf-8');
+      await fs.promises.writeFile(prefsPath, JSON.stringify(prefs, null, 2), 'utf-8');
       log.info('ensureProfileCleanExit: Preferences patched');
     } catch (err: any) {
       log.warn(`ensureProfileCleanExit failed: ${err.message}`);
@@ -544,12 +560,19 @@ export class BrowserService {
    * Suppress the yellow "Unsupported command-line flag" warning bar by setting
    * `commandLineFlagSecurityWarningsEnabled: false` in Chrome's Local State file.
    */
-  private suppressCommandLineFlagWarning(userDataDir: string): void {
+  private async suppressCommandLineFlagWarning(userDataDir: string): Promise<void> {
     const localStatePath = path.join(userDataDir, 'Local State');
     try {
       let state: Record<string, any> = {};
-      if (fs.existsSync(localStatePath)) {
-        const raw = fs.readFileSync(localStatePath, 'utf-8');
+      let stateExists = false;
+      try {
+        await fs.promises.access(localStatePath);
+        stateExists = true;
+      } catch {
+        stateExists = false;
+      }
+      if (stateExists) {
+        const raw = await fs.promises.readFile(localStatePath, 'utf-8');
         try {
           state = JSON.parse(raw);
         } catch {
@@ -561,7 +584,7 @@ export class BrowserService {
       state['browser']['enabled_labs_experiments'] = state['browser']['enabled_labs_experiments'] || [];
       state['browser']['command_line_flag_security_warnings_enabled'] = false;
 
-      fs.writeFileSync(localStatePath, JSON.stringify(state, null, 2), 'utf-8');
+      await fs.promises.writeFile(localStatePath, JSON.stringify(state, null, 2), 'utf-8');
       log.info('suppressCommandLineFlagWarning: Local State patched');
     } catch (err: any) {
       log.warn(`suppressCommandLineFlagWarning failed: ${err.message}`);
@@ -580,7 +603,7 @@ export class BrowserService {
    *   2. Falling back to a short retry loop with delay before direct copy
    * Non-DB files (Preferences, Local State) are safe to copy directly.
    */
-  private copyProfileForSharing(userProfileDir: string, targetDir: string): boolean {
+  private async copyProfileForSharing(userProfileDir: string, targetDir: string): Promise<boolean> {
     const rootFiles = ['Local State'];
     // SQLite DB files that Chrome may hold open with WAL — need safe copy
     const sqliteFiles = ['Cookies', 'Login Data', 'Web Data', 'Extension Cookies'];
@@ -598,19 +621,26 @@ export class BrowserService {
     ];
 
     try {
-      fs.mkdirSync(path.join(targetDir, 'Default'), { recursive: true });
+      await fs.promises.mkdir(path.join(targetDir, 'Default'), { recursive: true });
     } catch {
       /* exists */
     }
 
     let copied = 0;
-    let warnings: string[] = [];
+    const warnings: string[] = [];
 
     for (const file of rootFiles) {
       try {
         const src = path.join(userProfileDir, file);
-        if (fs.existsSync(src)) {
-          fs.copyFileSync(src, path.join(targetDir, file));
+        let srcExists = false;
+        try {
+          await fs.promises.access(src);
+          srcExists = true;
+        } catch {
+          srcExists = false;
+        }
+        if (srcExists) {
+          await fs.promises.copyFile(src, path.join(targetDir, file));
           copied++;
         }
       } catch (err: any) {
@@ -621,13 +651,20 @@ export class BrowserService {
     for (const file of profileFiles) {
       const src = path.join(userProfileDir, 'Default', file);
       const dst = path.join(targetDir, 'Default', file);
-      if (!fs.existsSync(src)) continue;
+      let srcExists = false;
+      try {
+        await fs.promises.access(src);
+        srcExists = true;
+      } catch {
+        // srcExists remains false
+      }
+      if (!srcExists) continue;
 
       const isSqliteDb = sqliteFiles.includes(file);
 
       if (isSqliteDb) {
         // Try sqlite3 .backup for a consistent snapshot
-        if (this.trySqliteBackup(src, dst)) {
+        if (await this.trySqliteBackup(src, dst)) {
           log.info(`${file}: skopiowano przez sqlite3 backup (bezpieczne)`);
           copied++;
           continue;
@@ -638,13 +675,10 @@ export class BrowserService {
         for (let attempt = 0; attempt < 3; attempt++) {
           try {
             if (attempt > 0) {
-              // Synchronous sleep — acceptable here as this runs once at launch
-              const waitUntil = Date.now() + 200;
-              while (Date.now() < waitUntil) {
-                /* busy wait */
-              }
+              // Short delay — acceptable here as this runs once at launch
+              await new Promise((resolve) => setTimeout(resolve, 200));
             }
-            fs.copyFileSync(src, dst);
+            await fs.promises.copyFile(src, dst);
             directCopyOk = true;
             break;
           } catch {
@@ -662,7 +696,7 @@ export class BrowserService {
       } else {
         // Non-SQLite files — safe to copy directly
         try {
-          fs.copyFileSync(src, dst);
+          await fs.promises.copyFile(src, dst);
           copied++;
         } catch (err: any) {
           log.warn(`Nie skopiowano Default/${file}: ${err.message}`);
@@ -681,10 +715,15 @@ export class BrowserService {
    * Attempt a consistent SQLite backup via `sqlite3` CLI subprocess.
    * Returns true if successful, false otherwise (sqlite3 not installed, locked, etc.).
    */
-  private trySqliteBackup(srcDb: string, dstDb: string): boolean {
+  private async trySqliteBackup(srcDb: string, dstDb: string): Promise<boolean> {
     try {
       execSync(`sqlite3 "${srcDb}" ".backup '${dstDb}'"`, { timeout: 5000, windowsHide: true, stdio: 'ignore' });
-      return fs.existsSync(dstDb);
+      try {
+        await fs.promises.access(dstDb);
+        return true;
+      } catch {
+        return false;
+      }
     } catch (err: any) {
       log.info(`sqlite3 backup niedostępny/błąd: ${err.message}`);
       return false;
@@ -699,14 +738,14 @@ export class BrowserService {
    * Detect installed Chromium-based browser.
    * Priority: Chrome → Edge → Brave → Chromium.
    */
-  private detectBrowser(): string | null {
+  private async detectBrowser(): Promise<string | null> {
     const platform = process.platform;
     if (platform === 'win32') return this.detectBrowserWindows();
     if (platform === 'darwin') return this.detectBrowserMac();
     return this.detectBrowserLinux();
   }
 
-  private detectBrowserWindows(): string | null {
+  private async detectBrowserWindows(): Promise<string | null> {
     const programFiles = process.env['ProgramFiles'] || 'C:\\Program Files';
     const programFilesX86 = process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)';
     const localAppData = process.env['LOCALAPPDATA'] || '';
@@ -723,12 +762,17 @@ export class BrowserService {
     ];
 
     for (const p of candidates) {
-      if (fs.existsSync(p)) return p;
+      try {
+        await fs.promises.access(p);
+        return p;
+      } catch {
+        // not found — try next
+      }
     }
     return null;
   }
 
-  private detectBrowserMac(): string | null {
+  private async detectBrowserMac(): Promise<string | null> {
     const candidates = [
       '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
       '/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge',
@@ -739,7 +783,12 @@ export class BrowserService {
     ];
 
     for (const p of candidates) {
-      if (fs.existsSync(p)) return p;
+      try {
+        await fs.promises.access(p);
+        return p;
+      } catch {
+        // not found — try next
+      }
     }
 
     // macOS Spotlight fallback
@@ -750,7 +799,12 @@ export class BrowserService {
       }).trim();
       if (result) {
         const chromePath = path.join(result.split('\n')[0], 'Contents/MacOS/Google Chrome');
-        if (fs.existsSync(chromePath)) return chromePath;
+        try {
+          await fs.promises.access(chromePath);
+          return chromePath;
+        } catch {
+          // not found
+        }
       }
     } catch {
       /* not found */
@@ -759,7 +813,7 @@ export class BrowserService {
     return null;
   }
 
-  private detectBrowserLinux(): string | null {
+  private async detectBrowserLinux(): Promise<string | null> {
     const names = [
       'google-chrome',
       'google-chrome-stable',
@@ -793,7 +847,7 @@ export class BrowserService {
       return { success: false, error: 'Przeglądarka jest już uruchomiona. Zamknij ją najpierw (browser_close).' };
     }
 
-    const execPath = this.detectBrowser();
+    const execPath = await this.detectBrowser();
     if (!execPath) {
       return {
         success: false,
@@ -803,7 +857,7 @@ export class BrowserService {
 
     try {
       // Resolve user's real browser profile
-      const realProfileDir = this.getUserProfileDir(execPath);
+      const realProfileDir = await this.getUserProfileDir(execPath);
       this.userDataDir = realProfileDir;
 
       // ── Strategy 1: DevToolsActivePort file in profile dir ──
@@ -831,10 +885,14 @@ export class BrowserService {
       }
 
       // ── Strategy 3: Profile not locked → launch with user's real profile ──
-      if (!this.isBrowserProfileLocked(realProfileDir, execPath)) {
+      if (!(await this.isBrowserProfileLocked(realProfileDir, execPath))) {
         try {
           this.userDataDir = realProfileDir;
-          if (!fs.existsSync(this.userDataDir)) fs.mkdirSync(this.userDataDir, { recursive: true });
+          try {
+            await fs.promises.access(this.userDataDir);
+          } catch {
+            await fs.promises.mkdir(this.userDataDir, { recursive: true });
+          }
           await this.launchViaCDP(execPath, options);
           log.info('Uruchomiono z profilem użytkownika (przeglądarka nie działała)');
           return this.afterConnect(execPath, options, 'profil użytkownika');
@@ -856,14 +914,19 @@ export class BrowserService {
 
       // ── Strategy 4: Profile locked → use persistent KxAI profile ──
       const kxaiProfileDir = path.join(app.getPath('userData'), 'browser-profile');
-      const isFirstLaunch = !fs.existsSync(path.join(kxaiProfileDir, 'Default', 'Preferences'));
+      let isFirstLaunch = false;
+      try {
+        await fs.promises.access(path.join(kxaiProfileDir, 'Default', 'Preferences'));
+      } catch {
+        isFirstLaunch = true;
+      }
 
       let cookiesCopied = false;
 
       if (isFirstLaunch) {
         log.info('Pierwsza sesja KxAI — próbuję skopiować cookies z profilu użytkownika...');
         try {
-          cookiesCopied = this.copyProfileForSharing(realProfileDir, kxaiProfileDir);
+          cookiesCopied = await this.copyProfileForSharing(realProfileDir, kxaiProfileDir);
           log.info(
             `Kopia cookies: ${cookiesCopied ? 'OK — cookies skopiowane' : 'BRAK — profil izolowany (zaloguj się ręcznie)'}`,
           );
@@ -876,7 +939,11 @@ export class BrowserService {
       }
 
       this.userDataDir = kxaiProfileDir;
-      if (!fs.existsSync(this.userDataDir)) fs.mkdirSync(this.userDataDir, { recursive: true });
+      try {
+        await fs.promises.access(this.userDataDir);
+      } catch {
+        await fs.promises.mkdir(this.userDataDir, { recursive: true });
+      }
       await this.launchViaCDP(execPath, options);
 
       const label = isFirstLaunch
@@ -1778,16 +1845,16 @@ export class BrowserService {
       return { success: false, error: 'Zamknij przeglądarkę (browser_close) przed odświeżeniem cookies.' };
     }
 
-    const execPath = this.detectBrowser();
+    const execPath = await this.detectBrowser();
     if (!execPath) {
       return { success: false, error: 'Nie znaleziono przeglądarki.' };
     }
 
-    const realProfileDir = this.getUserProfileDir(execPath);
+    const realProfileDir = await this.getUserProfileDir(execPath);
     const kxaiProfileDir = path.join(app.getPath('userData'), 'browser-profile');
 
     try {
-      const hasCookies = this.copyProfileForSharing(realProfileDir, kxaiProfileDir);
+      const hasCookies = await this.copyProfileForSharing(realProfileDir, kxaiProfileDir);
       return {
         success: true,
         data: hasCookies

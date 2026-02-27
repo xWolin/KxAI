@@ -63,7 +63,7 @@ export class EmbeddingService {
     }
 
     // Migrate legacy JSON cache to SQLite (one-time operation)
-    this.migrateLegacyCache();
+    await this.migrateLegacyCache();
 
     // Try to initialize OpenAI client for embeddings
     // Priority: dedicated 'openai-embeddings' key > main 'openai' key
@@ -409,23 +409,34 @@ export class EmbeddingService {
    * Migrate legacy JSON embedding cache to SQLite.
    * Runs once — deletes JSON file after successful import.
    */
-  private migrateLegacyCache(): void {
+  private async migrateLegacyCache(): Promise<void> {
     try {
-      if (!fs.existsSync(this.legacyCachePath)) return;
+      try {
+        await fs.promises.access(this.legacyCachePath);
+      } catch {
+        return;
+      }
 
       // Check model consistency — if model changed, don't import old cache
-      if (fs.existsSync(this.legacyCacheModelPath)) {
-        const savedModel = fs.readFileSync(this.legacyCacheModelPath, 'utf8').trim();
+      let modelFileExists = false;
+      try {
+        await fs.promises.access(this.legacyCacheModelPath);
+        modelFileExists = true;
+      } catch {
+        /* file does not exist */
+      }
+      if (modelFileExists) {
+        const savedModel = (await fs.promises.readFile(this.legacyCacheModelPath, 'utf8')).trim();
         if (savedModel !== this.embeddingModel) {
           log.warn(`Legacy cache model (${savedModel}) differs from current (${this.embeddingModel}), skipping import`);
           // Clean up legacy files
           try {
-            fs.unlinkSync(this.legacyCachePath);
+            await fs.promises.unlink(this.legacyCachePath);
           } catch {
             /* ignore cleanup errors */
           }
           try {
-            fs.unlinkSync(this.legacyCacheModelPath);
+            await fs.promises.unlink(this.legacyCacheModelPath);
           } catch {
             /* ignore cleanup errors */
           }
@@ -433,24 +444,29 @@ export class EmbeddingService {
         }
       }
 
-      const imported = this.dbService.importEmbeddingCache(this.legacyCachePath, this.embeddingModel);
+      const imported = await this.dbService.importEmbeddingCache(this.legacyCachePath, this.embeddingModel);
       if (imported > 0) {
         log.info(`Migrated ${imported} embeddings from JSON to SQLite`);
         // Remove legacy files after successful migration
         try {
-          fs.unlinkSync(this.legacyCachePath);
+          await fs.promises.unlink(this.legacyCachePath);
         } catch {
           /* ignore cleanup errors */
         }
         try {
-          fs.unlinkSync(this.legacyCacheModelPath);
+          await fs.promises.unlink(this.legacyCacheModelPath);
         } catch {
           /* ignore cleanup errors */
         }
         // Also remove .tmp files if exist
         try {
           const tmpPath = this.legacyCachePath + '.tmp';
-          if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath);
+          try {
+            await fs.promises.access(tmpPath);
+            await fs.promises.unlink(tmpPath);
+          } catch {
+            /* file does not exist or cleanup error */
+          }
         } catch {
           /* ignore cleanup errors */
         }
@@ -494,11 +510,13 @@ export class EmbeddingService {
    * Initialize the worker thread for CPU-intensive TF-IDF operations.
    * Called lazily on first batch TF-IDF operation.
    */
-  private ensureWorker(): Worker {
+  private async ensureWorker(): Promise<Worker> {
     if (this.worker && this.workerReady) return this.worker;
 
     const workerPath = path.join(__dirname, 'embedding-worker.js');
-    if (!fs.existsSync(workerPath)) {
+    try {
+      await fs.promises.access(workerPath);
+    } catch {
       throw new Error(`Worker file not found: ${workerPath}`);
     }
 
@@ -542,12 +560,12 @@ export class EmbeddingService {
   /**
    * Send a message to the worker and await the result.
    */
-  private workerCall<T>(msg: Record<string, any>): Promise<T> {
+  private async workerCall<T>(msg: Record<string, any>): Promise<T> {
     const id = ++this.workerMsgId;
+    const worker = await this.ensureWorker();
     return new Promise<T>((resolve, reject) => {
       this.workerCallbacks.set(id, { resolve, reject });
       try {
-        const worker = this.ensureWorker();
         worker.postMessage({ ...msg, id });
       } catch (err: any) {
         this.workerCallbacks.delete(id);

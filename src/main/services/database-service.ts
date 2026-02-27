@@ -20,10 +20,10 @@ import type { RAGChunk } from '../../shared/types/rag';
 const log = createLogger('DatabaseService');
 
 // ─── Schema version for migrations ───
-const SCHEMA_VERSION = 2;
+const _SCHEMA_VERSION = 2;
 
 // ─── Embedding dimensions ───
-const EMBEDDING_DIM_TFIDF = 256; // TF-IDF fallback
+const _EMBEDDING_DIM_TFIDF = 256; // TF-IDF fallback
 
 /** Known OpenAI embedding model dimensions (native, without `dimensions` param). */
 export const EMBEDDING_MODEL_DIMS: Record<string, number> = {
@@ -40,7 +40,7 @@ export function getModelDimension(model: string): number {
 // ─── Retention defaults ───
 const DEFAULT_ARCHIVE_DAYS = 30;
 const DEFAULT_DELETE_DAYS = 90;
-const MAX_SESSION_MESSAGES = 500;
+const _MAX_SESSION_MESSAGES = 500;
 
 export interface MessageRow {
   id: string;
@@ -120,10 +120,12 @@ export class DatabaseService {
 
   // ─── Lifecycle ───
 
-  initialize(): void {
+  async initialize(): Promise<void> {
     const dbDir = path.dirname(this.dbPath);
-    if (!fs.existsSync(dbDir)) {
-      fs.mkdirSync(dbDir, { recursive: true });
+    try {
+      await fs.promises.access(dbDir);
+    } catch {
+      await fs.promises.mkdir(dbDir, { recursive: true });
     }
 
     log.info(`Opening database at ${this.dbPath}`);
@@ -827,11 +829,16 @@ export class DatabaseService {
    * Import old JSON session files into SQLite.
    * Reads sessions/*.json from workspace and inserts into database.
    */
-  importJsonSessions(workspacePath: string): number {
+  async importJsonSessions(workspacePath: string): Promise<number> {
     const sessionsDir = path.join(workspacePath, 'sessions');
-    if (!fs.existsSync(sessionsDir)) return 0;
+    try {
+      await fs.promises.access(sessionsDir);
+    } catch {
+      return 0;
+    }
 
-    const files = fs.readdirSync(sessionsDir).filter((f) => f.endsWith('.json'));
+    const allFiles = await fs.promises.readdir(sessionsDir);
+    const files = allFiles.filter((f) => f.endsWith('.json'));
     let imported = 0;
 
     for (const file of files) {
@@ -843,7 +850,7 @@ export class DatabaseService {
         const existing = this.getStmt('countSessionMessages').get(sessionDate) as { count: number };
         if (existing.count > 0) continue;
 
-        const data = fs.readFileSync(filePath, 'utf8');
+        const data = await fs.promises.readFile(filePath, 'utf8');
         const messages: ConversationMessage[] = JSON.parse(data);
 
         if (messages.length > 0) {
@@ -868,7 +875,7 @@ export class DatabaseService {
   /**
    * Get database statistics.
    */
-  getStats(): { totalMessages: number; totalSessions: number; dbSizeBytes: number } {
+  async getStats(): Promise<{ totalMessages: number; totalSessions: number; dbSizeBytes: number }> {
     if (!this.db) return { totalMessages: 0, totalSessions: 0, dbSizeBytes: 0 };
 
     try {
@@ -878,8 +885,11 @@ export class DatabaseService {
       };
 
       let dbSize = 0;
-      if (fs.existsSync(this.dbPath)) {
-        dbSize = fs.statSync(this.dbPath).size;
+      try {
+        const stat = await fs.promises.stat(this.dbPath);
+        dbSize = stat.size;
+      } catch {
+        // File may not exist yet
       }
 
       return {
@@ -1619,11 +1629,16 @@ export class DatabaseService {
    * Import embeddings from old JSON cache file into SQLite.
    * Used for migration from EmbeddingService's embedding-cache.json.
    */
-  importEmbeddingCache(cachePath: string, model: string): number {
-    if (!this.db || !fs.existsSync(cachePath)) return 0;
+  async importEmbeddingCache(cachePath: string, model: string): Promise<number> {
+    if (!this.db) return 0;
+    try {
+      await fs.promises.access(cachePath);
+    } catch {
+      return 0;
+    }
 
     try {
-      const raw = fs.readFileSync(cachePath, 'utf8');
+      const raw = await fs.promises.readFile(cachePath, 'utf8');
       const data = JSON.parse(raw) as Record<string, number[]>;
       const entries = Object.entries(data);
 

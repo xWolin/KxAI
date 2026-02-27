@@ -13,7 +13,7 @@ import { parentPort } from 'worker_threads';
 
 // ─── State ───
 
-let idfMap: Map<string, number> = new Map();
+const idfMap: Map<string, number> = new Map();
 
 // ─── Message Types ───
 

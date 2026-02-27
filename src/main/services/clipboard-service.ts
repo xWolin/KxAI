@@ -49,7 +49,7 @@ const JSON_PATTERN = /^[\s]*[[{]/;
 const HEX_COLOR_PATTERN = /^#([0-9a-fA-F]{3,8})$/;
 const RGB_COLOR_PATTERN = /^rgba?\(\s*\d+/i;
 const PHONE_PATTERN = /^[+]?[\d\s()-]{7,20}$/;
-const PATH_WIN_PATTERN = /^[a-zA-Z]:\\[\w\\. -]+/; // eslint-disable-line no-useless-escape
+const PATH_WIN_PATTERN = /^[a-zA-Z]:\\[\w\\. -]+/;
 const PATH_UNIX_PATTERN = /^\/[\w/. -]+/;
 const MARKDOWN_PATTERN = /^(#{1,6}\s|[-*+]\s|\d+\.\s|```|>\s|\|.*\|)/m;
 const HTML_PATTERN = /^<(!DOCTYPE|html|div|span|p|a|h[1-6]|ul|ol|table|img)\b/i;
@@ -407,7 +407,7 @@ export class ClipboardService {
       }
 
       this.recordEntry(text);
-    } catch (err) {
+    } catch (_err) {
       // Silent — polling should never crash
     }
   }

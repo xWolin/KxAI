@@ -382,7 +382,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
       setTtsElModel(tts.elevenLabsModel);
       setTtsOpenaiVoice(tts.openaiVoice);
       setTtsOpenaiModel(tts.openaiModel);
-    } catch {}
+    } catch {
+      // TTS settings may not exist yet — use defaults
+    }
   }
 
   async function loadFiles() {

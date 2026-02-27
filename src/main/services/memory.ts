@@ -35,8 +35,10 @@ export class MemoryService {
     ];
 
     for (const dir of dirs) {
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
+      try {
+        await fsp.access(dir);
+      } catch {
+        await fsp.mkdir(dir, { recursive: true });
       }
     }
 
@@ -47,13 +49,13 @@ export class MemoryService {
         this.useSQLite = true;
         log.info('SQLite database ready');
       } else {
-        this.db.initialize();
+        await this.db.initialize();
         this.useSQLite = true;
         log.info('SQLite database initialized');
       }
 
       // Migrate old JSON sessions if they exist
-      const imported = this.db.importJsonSessions(this.workspacePath);
+      const imported = await this.db.importJsonSessions(this.workspacePath);
       if (imported > 0) {
         log.info(`Migrated ${imported} JSON sessions to SQLite`);
       }
@@ -76,7 +78,7 @@ export class MemoryService {
     }
 
     // Load today's conversation history
-    this.loadTodaySession();
+    await this.loadTodaySession();
   }
 
   getWorkspacePath(): string {
@@ -111,8 +113,10 @@ export class MemoryService {
 
   private async ensureFile(name: string, defaultContent: string): Promise<void> {
     const filePath = path.join(this.workspacePath, name);
-    if (!fs.existsSync(filePath)) {
-      fs.writeFileSync(filePath, defaultContent, 'utf8');
+    try {
+      await fsp.access(filePath);
+    } catch {
+      await fsp.writeFile(filePath, defaultContent, 'utf8');
     }
   }
 
@@ -216,7 +220,7 @@ export class MemoryService {
     return `${yyyy}-${mm}-${dd}.json`;
   }
 
-  private loadTodaySession(): void {
+  private async loadTodaySession(): Promise<void> {
     // Load from SQLite if available
     if (this.useSQLite) {
       try {
@@ -231,13 +235,12 @@ export class MemoryService {
     // Fallback: load from JSON file
     const sessionPath = path.join(this.workspacePath, 'sessions', this.getTodayFileName());
 
-    if (fs.existsSync(sessionPath)) {
-      try {
-        const data = fs.readFileSync(sessionPath, 'utf8');
-        this.conversationHistory = JSON.parse(data);
-      } catch {
-        this.conversationHistory = [];
-      }
+    try {
+      await fsp.access(sessionPath);
+      const data = await fsp.readFile(sessionPath, 'utf8');
+      this.conversationHistory = JSON.parse(data);
+    } catch {
+      this.conversationHistory = [];
     }
   }
 
@@ -357,7 +360,7 @@ export class MemoryService {
   /**
    * Get database statistics.
    */
-  getDatabaseStats(): { totalMessages: number; totalSessions: number; dbSizeBytes: number } {
+  async getDatabaseStats(): Promise<{ totalMessages: number; totalSessions: number; dbSizeBytes: number }> {
     if (!this.useSQLite) return { totalMessages: 0, totalSessions: 0, dbSizeBytes: 0 };
     return this.db.getStats();
   }

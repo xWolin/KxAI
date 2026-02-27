@@ -16,21 +16,34 @@ export class WorkflowService {
   constructor() {
     const userDataPath = app.getPath('userData');
     const workflowDir = path.join(userDataPath, 'workspace', 'workflow');
-    if (!fs.existsSync(workflowDir)) {
-      fs.mkdirSync(workflowDir, { recursive: true });
-    }
     this.logPath = path.join(workflowDir, 'activity-log.json');
     this.patternsPath = path.join(workflowDir, 'patterns.json');
-    this.load();
+    // Fire-and-forget async initialization (dir creation + data loading)
+    this.initAsync(workflowDir).catch(() => {});
   }
 
-  private load(): void {
+  private async initAsync(workflowDir: string): Promise<void> {
     try {
-      if (fs.existsSync(this.logPath)) {
-        this.activityLog = JSON.parse(fs.readFileSync(this.logPath, 'utf8'));
+      await fsp.access(workflowDir);
+    } catch {
+      await fsp.mkdir(workflowDir, { recursive: true });
+    }
+    await this.load();
+  }
+
+  private async load(): Promise<void> {
+    try {
+      try {
+        await fsp.access(this.logPath);
+        this.activityLog = JSON.parse(await fsp.readFile(this.logPath, 'utf8'));
+      } catch {
+        /* file doesn't exist or corrupt */
       }
-      if (fs.existsSync(this.patternsPath)) {
-        this.patterns = JSON.parse(fs.readFileSync(this.patternsPath, 'utf8'));
+      try {
+        await fsp.access(this.patternsPath);
+        this.patterns = JSON.parse(await fsp.readFile(this.patternsPath, 'utf8'));
+      } catch {
+        /* file doesn't exist or corrupt */
       }
     } catch {
       /* ignore corrupt data */

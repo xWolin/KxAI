@@ -723,7 +723,7 @@ export class CalendarService {
     };
   }
 
-  private storeCredentials(config: CalendarConfig): Promise<void> {
+  private storeCredentials(_config: CalendarConfig): Promise<void> {
     // Credentials stored via electron safeStorage
     // Passwords are NOT stored in config.json
     return Promise.resolve();

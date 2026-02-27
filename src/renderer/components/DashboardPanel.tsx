@@ -274,7 +274,7 @@ function SystemTab() {
   }, []);
 
   useEffect(() => {
-    setLoading(true); // eslint-disable-line react-hooks/set-state-in-effect -- initial data fetch on mount
+    setLoading(true);
     window.kxai
       .systemSnapshot()
       .then((r) => {

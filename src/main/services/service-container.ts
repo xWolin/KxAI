@@ -184,7 +184,7 @@ export class ServiceContainer {
     this.set('database', database);
 
     // Initialize database early (needed by memory, embedding, RAG)
-    database.initialize();
+    await database.initialize();
     p();
 
     // ── Phase 2: Services depending on core (constructors only — fast) ──
@@ -490,7 +490,7 @@ export class ServiceContainer {
     this.trySync('plugins', (s) => s.destroy());
 
     // ── Phase 4: Cleanup temp resources ──
-    this.trySync('tts', (s) => s.cleanup());
+    await this.tryAsync('tts', (s) => s.cleanup());
 
     // ── Phase 5: Flush caches & persist data ──
     this.trySync('embedding', (s) => {

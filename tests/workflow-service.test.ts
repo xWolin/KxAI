@@ -14,6 +14,9 @@ vi.mock('fs', () => ({
 
 // Mock fs/promises
 vi.mock('fs/promises', () => ({
+  access: vi.fn().mockRejectedValue(new Error('ENOENT')),
+  mkdir: vi.fn().mockResolvedValue(undefined),
+  readFile: vi.fn().mockResolvedValue('[]'),
   writeFile: vi.fn().mockResolvedValue(undefined),
 }));
 
@@ -31,16 +34,21 @@ describe('WorkflowService', () => {
     vi.clearAllMocks();
     fsMock.existsSync.mockReturnValue(false);
     fsMock.readFileSync.mockReturnValue('[]');
+    // Reset fsp mocks to defaults
+    fspMock.access.mockRejectedValue(new Error('ENOENT'));
+    fspMock.readFile.mockResolvedValue('[]');
 
     // Dynamic import to re-run constructor with fresh mocks
     const mod = await import('../src/main/services/workflow-service');
     WorkflowService = mod.WorkflowService;
     service = new WorkflowService();
+    // Flush microtasks so fire-and-forget initAsync() can complete
+    await new Promise((resolve) => setTimeout(resolve, 10));
   });
 
   describe('constructor', () => {
     it('should create workflow directory if missing', () => {
-      expect(fsMock.mkdirSync).toHaveBeenCalledWith(
+      expect(fspMock.mkdir).toHaveBeenCalledWith(
         expect.stringContaining('workflow'),
         { recursive: true }
       );
@@ -55,11 +63,12 @@ describe('WorkflowService', () => {
       expect(s2).toBeDefined();
     });
 
-    it('should load activity log from disk', () => {
+    it('should load activity log from disk', async () => {
       const entries = [{ timestamp: 1000, hour: 10, dayOfWeek: 1, action: 'test', context: '', category: 'dev' }];
-      fsMock.existsSync.mockReturnValue(true);
-      fsMock.readFileSync.mockReturnValue(JSON.stringify(entries));
+      fspMock.access.mockResolvedValue(undefined);
+      fspMock.readFile.mockResolvedValue(JSON.stringify(entries));
       const s2 = new WorkflowService();
+      await new Promise((resolve) => setTimeout(resolve, 10));
       expect(s2.getActivityLog()).toEqual(entries);
     });
 
@@ -321,17 +330,18 @@ describe('WorkflowService', () => {
       expect(service.getPatterns()).toEqual([]);
     });
 
-    it('should return loaded patterns from disk', () => {
+    it('should return loaded patterns from disk', async () => {
       const patternsData = [{ name: 'test', frequency: 5, lastSeen: Date.now(), context: 'ctx' }];
-      fsMock.existsSync.mockReturnValue(true);
-      let callCount = 0;
-      fsMock.readFileSync.mockImplementation(() => {
-        callCount++;
+      fspMock.access.mockResolvedValue(undefined);
+      let readCallCount = 0;
+      fspMock.readFile.mockImplementation(async () => {
+        readCallCount++;
         // First call = activity log, second = patterns
-        if (callCount <= 1) return '[]';
+        if (readCallCount <= 1) return '[]';
         return JSON.stringify(patternsData);
       });
       const s2 = new WorkflowService();
+      await new Promise((resolve) => setTimeout(resolve, 10));
       expect(s2.getPatterns()).toEqual(patternsData);
     });
   });

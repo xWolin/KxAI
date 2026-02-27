@@ -23,7 +23,7 @@ export function CronPanel({ onBack }: CronPanelProps) {
   }, []);
 
   useEffect(() => {
-    loadJobs(); // eslint-disable-line react-hooks/set-state-in-effect -- initial data fetch on mount
+    loadJobs();
   }, [loadJobs]);
 
   async function addJob() {

@@ -48,12 +48,14 @@ export class PluginService {
    */
   async initialize(): Promise<void> {
     // Ensure plugins directory exists
-    if (!fs.existsSync(this.pluginsDir)) {
-      fs.mkdirSync(this.pluginsDir, { recursive: true });
+    try {
+      await fs.promises.access(this.pluginsDir);
+    } catch {
+      await fs.promises.mkdir(this.pluginsDir, { recursive: true });
     }
 
     // Load approved plugin hashes
-    this.loadApprovedHashes();
+    await this.loadApprovedHashes();
 
     // Create example plugin if directory is empty
     await this.createExamplePlugin();
@@ -72,7 +74,7 @@ export class PluginService {
     this.loadedPlugins.clear();
 
     try {
-      const files = fs.readdirSync(this.pluginsDir).filter((f) => f.endsWith('.js') && !f.startsWith('_'));
+      const files = (await fs.promises.readdir(this.pluginsDir)).filter((f) => f.endsWith('.js') && !f.startsWith('_'));
 
       for (const file of files) {
         await this.loadPlugin(file);
@@ -87,35 +89,37 @@ export class PluginService {
   /**
    * Load approved plugin hashes from disk.
    */
-  private loadApprovedHashes(): void {
+  private async loadApprovedHashes(): Promise<void> {
     try {
-      if (fs.existsSync(this.approvalPath)) {
-        const data = JSON.parse(fs.readFileSync(this.approvalPath, 'utf8'));
-        if (data && typeof data === 'object') {
-          for (const [name, hash] of Object.entries(data)) {
-            if (typeof hash === 'string') {
-              this.approvedPluginHashes.set(name, hash);
-            }
+      await fs.promises.access(this.approvalPath);
+      const data = JSON.parse(await fs.promises.readFile(this.approvalPath, 'utf8'));
+      if (data && typeof data === 'object') {
+        for (const [name, hash] of Object.entries(data)) {
+          if (typeof hash === 'string') {
+            this.approvedPluginHashes.set(name, hash);
           }
         }
       }
     } catch (err: any) {
-      log.warn('Failed to load approved hashes:', err.message);
+      // File doesn't exist or failed to load — this is normal on first run
+      if (err?.code !== 'ENOENT') {
+        log.warn('Failed to load approved hashes:', err.message);
+      }
     }
   }
 
   /**
    * Persist approved plugin hashes to disk (atomic write).
    */
-  private saveApprovedHashes(): void {
+  private async saveApprovedHashes(): Promise<void> {
     try {
       const data: Record<string, string> = {};
       for (const [name, hash] of this.approvedPluginHashes) {
         data[name] = hash;
       }
       const tmpPath = this.approvalPath + '.tmp';
-      fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), 'utf8');
-      fs.renameSync(tmpPath, this.approvalPath);
+      await fs.promises.writeFile(tmpPath, JSON.stringify(data, null, 2), 'utf8');
+      await fs.promises.rename(tmpPath, this.approvalPath);
     } catch (err: any) {
       log.warn('Failed to save approved hashes:', err.message);
     }
@@ -132,7 +136,7 @@ export class PluginService {
 
     try {
       // 1) Compute hash of plugin file for integrity check
-      const fileContent = fs.readFileSync(filePath, 'utf8');
+      const fileContent = await fs.promises.readFile(filePath, 'utf8');
       const fileHash = crypto.createHash('sha256').update(fileContent).digest('hex');
 
       // 2) Check if plugin is approved (by hash)
@@ -294,7 +298,12 @@ export class PluginService {
    */
   private async createExamplePlugin(): Promise<void> {
     const examplePath = path.join(this.pluginsDir, '_example-plugin.js');
-    if (fs.existsSync(examplePath)) return;
+    try {
+      await fs.promises.access(examplePath);
+      return; // already exists
+    } catch {
+      // doesn't exist — create it
+    }
 
     const exampleContent = `/**
  * PrzykÅ‚adowy plugin KxAI
@@ -323,7 +332,7 @@ module.exports = {
   ],
 };
 `;
-    fs.writeFileSync(examplePath, exampleContent, 'utf8');
+    await fs.promises.writeFile(examplePath, exampleContent, 'utf8');
   }
 
   /**

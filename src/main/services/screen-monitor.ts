@@ -205,7 +205,7 @@ export class ScreenMonitorService {
 
       // Detect change
       if (info.title !== this.currentWindow.title || info.processName !== this.currentWindow.processName) {
-        const oldTitle = this.currentWindow.title;
+        const _oldTitle = this.currentWindow.title;
         this.currentWindow = info;
 
         // Track recent windows (keep last 10)
@@ -245,7 +245,7 @@ export class ScreenMonitorService {
           this.onIdleStart?.();
         }
       }
-    } catch (error) {
+    } catch (_error) {
       // T0 errors are non-critical
     }
   }

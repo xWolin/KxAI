@@ -44,14 +44,22 @@ export class TTSService {
   private speaking = false;
   private tempDir: string;
   private security?: SecurityService;
+  private tempDirReady = false;
 
   constructor(security?: SecurityService, config?: Partial<TTSConfig>) {
     this.security = security;
     this.config = { ...DEFAULT_CONFIG, ...config };
     this.tempDir = path.join(os.tmpdir(), 'kxai-tts');
-    if (!fs.existsSync(this.tempDir)) {
-      fs.mkdirSync(this.tempDir, { recursive: true });
+  }
+
+  private async ensureTempDir(): Promise<void> {
+    if (this.tempDirReady) return;
+    try {
+      await fs.promises.access(this.tempDir);
+    } catch {
+      await fs.promises.mkdir(this.tempDir, { recursive: true });
     }
+    this.tempDirReady = true;
   }
 
   /**
@@ -63,6 +71,8 @@ export class TTSService {
 
     // If provider is 'web', let renderer handle it
     if (this.config.provider === 'web') return null;
+
+    await this.ensureTempDir();
 
     // Clean text — strip markdown, emojis, code blocks
     const clean = this.cleanText(text);
@@ -105,7 +115,7 @@ export class TTSService {
     try {
       this.speaking = true;
       const audioBuffer = await this.elevenLabsRequest(apiKey, voiceId, model, text);
-      fs.writeFileSync(audioPath, audioBuffer);
+      await fs.promises.writeFile(audioPath, audioBuffer);
       this.speaking = false;
       return audioPath;
     } catch (err) {
@@ -189,7 +199,7 @@ export class TTSService {
     try {
       this.speaking = true;
       const audioBuffer = await this.openaiTTSRequest(apiKey, model, voice, text);
-      fs.writeFileSync(audioPath, audioBuffer);
+      await fs.promises.writeFile(audioPath, audioBuffer);
       this.speaking = false;
       return audioPath;
     } catch (err) {
@@ -289,15 +299,15 @@ export class TTSService {
   /**
    * Cleanup old temp files (older than 1 hour).
    */
-  cleanup(): void {
+  async cleanup(): Promise<void> {
     try {
-      const files = fs.readdirSync(this.tempDir);
+      const files = await fs.promises.readdir(this.tempDir);
       const cutoff = Date.now() - 60 * 60 * 1000;
       for (const file of files) {
         const filePath = path.join(this.tempDir, file);
-        const stat = fs.statSync(filePath);
+        const stat = await fs.promises.stat(filePath);
         if (stat.mtimeMs < cutoff) {
-          fs.unlinkSync(filePath);
+          await fs.promises.unlink(filePath);
         }
       }
     } catch {

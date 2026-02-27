@@ -125,7 +125,7 @@ export class DiagnosticService {
     };
 
     const sysInfo = this.systemMonitor.getSystemInfo();
-    const memInfo = this.systemMonitor.getMemoryInfo();
+    const _memInfo = this.systemMonitor.getMemoryInfo();
 
     return {
       timestamp: new Date().toISOString(),

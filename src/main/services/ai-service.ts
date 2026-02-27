@@ -1139,14 +1139,13 @@ export class AIService {
     return null;
   }
 
-  async organizeFiles(directory: string, rules?: any): Promise<{ moved: string[]; summary: string }> {
-    // Basic file organization (can be enhanced)
-    const fs = require('fs');
+  async organizeFiles(directory: string, _rules?: any): Promise<{ moved: string[]; summary: string }> {
+    const fsP = require('fs').promises;
     const p = require('path');
     const moved: string[] = [];
 
     try {
-      const items = fs.readdirSync(directory, { withFileTypes: true });
+      const items = await fsP.readdir(directory, { withFileTypes: true });
       const extensionMap: Record<string, string> = {
         // Documents
         '.pdf': 'Dokumenty',
@@ -1186,12 +1185,10 @@ export class AIService {
           const folder = extensionMap[ext];
           if (folder) {
             const destDir = p.join(directory, folder);
-            if (!fs.existsSync(destDir)) {
-              fs.mkdirSync(destDir, { recursive: true });
-            }
+            await fsP.mkdir(destDir, { recursive: true });
             const src = p.join(directory, item.name);
             const dest = p.join(destDir, item.name);
-            fs.renameSync(src, dest);
+            await fsP.rename(src, dest);
             moved.push(`${item.name} → ${folder}/`);
           }
         }

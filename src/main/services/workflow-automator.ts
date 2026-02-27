@@ -80,10 +80,17 @@ export class WorkflowAutomator {
   constructor() {
     const userDataPath = app.getPath('userData');
     this.macroDir = path.join(userDataPath, 'workspace', 'workflow', 'macros');
-    if (!fs.existsSync(this.macroDir)) {
-      fs.mkdirSync(this.macroDir, { recursive: true });
+    // Fire-and-forget async initialization (dir creation + macro loading)
+    this.initAsync().catch(() => {});
+  }
+
+  private async initAsync(): Promise<void> {
+    try {
+      await fsp.access(this.macroDir);
+    } catch {
+      await fsp.mkdir(this.macroDir, { recursive: true });
     }
-    this.loadMacros();
+    await this.loadMacros();
   }
 
   // ─── Setup ───
@@ -557,13 +564,17 @@ export class WorkflowAutomator {
 
   // ─── Persistence ───
 
-  private loadMacros(): void {
+  private async loadMacros(): Promise<void> {
     try {
-      if (!fs.existsSync(this.macroDir)) return;
-      const files = fs.readdirSync(this.macroDir).filter((f) => f.endsWith('.json'));
+      try {
+        await fsp.access(this.macroDir);
+      } catch {
+        return;
+      }
+      const files = (await fsp.readdir(this.macroDir)).filter((f) => f.endsWith('.json'));
       for (const file of files) {
         try {
-          const content = fs.readFileSync(path.join(this.macroDir, file), 'utf8');
+          const content = await fsp.readFile(path.join(this.macroDir, file), 'utf8');
           const macro: WorkflowMacro = JSON.parse(content);
           if (macro.id && macro.name && Array.isArray(macro.steps)) {
             this.macros.set(macro.id, macro);

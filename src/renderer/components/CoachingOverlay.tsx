@@ -61,7 +61,7 @@ const COACHING_BAR_WIDTH = 420;
 const COACHING_BAR_HEIGHT = 140;
 const COACHING_BAR_EXPANDED_HEIGHT = 340;
 
-export function CoachingOverlay({ config, onBack }: Props) {
+export function CoachingOverlay({ config: _config, onBack }: Props) {
   const { t } = useTranslation();
   const [meetingState, setMeetingState] = useState<MeetingState>({
     active: false,

@@ -379,7 +379,7 @@ export class ToolsService {
           return { success: false, error: `🛡️ ${readValidation.reason}` };
         }
         try {
-          const content = fs.readFileSync(params.path, 'utf8');
+          const content = await fs.promises.readFile(params.path, 'utf8');
           return { success: true, data: content.slice(0, 10000) };
         } catch (err: any) {
           return { success: false, error: err.message };
@@ -405,8 +405,12 @@ export class ToolsService {
         }
         try {
           const dir = path.dirname(params.path);
-          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(params.path, params.content, 'utf8');
+          try {
+            await fs.promises.access(dir);
+          } catch {
+            await fs.promises.mkdir(dir, { recursive: true });
+          }
+          await fs.promises.writeFile(params.path, params.content, 'utf8');
           return { success: true, data: `Zapisano: ${params.path}` };
         } catch (err: any) {
           return { success: false, error: err.message };
@@ -430,7 +434,7 @@ export class ToolsService {
           return { success: false, error: `🛡️ ${listValidation.reason}` };
         }
         try {
-          const entries = fs.readdirSync(params.path, { withFileTypes: true });
+          const entries = await fs.promises.readdir(params.path, { withFileTypes: true });
           const items = entries.map((e) => ({
             name: e.name,
             type: e.isDirectory() ? 'directory' : 'file',
@@ -721,10 +725,14 @@ export class ToolsService {
 
         // Write code to temp file
         const tempDir = path.join(app.getPath('temp'), 'kxai-scripts');
-        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+        try {
+          await fs.promises.access(tempDir);
+        } catch {
+          await fs.promises.mkdir(tempDir, { recursive: true });
+        }
 
         const tempFile = path.join(tempDir, `script_${Date.now()}${lang.ext}`);
-        fs.writeFileSync(tempFile, code, 'utf8');
+        await fs.promises.writeFile(tempFile, code, 'utf8');
 
         const cmdArgs = lang.args ? [...lang.args, tempFile] : [tempFile];
         const fullCmd = `${lang.cmd} ${cmdArgs.map((a) => `"${a}"`).join(' ')}`;
@@ -732,11 +740,9 @@ export class ToolsService {
         return new Promise((resolve) => {
           exec(fullCmd, { timeout, maxBuffer: 5 * 1024 * 1024, cwd: app.getPath('home') }, (err, stdout, stderr) => {
             // Cleanup temp file
-            try {
-              fs.unlinkSync(tempFile);
-            } catch {
+            fs.promises.unlink(tempFile).catch(() => {
               /* ok */
-            }
+            });
 
             if (err) {
               resolve({
@@ -1042,8 +1048,12 @@ export class ToolsService {
         // Write the script
         try {
           const dir = path.dirname(scriptPath);
-          if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-          fs.writeFileSync(scriptPath, code, 'utf8');
+          try {
+            await fs.promises.access(dir);
+          } catch {
+            await fs.promises.mkdir(dir, { recursive: true });
+          }
+          await fs.promises.writeFile(scriptPath, code, 'utf8');
         } catch (err: any) {
           return { success: false, error: `Nie udało się zapisać skryptu: ${err.message}` };
         }
@@ -1966,7 +1976,7 @@ export class ToolsService {
         }
 
         const jobs = cron.getJobs();
-        let target = params.id
+        const target = params.id
           ? jobs.find((j) => j.id === params.id && j.category === 'reminder')
           : jobs.find(
               (j) =>
