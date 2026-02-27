@@ -20,5 +20,6 @@ export interface ProactiveMessage {
   id: string;
   type: string;
   message: string;
-  context: string;
+  context?: string;
+  ruleId?: string;
 }

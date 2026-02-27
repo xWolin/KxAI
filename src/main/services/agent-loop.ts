@@ -363,8 +363,33 @@ export class AgentLoop {
   /**
    * Sanitize tool output to prevent prompt injection.
    */
+  /**
+   * Returns a user-friendly error message for AI provider errors.
+   * Detects quota exhaustion, auth errors, and rate limits.
+   */
+  private classifyAIError(err: any): string {
+    const code = err?.code ?? err?.error?.code;
+    const status = err?.status;
+
+    if (code === 'insufficient_quota') {
+      return '❌ Brak kredytów API OpenAI — uzupełnij środki na koncie: platform.openai.com/billing';
+    }
+    if (status === 401 || code === 'invalid_api_key') {
+      return '❌ Nieprawidłowy klucz API — sprawdź ustawienia (⚙️ Ustawienia → klucz API)';
+    }
+    if (status === 429) {
+      return '❌ Zbyt wiele zapytań — spróbuj ponownie za chwilę (rate limit API)';
+    }
+    if (err?.name === 'AbortError' || err?.code === 'ERR_ABORTED') {
+      return '⛔ Zapytanie anulowane przez użytkownika';
+    }
+    return `❌ Błąd AI: ${err?.message ?? err}`;
+  }
+
   private sanitizeToolOutput(toolName: string, data: any): string {
-    let raw = JSON.stringify(data, null, 2);
+    // JSON.stringify(undefined) returns undefined — guard against it
+    const serialized = data !== undefined ? JSON.stringify(data, null, 2) : '(brak wyniku)';
+    let raw = serialized ?? '(brak wyniku)';
 
     // 1) Truncate to safe length
     if (raw.length > 15000) {
@@ -649,7 +674,7 @@ export class AgentLoop {
       );
     } catch (aiErr: any) {
       log.error('AgentLoop: Initial streamMessage failed:', aiErr);
-      const errMsg = `\n\n❌ Błąd AI: ${aiErr.message || aiErr}\n`;
+      const errMsg = `\n\n${this.classifyAIError(aiErr)}\n`;
       onChunk?.(errMsg);
       fullResponse += errMsg;
       // Don't proceed to tool loop — return the error to user
@@ -840,7 +865,7 @@ export class AgentLoop {
       );
     } catch (aiErr: any) {
       log.error('AgentLoop: Initial streamMessageWithNativeTools failed:', aiErr);
-      const errMsg = `\n\n❌ Błąd AI: ${aiErr.message || aiErr}\n`;
+      const errMsg = `\n\n${this.classifyAIError(aiErr)}\n`;
       onChunk?.(errMsg);
       fullResponse += errMsg;
       return fullResponse;
@@ -935,7 +960,7 @@ export class AgentLoop {
         );
       } catch (aiErr: any) {
         log.error('AgentLoop: continueWithToolResults failed:', aiErr);
-        onChunk?.(`\n\n❌ Błąd AI podczas przetwarzania narzędzia: ${aiErr.message || aiErr}\n`);
+        onChunk?.(`\n\n${this.classifyAIError(aiErr)}\n`);
         break;
       }
 

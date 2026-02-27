@@ -29,7 +29,10 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
     'daily-briefing': { icon: '☀️', labelKey: 'proactive.labelBriefing' },
     'evening-summary': { icon: '🌙', labelKey: 'proactive.labelBriefing' },
   };
-  const { icon, labelKey } = typeConfig[message.type] || { icon: '💡', labelKey: 'proactive.label' };
+  // Rule-based notifications have type='proactive' + ruleId='daily-briefing' etc.
+  // Use ruleId for the config lookup when available, fall back to type.
+  const configKey = message.type === 'proactive' && message.ruleId ? message.ruleId : message.type;
+  const { icon, labelKey } = typeConfig[configKey] || { icon: '💡', labelKey: 'proactive.label' };
 
   const sendFeedback = (action: 'accepted' | 'dismissed' | 'replied') => {
     if (message.ruleId) {
@@ -78,9 +81,6 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
 
       {/* Content */}
       <div className={s.content}>{message.message}</div>
-
-      {/* Context */}
-      {message.context && <div className={s.context}>📋 {message.context}</div>}
 
       {/* Actions */}
       <div className={s.actions}>

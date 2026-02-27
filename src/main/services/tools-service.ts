@@ -2508,7 +2508,7 @@ export class ToolsService {
           if (events.length === 0) {
             return {
               success: true,
-              result: `Brak wydarzeń w zakresie ${start} — ${end}.`,
+              data: `Brak wydarzeń w zakresie ${start} — ${end}.`,
             };
           }
 
@@ -2533,7 +2533,7 @@ export class ToolsService {
 
           return {
             success: true,
-            result: `Znaleziono ${events.length} wydarzeń:\n\n${formatted.join('\n')}`,
+            data: `Znaleziono ${events.length} wydarzeń:\n\n${formatted.join('\n')}`,
           };
         } catch (err: any) {
           return { success: false, error: err.message };
@@ -2703,7 +2703,7 @@ export class ToolsService {
           if (events.length === 0) {
             return {
               success: true,
-              result: `Brak wydarzeń w ciągu najbliższych ${minutes} minut.`,
+              data: `Brak wydarzeń w ciągu najbliższych ${minutes} minut.`,
             };
           }
 
@@ -2718,7 +2718,7 @@ export class ToolsService {
 
           return {
             success: true,
-            result: `Nadchodzące wydarzenia:\n\n${formatted.join('\n')}`,
+            data: `Nadchodzące wydarzenia:\n\n${formatted.join('\n')}`,
           };
         } catch (err: any) {
           return { success: false, error: err.message };

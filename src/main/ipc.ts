@@ -582,7 +582,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
         memoryService.addMessage({
           id: `proactive-rule-${Date.now()}`,
           role: 'assistant',
-          content: `🔔 **KxAI (proaktywny):**\n${notification.message}${notification.context ? `\n\n📋 ${notification.context}` : ''}`,
+          content: `🔔 **KxAI (proaktywny):**\n${notification.message}`,
           timestamp: Date.now(),
           type: 'proactive',
         });
