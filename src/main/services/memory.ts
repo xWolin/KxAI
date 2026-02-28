@@ -19,6 +19,9 @@ export class MemoryService {
   private db: DatabaseService;
   private useSQLite: boolean = true;
 
+  /** Callback invoked after every addMessage — used to push updates to renderer */
+  onMessageAdded?: (message: ConversationMessage) => void;
+
   constructor(config: ConfigService, db: DatabaseService) {
     this.config = config;
     this.db = db;
@@ -168,6 +171,9 @@ export class MemoryService {
     if (this.conversationHistory.length > 200) {
       this.conversationHistory = this.conversationHistory.slice(-200);
     }
+
+    // Notify renderer about new message (push-based refresh)
+    this.onMessageAdded?.(message);
   }
 
   getConversationHistory(): ConversationMessage[] {

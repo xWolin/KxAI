@@ -28,6 +28,13 @@ contextBridge.exposeInMainWorld('kxai', {
       ipcRenderer.removeListener(Ev.AI_PROACTIVE, handler);
     };
   },
+  onConversationUpdated: (callback: () => void) => {
+    const handler = () => callback();
+    ipcRenderer.on(Ev.CONVERSATION_UPDATED, handler);
+    return () => {
+      ipcRenderer.removeListener(Ev.CONVERSATION_UPDATED, handler);
+    };
+  },
 
   // Screen capture
   captureScreen: () => ipcRenderer.invoke(Ch.SCREEN_CAPTURE),

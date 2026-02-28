@@ -63,8 +63,27 @@ export function useStoreInit(): void {
       }
       if (data.done) {
         store.finalizeStream();
+        // After stream finishes, sync with backend to get real message IDs
+        // and any messages added during tool loop processing.
+        // Small delay ensures backend has persisted the message.
+        setTimeout(() => {
+          useChatStore.getState().loadHistory();
+        }, 200);
       } else if (data.chunk) {
         store.appendStreamingContent(data.chunk);
+      }
+    });
+
+    // ── Conversation updated — push-based refresh ──
+    // Fires when MemoryService.addMessage() is called from any source
+    // (heartbeat, cron, proactive, tool loop, etc.).
+    // Ensures ChatPanel always shows the latest messages without
+    // requiring the user to close and reopen it.
+    const cleanupConversation = window.kxai.onConversationUpdated(() => {
+      const chatStore = useChatStore.getState();
+      // Skip reload while actively streaming — finalizeStream handles that
+      if (!chatStore.isStreaming) {
+        chatStore.loadHistory();
       }
     });
 
@@ -134,6 +153,7 @@ export function useStoreInit(): void {
 
     return () => {
       cleanupStream();
+      cleanupConversation();
       cleanupProactive();
       cleanupNavigate();
       cleanupMeeting();

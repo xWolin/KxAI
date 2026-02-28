@@ -263,6 +263,7 @@ export const Ev = {
   CONFIG_CHANGED: 'config:changed',
   NAVIGATE: 'navigate',
   REFLECTION_COMPLETE: 'reflection:complete',
+  CONVERSATION_UPDATED: 'conversation:updated',
 } as const;
 
 // ─── Type helpers ───

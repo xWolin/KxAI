@@ -8,6 +8,7 @@ export interface KxAIBridge {
   onAIResponse: (callback: (data: any) => void) => () => void;
   onAIStream: (callback: (data: { chunk?: string; done?: boolean; takeControlStart?: boolean }) => void) => () => void;
   onProactiveMessage: (callback: (data: ProactiveMessage) => void) => () => void;
+  onConversationUpdated: (callback: () => void) => () => void;
 
   // Screen capture
   captureScreen: () => Promise<{ success: boolean; data?: any[]; error?: string }>;

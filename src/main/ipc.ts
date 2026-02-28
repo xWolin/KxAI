@@ -118,6 +118,17 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     dashboardSrv?.pushAgentStatus(status);
   };
 
+  // ─── Push conversation updates to renderer ───
+  // Debounced: multiple rapid addMessage() calls coalesce into one event.
+  let conversationUpdateTimer: ReturnType<typeof setTimeout> | null = null;
+  memoryService.onMessageAdded = () => {
+    if (conversationUpdateTimer) clearTimeout(conversationUpdateTimer);
+    conversationUpdateTimer = setTimeout(() => {
+      safeSend(Ev.CONVERSATION_UPDATED);
+      conversationUpdateTimer = null;
+    }, 150);
+  };
+
   // Wire dashboard sub-agent accessors
   dashboardSrv?.setSubAgentAccessors(
     () => agentLoop.getSubAgentManager().listActive(),
