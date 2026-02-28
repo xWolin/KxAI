@@ -1,6 +1,6 @@
 {
   "name": "kxai",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "KxAI — Personal AI Desktop Agent with screen awareness, proactive suggestions, and persistent memory",
   "main": "dist/main/main.js",
   "author": {
