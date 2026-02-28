@@ -108,6 +108,13 @@ export class ReflectionEngine {
   private cyclesTodayDate = '';
   private cyclesRunToday = new Set<ReflectionCycleType>();
 
+  /** History of recent reflection summaries — injected into prompt to prevent repetition */
+  private reflectionHistory: string[] = [];
+  private static readonly MAX_REFLECTION_HISTORY = 5;
+
+  /** Hash of last context — skip reflection if nothing changed */
+  private lastContextHash = '';
+
   /** External check: is the main agent currently processing a user message? */
   private isProcessingCheck?: () => boolean;
 
@@ -260,6 +267,12 @@ export class ReflectionEngine {
       return null;
     }
 
+    // Skip if outside active hours (7:00–23:00) — manual triggers bypass this
+    if (type !== 'manual' && !this._isWithinActiveHours()) {
+      log.info(`Skipped cycle '${type}' — outside active hours (7:00–23:00)`);
+      return null;
+    }
+
     try {
       this.isRunning = true;
       const result = await this._runCycle(type);
@@ -290,6 +303,15 @@ export class ReflectionEngine {
 
     // ── 1. Gather context ──
     const context = await this._gatherContext(type);
+
+    // ── 1b. Change detection — skip if context unchanged since last reflection ──
+    const contextHash = this._computeContextHash(context);
+    if (type !== 'manual' && contextHash === this.lastContextHash && this.reflectionHistory.length > 0) {
+      log.info(`Skipped cycle '${type}' — context unchanged since last reflection`);
+      this.emitStatus({ state: 'idle' });
+      return null;
+    }
+    this.lastContextHash = contextHash;
 
     // ── 2. Load prompt ──
     let reflectionPrompt: string;
@@ -338,6 +360,20 @@ export class ReflectionEngine {
     const cleanSummary = this._cleanResponse(response);
     if (cleanSummary && cleanSummary.length > 30) {
       this.onResult?.(cleanSummary);
+    }
+
+    // ── 8. Save to reflection history (anti-repetition) ──
+    if (cleanSummary && cleanSummary.length > 30) {
+      const timestamp = new Date().toLocaleString('pl-PL', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+      this.reflectionHistory.push(`[${timestamp}, typ: ${type}] ${cleanSummary.slice(0, 500)}`);
+      if (this.reflectionHistory.length > ReflectionEngine.MAX_REFLECTION_HISTORY) {
+        this.reflectionHistory.shift();
+      }
     }
 
     return {
@@ -501,16 +537,33 @@ Przeanalizuj wszystkie dostępne dane i zaproponuj ulepszenia.`,
       sections.push(`## Bieżąca pamięć (MEMORY.md)\n${ctx.memoryMd.slice(0, 1000)}`);
     }
 
+    // Anti-repetition: inject history of previous reflections
+    if (this.reflectionHistory.length > 0) {
+      sections.push(
+        `## ⚠️ Twoje POPRZEDNIE refleksje (NIE POWTARZAJ SIĘ!)\n` +
+          `Poniżej Twoje ostatnie ${this.reflectionHistory.length} refleksji. ` +
+          `ABSOLUTNIE NIE powtarzaj tych samych wniosków, obserwacji ani propozycji.\n` +
+          `Jeśli nie masz NOWYCH informacji, odpowiedz REFLECTION_OK.\n\n` +
+          this.reflectionHistory.join('\n\n---\n\n'),
+      );
+    }
+
     sections.push(`\n## Twoje zadania w tej refleksji\n${typeInstructions[type]}`);
 
     sections.push(`\n## Przewodnik po narzędziach\n${systemPrompt}`);
 
-    sections.push(`\nMasz pełny dostęp do narzędzi. Gdy widzisz szansę na ulepszenie — DZIAŁAJ, nie pytaj o pozwolenie:
+    sections.push(`\nMasz pełny dostęp do narzędzi. Gdy widzisz NOWĄ szansę na ulepszenie — DZIAŁAJ:
 - Zaktualizuj USER.md przez \`\`\`update_memory z file: "user"
 - Zaktualizuj MEMORY.md przez \`\`\`update_memory z file: "memory"
 - Zaproponuj cron job przez blok \`\`\`cron
 - Dodaj encję do grafu wiedzy przez narzędzie kg_add_entity
-Jeśli nie ma nic wartościowego do zaproponowania lub zaktualizowania, odpowiedz "REFLECTION_OK".`);
+
+KRYTYCZNA ZASADA ANTY-POWTÓRZEŃ:
+- Jeśli dane i wzorce NIE zmieniły się od poprzedniej refleksji — odpowiedz "REFLECTION_OK"
+- NIE powtarzaj wniosków z poprzednich refleksji (sprawdź sekcję "Twoje POPRZEDNIE refleksje")
+- NIE proponuj tych samych cron jobów/integracji które już zaproponowałeś
+- Nowa refleksja MUSI wnosić NOWĄ wartość — nowe fakty, nowe wzorce, nowe propozycje
+- W razie wątpliwości — lepiej REFLECTION_OK niż powtórka`);
 
     return sections.join('\n\n');
   }
@@ -636,6 +689,34 @@ Jeśli nie ma nic wartościowego do zaproponowania lub zaktualizowania, odpowied
 
   private _getFallbackPrompt(): string {
     return `Jesteś agentem refleksji. Analizuj wzorce aktywności, zaproponuj automatyzacje i aktualizuj pamięć.`;
+  }
+
+  /** Active hours: 7:00–23:00 — no reflections at night */
+  private _isWithinActiveHours(): boolean {
+    const hour = new Date().getHours();
+    return hour >= 7 && hour < 23;
+  }
+
+  /** Simple hash of context to detect changes between reflections (djb2 algorithm) */
+  private _computeContextHash(ctx: ReflectionContext): string {
+    const key = [
+      ctx.dailySummary,
+      ctx.cronSummary,
+      ctx.activityLog.length.toString(),
+      ctx.activityLog
+        .slice(-10)
+        .map((a: any) => `${a.timestamp || ''}:${a.category || ''}`)
+        .join(','),
+      ctx.userMd.slice(0, 300),
+      ctx.memoryMd.slice(0, 300),
+      ctx.kgSummary.slice(0, 200),
+    ].join('|');
+
+    let hash = 5381;
+    for (let i = 0; i < key.length; i++) {
+      hash = ((hash << 5) + hash + key.charCodeAt(i)) & 0xffffffff;
+    }
+    return hash.toString(36);
   }
 
   private emitStatus(status: AgentStatus): void {
