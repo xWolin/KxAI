@@ -96,6 +96,9 @@ export type McpCategory =
   | 'Media'
   | 'Inne';
 
+/** Setup type for MCP servers that require configuration */
+export type McpSetupType = 'env' | 'oauth-google' | 'oauth-microsoft' | 'manual';
+
 /** Entry in the curated MCP server registry (popular servers) */
 export interface McpRegistryEntry {
   /** Unique key */
@@ -118,6 +121,18 @@ export interface McpRegistryEntry {
   transport: McpTransportType;
   /** Whether it requires API keys or setup */
   requiresSetup?: boolean;
+  /**
+   * Type of setup required:
+   * - 'env': needs environment variables (API keys, tokens)
+   * - 'oauth-google': needs Google OAuth2 browser flow
+   * - 'oauth-microsoft': needs Microsoft OAuth2 browser flow
+   * - 'manual': needs manual configuration steps
+   */
+  setupType?: McpSetupType;
+  /** Human-readable setup instructions shown in the UI */
+  setupInstructions?: string;
+  /** List of required env var names — UI will render named input fields instead of a generic textarea */
+  requiredEnvVars?: string[];
   /** Link to docs/setup instructions */
   docsUrl?: string;
   /** Searchable tags for discovery */

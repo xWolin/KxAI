@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { KxAIConfig, RAGFolderInfo, UpdateState } from '../types';
-import type { McpServerConfig, McpHubStatus, McpRegistryEntry, McpCategory } from '@shared/types/mcp';
+import type { McpServerConfig, McpHubStatus, McpRegistryEntry, McpCategory, McpSetupType } from '@shared/types/mcp';
 import type { CalendarStatus, CalendarInfo, CalendarProvider } from '@shared/types/calendar';
 import s from './SettingsPanel.module.css';
 import { cn } from '../utils/cn';
@@ -252,6 +252,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   });
   const [mcpEnvEditing, setMcpEnvEditing] = useState<string | null>(null);
   const [mcpEnvInput, setMcpEnvInput] = useState('');
+  const [mcpEnvRegistryEntry, setMcpEnvRegistryEntry] = useState<McpRegistryEntry | null>(null);
+  const [mcpEnvFields, setMcpEnvFields] = useState<Record<string, string>>({});
+  const [mcpOAuthRunning, setMcpOAuthRunning] = useState(false);
   const [mcpSearchQuery, setMcpSearchQuery] = useState('');
   const [mcpFilterCategory, setMcpFilterCategory] = useState<McpCategory | ''>('');
   const [mcpCategories, setMcpCategories] = useState<McpCategory[]>([]);
@@ -267,6 +270,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     serverUrl: '',
     username: '',
     password: '',
+    googleClientId: '',
+    googleClientSecret: '',
   });
 
   const tabs: Array<{ id: SettingsTabId; label: string }> = [
@@ -626,9 +631,24 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         category: entry.category,
       };
       const added = await window.kxai.mcpAddServer(config);
+
       if (added && !entry.requiresSetup) {
+        // No setup needed — auto-connect immediately
         await window.kxai.mcpConnect(added.id);
+      } else if (added && entry.requiresSetup && entry.setupType === 'env' && entry.requiredEnvVars?.length) {
+        // Open guided env setup for this server
+        setMcpEnvEditing(added.id);
+        setMcpEnvRegistryEntry(entry);
+        setMcpEnvFields(
+          Object.fromEntries(entry.requiredEnvVars.map((v) => [v, ''])),
+        );
+      } else if (added && entry.requiresSetup && (entry.setupType === 'oauth-google' || entry.setupType === 'oauth-microsoft')) {
+        // Open env editor panel which will show OAuth authorize button
+        setMcpEnvEditing(added.id);
+        setMcpEnvRegistryEntry(entry);
+        setMcpEnvFields({});
       }
+
       await loadMcpData();
     } catch (err) {
       console.error('MCP add from registry error:', err);
@@ -674,27 +694,77 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   async function handleMcpUpdateEnv(serverId: string) {
     try {
       const envObj: Record<string, string> = {};
-      for (const line of mcpEnvInput.split('\n')) {
-        const eqIdx = line.indexOf('=');
-        if (eqIdx > 0) {
-          envObj[line.slice(0, eqIdx).trim()] = line.slice(eqIdx + 1).trim();
+
+      // If using guided fields, build env from those
+      if (mcpEnvRegistryEntry?.requiredEnvVars?.length && Object.keys(mcpEnvFields).length > 0) {
+        for (const [key, value] of Object.entries(mcpEnvFields)) {
+          if (value.trim()) envObj[key] = value.trim();
+        }
+      } else {
+        // Legacy: parse textarea KEY=VALUE format
+        for (const line of mcpEnvInput.split('\n')) {
+          const eqIdx = line.indexOf('=');
+          if (eqIdx > 0) {
+            envObj[line.slice(0, eqIdx).trim()] = line.slice(eqIdx + 1).trim();
+          }
         }
       }
+
       // Remove and re-add with updated env
       const servers = await window.kxai.mcpListServers();
       const server = servers.find((s) => s.id === serverId);
       if (!server) return;
       await window.kxai.mcpRemoveServer(serverId);
-      await window.kxai.mcpAddServer({
+      const readded = await window.kxai.mcpAddServer({
         ...server,
         env: Object.keys(envObj).length > 0 ? envObj : undefined,
       });
       setMcpEnvEditing(null);
       setMcpEnvInput('');
+      setMcpEnvRegistryEntry(null);
+      setMcpEnvFields({});
+
+      // Auto-connect after saving env vars
+      if (readded && Object.keys(envObj).length > 0) {
+        try {
+          await window.kxai.mcpConnect(readded.id);
+        } catch {
+          // Connection may fail — user can retry manually
+        }
+      }
+
       await loadMcpData();
     } catch (err) {
       console.error('MCP update env error:', err);
     }
+  }
+
+  async function handleMcpRunOAuth(serverId: string) {
+    setMcpOAuthRunning(true);
+    try {
+      const result = await window.kxai.mcpRunOAuthSetup(serverId);
+      if (result.success) {
+        // OAuth done — try connecting
+        try {
+          await window.kxai.mcpConnect(serverId);
+        } catch {
+          // Connection may fail if more setup needed
+        }
+        setMcpEnvEditing(null);
+        setMcpEnvRegistryEntry(null);
+      } else {
+        alert(result.error || 'Autoryzacja OAuth nie powiodła się');
+      }
+      await loadMcpData();
+    } catch (err) {
+      console.error('MCP OAuth setup error:', err);
+    } finally {
+      setMcpOAuthRunning(false);
+    }
+  }
+
+  function findRegistryEntryForServer(serverName: string): McpRegistryEntry | undefined {
+    return mcpRegistry.find((e) => e.name.toLowerCase() === serverName.toLowerCase());
   }
 
   function getMcpStatusBadge(status: string) {
@@ -747,7 +817,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         caldav: { serverUrl: calNewConn.serverUrl, authMethod: 'Basic' },
       };
       const defaults = providerDefaults[calNewConn.provider] || providerDefaults.caldav;
-      const result = await window.kxai.calendarAddConnection({
+      const connectionConfig: Record<string, unknown> = {
         name: calNewConn.name,
         provider: calNewConn.provider,
         serverUrl:
@@ -757,12 +827,20 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         authMethod: defaults.authMethod as 'Basic' | 'OAuth' | 'Bearer',
         username: calNewConn.username || '',
         enabled: true,
-      });
+      };
+
+      // Pass Google OAuth credentials if provided
+      if (calNewConn.provider === 'google') {
+        if (calNewConn.googleClientId) connectionConfig.googleClientId = calNewConn.googleClientId;
+        if (calNewConn.googleClientSecret) connectionConfig.googleClientSecret = calNewConn.googleClientSecret;
+      }
+
+      const result = await window.kxai.calendarAddConnection(connectionConfig as any);
       if (result.success && result.connectionId && calNewConn.password) {
         await window.kxai.calendarStoreCredential(result.connectionId, calNewConn.password);
       }
       setCalShowAddForm(false);
-      setCalNewConn({ name: '', provider: 'caldav', serverUrl: '', username: '', password: '' });
+      setCalNewConn({ name: '', provider: 'caldav', serverUrl: '', username: '', password: '', googleClientId: '', googleClientSecret: '' });
       await loadCalendarData();
     } catch (err) {
       console.error('Calendar add error:', err);
@@ -1538,9 +1616,22 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                         <button
                           className={s.mcpBtnSmall}
                           onClick={() => {
+                            const regEntry = findRegistryEntryForServer(server.name);
+                            setMcpEnvRegistryEntry(regEntry ?? null);
+
                             // Find server config to prefill env
                             window.kxai.mcpListServers().then((servers) => {
                               const srv = servers.find((ss) => ss.id === server.id);
+
+                              if (regEntry?.requiredEnvVars?.length) {
+                                // Guided mode: prefill named fields
+                                const fields: Record<string, string> = {};
+                                for (const varName of regEntry.requiredEnvVars!) {
+                                  fields[varName] = srv?.env?.[varName] ?? '';
+                                }
+                                setMcpEnvFields(fields);
+                              }
+
                               const envStr = srv?.env
                                 ? Object.entries(srv.env)
                                     .map(([k, v]) => `${k}=${v}`)
@@ -1578,25 +1669,106 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
                     {server.error && <div className={s.mcpServerError}>{server.error}</div>}
 
-                    {/* Env editor */}
+                    {/* Env / OAuth setup editor */}
                     {mcpEnvEditing === server.id && (
                       <div className={s.mcpEnvEditor}>
-                        <label className={s.label}>{t('settings.mcp.envLabel')}</label>
-                        <textarea
-                          className={s.mcpEnvTextarea}
-                          value={mcpEnvInput}
-                          onChange={(e) => setMcpEnvInput(e.target.value)}
-                          placeholder="GITHUB_TOKEN=ghp_xxx&#10;SLACK_TOKEN=xoxb-xxx"
-                          rows={4}
-                        />
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
-                          <button className={s.mcpBtnSmallAccent} onClick={() => handleMcpUpdateEnv(server.id)}>
-                            {t('settings.mcp.save')}
-                          </button>
-                          <button className={s.mcpBtnSmall} onClick={() => setMcpEnvEditing(null)}>
-                            {t('settings.mcp.cancel')}
-                          </button>
-                        </div>
+                        {/* Setup instructions */}
+                        {mcpEnvRegistryEntry?.setupInstructions && (
+                          <p className={s.hint} style={{ marginBottom: '8px' }}>
+                            {mcpEnvRegistryEntry.setupInstructions}
+                          </p>
+                        )}
+
+                        {/* OAuth setup flow */}
+                        {(mcpEnvRegistryEntry?.setupType === 'oauth-google' || mcpEnvRegistryEntry?.setupType === 'oauth-microsoft') ? (
+                          <div>
+                            <p className={s.hint} style={{ marginBottom: '12px' }}>
+                              {mcpEnvRegistryEntry.setupType === 'oauth-google'
+                                ? 'Kliknij przycisk poniżej aby otworzyć przeglądarkę i autoryzować dostęp do konta Google.'
+                                : 'Kliknij przycisk poniżej aby otworzyć przeglądarkę i autoryzować dostęp do konta Microsoft.'}
+                            </p>
+                            <div style={{ display: 'flex', gap: '8px' }}>
+                              <button
+                                className={s.mcpBtnPrimary}
+                                onClick={() => handleMcpRunOAuth(server.id)}
+                                disabled={mcpOAuthRunning}
+                              >
+                                {mcpOAuthRunning ? 'Autoryzacja...' : 'Autoryzuj'}
+                              </button>
+                              <button className={s.mcpBtnSmall} onClick={() => { setMcpEnvEditing(null); setMcpEnvRegistryEntry(null); }}>
+                                {t('settings.mcp.cancel')}
+                              </button>
+                            </div>
+                            {mcpEnvRegistryEntry.docsUrl && (
+                              <a
+                                href={mcpEnvRegistryEntry.docsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={s.hint}
+                                style={{ display: 'inline-block', marginTop: '8px', textDecoration: 'underline' }}
+                              >
+                                Dokumentacja
+                              </a>
+                            )}
+                          </div>
+                        ) : mcpEnvRegistryEntry?.requiredEnvVars?.length ? (
+                          /* Guided env fields */
+                          <div>
+                            <label className={s.label}>{server.name} — konfiguracja</label>
+                            {mcpEnvRegistryEntry.requiredEnvVars.map((varName) => (
+                              <div key={varName} style={{ marginBottom: '8px' }}>
+                                <label className={s.label} style={{ fontSize: '12px', opacity: 0.8 }}>{varName}</label>
+                                <input
+                                  type={varName.toLowerCase().includes('secret') || varName.toLowerCase().includes('password') || varName.toLowerCase().includes('token') || varName.toLowerCase().includes('key') ? 'password' : 'text'}
+                                  className={s.input}
+                                  value={mcpEnvFields[varName] ?? ''}
+                                  onChange={(e) => setMcpEnvFields((prev) => ({ ...prev, [varName]: e.target.value }))}
+                                  placeholder={varName}
+                                  autoComplete="off"
+                                />
+                              </div>
+                            ))}
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                              <button className={s.mcpBtnSmallAccent} onClick={() => handleMcpUpdateEnv(server.id)}>
+                                {t('settings.mcp.save')}
+                              </button>
+                              <button className={s.mcpBtnSmall} onClick={() => { setMcpEnvEditing(null); setMcpEnvRegistryEntry(null); setMcpEnvFields({}); }}>
+                                {t('settings.mcp.cancel')}
+                              </button>
+                            </div>
+                            {mcpEnvRegistryEntry.docsUrl && (
+                              <a
+                                href={mcpEnvRegistryEntry.docsUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className={s.hint}
+                                style={{ display: 'inline-block', marginTop: '8px', textDecoration: 'underline' }}
+                              >
+                                Dokumentacja
+                              </a>
+                            )}
+                          </div>
+                        ) : (
+                          /* Legacy: generic textarea for custom servers */
+                          <div>
+                            <label className={s.label}>{t('settings.mcp.envLabel')}</label>
+                            <textarea
+                              className={s.mcpEnvTextarea}
+                              value={mcpEnvInput}
+                              onChange={(e) => setMcpEnvInput(e.target.value)}
+                              placeholder="GITHUB_TOKEN=ghp_xxx&#10;SLACK_TOKEN=xoxb-xxx"
+                              rows={4}
+                            />
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                              <button className={s.mcpBtnSmallAccent} onClick={() => handleMcpUpdateEnv(server.id)}>
+                                {t('settings.mcp.save')}
+                              </button>
+                              <button className={s.mcpBtnSmall} onClick={() => { setMcpEnvEditing(null); setMcpEnvRegistryEntry(null); }}>
+                                {t('settings.mcp.cancel')}
+                              </button>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1778,7 +1950,13 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                           </div>
                           <div className={s.mcpRegistryDesc}>{entry.description}</div>
                           {entry.requiresSetup && (
-                            <span className={s.mcpRequiresSetup}>{t('settings.mcp.requiresSetup')}</span>
+                            <span className={s.mcpRequiresSetup}>
+                              {entry.setupType === 'oauth-google' ? 'OAuth Google'
+                                : entry.setupType === 'oauth-microsoft' ? 'OAuth Microsoft'
+                                : entry.setupType === 'manual' ? 'Konfiguracja manualna'
+                                : entry.setupType === 'env' ? 'Wymaga klucza API'
+                                : t('settings.mcp.requiresSetup')}
+                            </span>
                           )}
                         </div>
                       </div>
@@ -1950,7 +2128,30 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   />
 
                   {calNewConn.provider === 'google' && (
-                    <p className={s.hint}>{t('settings.calendar.googleOauthHint')}</p>
+                    <>
+                      <p className={s.hint}>{t('settings.calendar.googleOauthHint')}</p>
+                      <p className={s.hint} style={{ marginTop: '4px' }}>
+                        Aby korzystać z Google Calendar przez CalDAV, utwórz OAuth2 credentials w Google Cloud Console
+                        (APIs &amp; Services &gt; Credentials &gt; OAuth 2.0 Client IDs).
+                      </p>
+
+                      <label className={s.label}>Google Client ID</label>
+                      <input
+                        className={s.input}
+                        value={calNewConn.googleClientId}
+                        onChange={(e) => setCalNewConn({ ...calNewConn, googleClientId: e.target.value })}
+                        placeholder="xxxxx.apps.googleusercontent.com"
+                      />
+
+                      <label className={s.label}>Google Client Secret</label>
+                      <input
+                        className={s.input}
+                        type="password"
+                        value={calNewConn.googleClientSecret}
+                        onChange={(e) => setCalNewConn({ ...calNewConn, googleClientSecret: e.target.value })}
+                        placeholder="GOCSPX-xxxxxxxx"
+                      />
+                    </>
                   )}
 
                   <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>

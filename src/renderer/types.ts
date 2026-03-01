@@ -226,6 +226,7 @@ export interface KxAIBridge {
   mcpSearchRegistry: (query?: string, category?: string) => Promise<import('@shared/types').McpRegistryEntry[]>;
   mcpGetCategories: () => Promise<import('@shared/types').McpCategory[]>;
   mcpCallTool: (serverId: string, toolName: string, args: any) => Promise<import('@shared/types').ToolResult>;
+  mcpRunOAuthSetup: (id: string) => Promise<{ success: boolean; error?: string }>;
   onMcpStatus: (callback: (status: import('@shared/types').McpHubStatus) => void) => () => void;
 
   // Calendar (CalDAV)

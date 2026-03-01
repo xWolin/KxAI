@@ -1296,6 +1296,10 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     return mcpClient.callTool(serverId, toolName, args);
   });
 
+  validatedHandle(Ch.MCP_RUN_OAUTH_SETUP, async (_event, id: string) => {
+    return mcpClient.runOAuthSetup(id);
+  });
+
   // ─── Calendar (CalDAV) ───
 
   const calendar = services.calendarService;

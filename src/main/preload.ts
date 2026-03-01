@@ -358,6 +358,7 @@ contextBridge.exposeInMainWorld('kxai', {
   mcpGetCategories: () => ipcRenderer.invoke(Ch.MCP_GET_CATEGORIES),
   mcpCallTool: (serverId: string, toolName: string, args: any) =>
     ipcRenderer.invoke(Ch.MCP_CALL_TOOL, serverId, toolName, args),
+  mcpRunOAuthSetup: (id: string) => ipcRenderer.invoke(Ch.MCP_RUN_OAUTH_SETUP, id),
   onMcpStatus: (callback: (data: any) => void) => {
     const handler = (_event: any, data: any) => callback(data);
     ipcRenderer.on(Ev.MCP_STATUS, handler);

@@ -187,6 +187,7 @@ export const Ch = {
   MCP_SEARCH_REGISTRY: 'mcp:search-registry',
   MCP_GET_CATEGORIES: 'mcp:get-categories',
   MCP_CALL_TOOL: 'mcp:call-tool',
+  MCP_RUN_OAUTH_SETUP: 'mcp:run-oauth-setup',
 
   // Calendar (CalDAV)
   CALENDAR_GET_CONNECTIONS: 'calendar:get-connections',
