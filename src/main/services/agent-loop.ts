@@ -1159,6 +1159,10 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         const toolCall = this.parseToolCall(response);
         if (!toolCall) break;
 
+        // Post-process CURRENT response before consuming it with tool loop.
+        // This ensures update_memory/cron blocks in the same response as a tool call are not lost.
+        await this.responseProcessor.postProcess(response);
+
         toolIterations++;
         log.info(`[Heartbeat] Tool call #${toolIterations}: ${toolCall.tool}`);
         this.emitStatus({ state: 'heartbeat', detail: `Heartbeat: ${toolCall.tool}`, toolName: toolCall.tool });
@@ -1207,11 +1211,15 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       // Process any memory updates from heartbeat
       await this.responseProcessor.processMemoryUpdates(response);
 
-      // Clean response for UI (strip tool blocks)
+      // Clean response for UI (strip tool blocks + special blocks)
       const cleanResponse = response
         .replace(/```tool\s*\n[\s\S]*?```/g, '')
+        .replace(/```update_memory\s*\n[\s\S]*?```/g, '')
+        .replace(/```cron\s*\n[\s\S]*?```/g, '')
+        .replace(/```take_control\s*\n[\s\S]*?```/g, '')
         .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
         .replace(/⚙️ Wykonuję:.*?\n/g, '')
+        .replace(/[✅❌] [^:]+:.*?\n/g, '')
         .trim();
 
       // Notify UI about heartbeat result
@@ -1268,6 +1276,9 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         const toolCall = this.parseToolCall(response);
         if (!toolCall) break;
 
+        // Post-process CURRENT response before consuming it with tool loop.
+        await this.responseProcessor.postProcess(response);
+
         toolIterations++;
         log.info(`[AFK] Tool call #${toolIterations}: ${toolCall.tool}`);
 
@@ -1306,7 +1317,11 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       // Clean response for UI
       const cleanResponse = response
         .replace(/```tool\s*\n[\s\S]*?```/g, '')
+        .replace(/```update_memory\s*\n[\s\S]*?```/g, '')
+        .replace(/```cron\s*\n[\s\S]*?```/g, '')
+        .replace(/```take_control\s*\n[\s\S]*?```/g, '')
         .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
+        .replace(/[✅❌] [^:]+:.*?\n/g, '')
         .trim();
 
       if (cleanResponse && cleanResponse !== 'HEARTBEAT_OK') {

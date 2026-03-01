@@ -361,6 +361,16 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       const toolCall = this.parseToolCall(response);
       if (!toolCall) break;
 
+      // Post-process CURRENT response before consuming it with tool loop.
+      // This ensures update_memory/cron blocks in the same response as a tool call are not lost.
+      const ppResult = await this.responseProcessor.postProcess(response);
+      if (ppResult.memoryUpdatesApplied > 0) {
+        log.info(`Heartbeat intermediate: ${ppResult.memoryUpdatesApplied} memory update(s) applied`);
+      }
+      if (ppResult.cronSuggestion) {
+        log.info(`Heartbeat intermediate: cron suggestion parsed`);
+      }
+
       iterations++;
       log.info(`Tool call #${iterations}: ${toolCall.tool}`);
       this.emitStatus({ state: 'heartbeat', detail: `Heartbeat: ${toolCall.tool}`, toolName: toolCall.tool });
@@ -578,8 +588,12 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
   private cleanHeartbeatResponse(response: string): string | null {
     const clean = response
       .replace(/```tool\s*\n[\s\S]*?```/g, '')
+      .replace(/```update_memory\s*\n[\s\S]*?```/g, '')
+      .replace(/```cron\s*\n[\s\S]*?```/g, '')
+      .replace(/```take_control\s*\n[\s\S]*?```/g, '')
       .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
       .replace(/⚙️ Wykonuję:.*?\n/g, '')
+      .replace(/[✅❌] [^:]+:.*?\n/g, '')
       .trim();
 
     if (!clean || clean === 'HEARTBEAT_OK' || clean === 'NO_REPLY' || clean.length < 10) {

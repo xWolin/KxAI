@@ -171,8 +171,13 @@ export class ResponseProcessor {
         const file = fileMap[parsed.data.file];
         if (!file) continue;
 
-        await this.memory.updateMemorySection(file, parsed.data.section, parsed.data.content);
-        count++;
+        const ok = await this.memory.updateMemorySection(file, parsed.data.section, parsed.data.content);
+        if (ok) {
+          log.info(`Memory update: ${file} → ## ${parsed.data.section} (${parsed.data.content.length} chars)`);
+          count++;
+        } else {
+          log.warn(`Memory update failed: ${file} → ## ${parsed.data.section} (file missing or empty content?)`);
+        }
       } catch (err) {
         log.warn('Failed to parse memory update JSON:', err);
       }
