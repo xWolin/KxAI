@@ -35,6 +35,7 @@ process.on('uncaughtException', (error) => {
 
 let mainWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
+let isQuitting = false;
 const container = new ServiceContainer();
 
 // ─── Single Instance Lock ───
@@ -200,6 +201,7 @@ function createMainWindow(): BrowserWindow {
     skipTaskbar: true,
     resizable: false,
     hasShadow: true,
+    show: false, // Don't show until ready-to-show (prevents invisible transparent window)
     titleBarStyle: 'hidden',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
@@ -207,6 +209,32 @@ function createMainWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: false, // Required for desktopCapturer and native module compatibility
     },
+  });
+
+  // Show window only after renderer content is painted (prevents flash/invisible window)
+  win.once('ready-to-show', () => {
+    win.show();
+    // Ensure floating widget is visible on all macOS desktops/spaces
+    if (process.platform === 'darwin') {
+      win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+    }
+  });
+
+  // macOS: hide instead of close — app stays in tray, window is reusable
+  // Without this, closing the window destroys it but the process stays alive
+  // (window-all-closed doesn't quit on darwin), leaving a zombie with no UI.
+  if (process.platform === 'darwin') {
+    win.on('close', (e) => {
+      if (!isQuitting) {
+        e.preventDefault();
+        win.hide();
+      }
+    });
+  }
+
+  // Clean up reference when window is actually destroyed
+  win.on('closed', () => {
+    mainWindow = null;
   });
 
   // Load the renderer
@@ -324,25 +352,39 @@ function createTray(): void {
   }
 
   tray = new Tray(icon);
+
+  /** Ensure mainWindow exists and is visible; recreate if destroyed */
+  const ensureWindow = (): BrowserWindow => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+      return mainWindow;
+    }
+    // Window was destroyed — recreate
+    mainWindow = createMainWindow();
+    setupIPC(mainWindow, container.getIPCServices());
+    container.get('updater').initialize(mainWindow);
+    container.get('mcpClient').setDependencies({ mainWindow });
+    return mainWindow;
+  };
+
   const contextMenu = Menu.buildFromTemplate([
     {
       label: 'Pokaż KxAI',
-      click: () => {
-        mainWindow?.show();
-        mainWindow?.focus();
-      },
+      click: () => ensureWindow(),
     },
     {
       label: 'Ustawienia',
       click: () => {
-        mainWindow?.show();
-        mainWindow?.webContents.send(Ev.NAVIGATE, 'settings');
+        const win = ensureWindow();
+        win.webContents.send(Ev.NAVIGATE, 'settings');
       },
     },
     { type: 'separator' },
     {
       label: 'Zamknij',
       click: () => {
+        isQuitting = true;
         app.quit();
       },
     },
@@ -352,11 +394,10 @@ function createTray(): void {
   tray.setContextMenu(contextMenu);
 
   tray.on('click', () => {
-    if (mainWindow?.isVisible()) {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) {
       mainWindow.hide();
     } else {
-      mainWindow?.show();
-      mainWindow?.focus();
+      ensureWindow();
     }
   });
 }
@@ -515,7 +556,6 @@ Bądź pomocny, krótki i konkretny. Mów po polsku.`;
     }
   });
 
-  let isQuitting = false;
   app.on('will-quit', (event) => {
     if (isQuitting) return;
     event.preventDefault();
@@ -548,13 +588,13 @@ Bądź pomocny, krótki i konkretny. Mów po polsku.`;
   });
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    // macOS: user clicked dock icon or switched to app — ensure window is visible
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.show();
+      mainWindow.focus();
+    } else {
       mainWindow = createMainWindow();
-      // Re-initialize services that hold a direct BrowserWindow reference.
-      // Note: setupIPC is NOT re-called — ipcMain handlers persist for the process
-      // lifetime and calling it again would throw duplicate-handler errors.
-      // Config-change events reference the `mainWindow` variable directly (not a
-      // snapshot), so they pick up the new window automatically.
+      setupIPC(mainWindow, container.getIPCServices());
       container.get('updater').initialize(mainWindow);
       container.get('mcpClient').setDependencies({ mainWindow });
       // Re-start companion monitor if proactive mode was active
