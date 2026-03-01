@@ -68,7 +68,7 @@ function createMockTools() {
 
 function createMockMemory() {
   return {
-    updateMemorySection: vi.fn(async () => {}),
+    updateMemorySection: vi.fn(async () => true),
     completeBootstrap: vi.fn(async () => {}),
     getMemory: vi.fn(() => ''),
     getSessionHistory: vi.fn(() => []),
