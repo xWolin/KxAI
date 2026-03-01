@@ -1408,11 +1408,44 @@ export class McpClientService {
       if (!config.command) throw new Error('stdio transport requires a command');
 
       const client = new Client({ name: 'kxai', version: '1.0.0' });
+
+      // Build spawn options for StdioClientTransport:
+      // 1. shell: true on Windows — required because npx/node are .cmd scripts
+      //    that cannot be spawned directly by child_process.spawn()
+      // 2. env: merge process.env with server-specific env vars
+      //    (without ...process.env the child gets NO env → can't find node/npm)
+      // 3. cwd: use app's home directory to avoid path issues with spaces
+      const isWindows = process.platform === 'win32';
+      const mergedEnv = { ...process.env, ...config.env } as Record<string, string>;
+
+      // On Windows, ensure npx resolves correctly by using shell mode
+      const spawnOpts: Record<string, unknown> = {
+        env: mergedEnv,
+        shell: isWindows,
+      };
+
       const transport = new StdioClientTransport({
         command: config.command,
         args: config.args,
-        env: { ...process.env, ...config.env } as Record<string, string>,
+        ...spawnOpts,
       });
+
+      // Listen for stderr output from the child process for diagnostics
+      transport.onerror = (err) => {
+        log.error(`[MCP:${config.name}] Transport error:`, err.message || err);
+      };
+
+      // Log when the stdio transport closes (child process exit)
+      transport.onclose = () => {
+        log.warn(`[MCP:${config.name}] Transport closed (child process exited)`);
+        // Update connection status
+        const conn = this.connections.get(config.id);
+        if (conn && conn.status === 'connected') {
+          conn.status = 'error';
+          conn.error = 'Process exited unexpectedly';
+          this.pushStatus();
+        }
+      };
 
       await client.connect(transport);
       return { client, transport };
