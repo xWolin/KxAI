@@ -305,6 +305,10 @@ export interface UpdateState {
     total: number;
   };
   error?: string;
+  /** When true, auto-update is not possible — user must download manually */
+  manualOnly?: boolean;
+  /** Direct download URL for manual updates (GitHub Releases) */
+  downloadUrl?: string;
 }
 
 export interface ConversationMessage {

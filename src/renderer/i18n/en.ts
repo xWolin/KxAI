@@ -472,6 +472,7 @@ export const en: TranslationDict = {
   'settings.general.updateAvailable': '✨ available',
   'settings.general.updateNotAvailable': "You're on the latest version.",
   'settings.general.updateDownload': '⬇️ Download update',
+  'settings.general.updateOpenRelease': '🌐 Download from GitHub',
   'settings.general.updateDownloading': 'Downloading... {pct}%',
   'settings.general.updateReadyInstall': '⬇️ Ready to install',
   'settings.general.updateInstall': '🚀 Install and restart',

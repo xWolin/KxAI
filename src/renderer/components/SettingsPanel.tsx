@@ -1314,11 +1314,13 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
                 {updateState?.status === 'available' && (
                   <button className={s.btnSave} onClick={downloadUpdate} style={{ flex: 'none' }}>
-                    {t('settings.general.updateDownload')}
+                    {updateState.manualOnly
+                      ? t('settings.general.updateOpenRelease')
+                      : t('settings.general.updateDownload')}
                   </button>
                 )}
 
-                {updateState?.status === 'downloaded' && (
+                {updateState?.status === 'downloaded' && !updateState.manualOnly && (
                   <button
                     onClick={installUpdate}
                     style={{
