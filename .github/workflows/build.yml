@@ -276,11 +276,16 @@ jobs:
             # No Developer ID cert — use ad-hoc signing (identity="-")
             # This is required on macOS Sonoma/Sequoia where unsigned apps get -10810 from Launch Services.
             # Ad-hoc signing makes the app runnable after xattr -cr (no notarization needed).
-            # Disable hardened runtime (requires real cert) and entitlements (require hardened runtime).
+            # Disable hardened runtime and entitlements (both require a real cert).
+            # identity=null tells electron-builder to skip its own codesign pass entirely;
+            # we perform ad-hoc signing manually below so that --entitlements is never sent
+            # with a literal "null" path (which codesign rejects with "cannot read entitlement data").
+            CSC_IDENTITY_AUTO_DISCOVERY=false \
             npx electron-builder --mac --publish "$PUBLISH" \
+              --config.mac.identity=null \
               --config.mac.hardenedRuntime=false \
-              --config.mac.entitlements=null \
-              --config.mac.entitlementsInherit=null
+              --config.mac.entitlements= \
+              --config.mac.entitlementsInherit=
 
             # Ad-hoc codesign the .app bundle including native modules in app.asar.unpacked
             APP_PATH="release/mac-arm64/KxAI.app"
@@ -289,7 +294,7 @@ jobs:
             fi
             if [ -d "$APP_PATH" ]; then
               echo "Ad-hoc signing $APP_PATH..."
-              # Sign native .node modules first (better-sqlite3, sqlite-vec)
+              # Sign native .node modules first (deeper items must be signed before outer bundles)
               find "$APP_PATH" -name "*.node" -o -name "*.dylib" | while read f; do
                 codesign --force --sign - "$f" 2>/dev/null || true
               done
