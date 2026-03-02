@@ -14,6 +14,8 @@
  */
 
 import { randomUUID } from 'crypto';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -46,6 +48,10 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🐙',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['GITHUB_PERSONAL_ACCESS_TOKEN'],
+    setupInstructions:
+      'Wygeneruj Personal Access Token na github.com/settings/tokens (classic, z uprawnieniami repo, read:org).',
     docsUrl: 'https://github.com/modelcontextprotocol/servers',
     tags: ['git', 'vcs', 'code', 'repo', 'pr', 'issues'],
     featured: true,
@@ -73,6 +79,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🔍',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['BRAVE_API_KEY'],
+    setupInstructions: 'Zarejestruj się na brave.com/search/api i wygeneruj klucz API.',
     docsUrl: 'https://github.com/modelcontextprotocol/servers',
     tags: ['search', 'web', 'internet', 'szukaj'],
     featured: true,
@@ -87,6 +96,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🐘',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['POSTGRES_CONNECTION_STRING'],
+    setupInstructions: 'Podaj connection string, np. postgresql://user:pass@localhost:5432/dbname',
     docsUrl: 'https://github.com/modelcontextprotocol/servers',
     tags: ['sql', 'database', 'baza', 'dane'],
     featured: true,
@@ -117,6 +129,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '📧',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'oauth-google',
+    setupInstructions:
+      'Wymaga jednorazowej autoryzacji OAuth2 z kontem Google. Kliknij "Autoryzuj" aby otworzyć przeglądarkę i zalogować się do Gmail.',
     docsUrl: 'https://github.com/gongrzhe/server-gmail-autoauth-mcp',
     tags: ['email', 'google', 'poczta', 'mail'],
     featured: true,
@@ -132,6 +147,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '📬',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'oauth-microsoft',
+    setupInstructions:
+      'Wymaga autoryzacji OAuth2 z kontem Microsoft 365. Kliknij "Autoryzuj" aby otworzyć przeglądarkę.',
     docsUrl: 'https://github.com/asanstefanski/outlook-mcp',
     tags: ['email', 'microsoft', 'office', 'teams', 'poczta'],
   },
@@ -145,6 +163,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '💬',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['SLACK_BOT_TOKEN', 'SLACK_TEAM_ID'],
+    setupInstructions: 'Utwórz Slack App na api.slack.com/apps, dodaj Bot Token Scopes i zainstaluj w workspace.',
     docsUrl: 'https://github.com/modelcontextprotocol/servers',
     tags: ['chat', 'messaging', 'team', 'workspace'],
   },
@@ -159,6 +180,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🔗',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['LINKEDIN_EMAIL', 'LINKEDIN_PASSWORD'],
+    setupInstructions: 'Podaj dane logowania do LinkedIn.',
     docsUrl: 'https://github.com/gregpr07/linkedin-mcp',
     tags: ['social', 'networking', 'praca', 'kariera', 'hr'],
   },
@@ -166,13 +190,17 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     id: 'caldav',
     name: 'CalDAV Calendar',
     description:
-      'Kalendarz via CalDAV — Google Calendar, Apple iCloud, Nextcloud, ownCloud. CRUD eventów, recurrence, reminders.',
+      'Kalendarz via CalDAV — Google Calendar, Apple iCloud, Nextcloud, ownCloud. CRUD eventów, recurrence, reminders. Uwaga: KxAI ma wbudowaną natywną integrację CalDAV w zakładce Kalendarz.',
     command: 'npx',
     args: ['-y', 'caldav-mcp'],
     category: 'Komunikacja',
     icon: '📅',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['CALDAV_URL', 'CALDAV_USERNAME', 'CALDAV_PASSWORD'],
+    setupInstructions:
+      'Podaj URL serwera CalDAV, login i hasło. Dla Google Calendar zalecamy użycie natywnej integracji CalDAV w zakładce Kalendarz.',
     docsUrl: 'https://github.com/madbonez/caldav-mcp',
     tags: ['calendar', 'kalendarz', 'google', 'ical', 'spotkania'],
   },
@@ -186,6 +214,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🎮',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['DISCORD_TOKEN'],
+    setupInstructions: 'Utwórz bota na discord.com/developers/applications i skopiuj Bot Token.',
     docsUrl: 'https://github.com/barryyip0625/mcp-discord',
     tags: ['chat', 'gaming', 'community', 'serwer'],
   },
@@ -201,6 +232,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '📝',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['NOTION_API_TOKEN'],
+    setupInstructions: 'Utwórz integrację na notion.so/my-integrations i skopiuj Internal Integration Token.',
     docsUrl: 'https://github.com/makenotion/notion-mcp-server',
     tags: ['notes', 'notatki', 'wiki', 'baza wiedzy', 'database'],
     featured: true,
@@ -215,6 +249,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '💎',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['OBSIDIAN_VAULT_PATH'],
+    setupInstructions: 'Podaj pełną ścieżkę do folderu vault Obsidian.',
     docsUrl: 'https://github.com/bitbonsai/mcp-obsidian',
     tags: ['notes', 'notatki', 'vault', 'markdown', 'zettelkasten'],
   },
@@ -228,6 +265,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '📊',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['LINEAR_API_KEY'],
+    setupInstructions: 'Wygeneruj API key w Linear: Settings > API > Personal API keys.',
     docsUrl: 'https://github.com/tacticlaunch/mcp-linear',
     tags: ['project', 'issue', 'tracker', 'agile', 'kanban'],
   },
@@ -241,6 +281,10 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🔵',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['JIRA_URL', 'JIRA_USERNAME', 'JIRA_API_TOKEN'],
+    setupInstructions:
+      'Podaj URL instancji Jira, email i API token z id.atlassian.com/manage-profile/security/api-tokens.',
     docsUrl: 'https://github.com/aashari/mcp-server-atlassian-jira',
     tags: ['project', 'issue', 'wiki', 'atlassian', 'scrum'],
   },
@@ -254,6 +298,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🖌️',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['MIRO_API_TOKEN'],
+    setupInstructions: 'Wygeneruj token API w Miro: Profile > Settings > Your apps.',
     docsUrl: 'https://github.com/k-jarzyna/mcp-miro',
     tags: ['whiteboard', 'tablica', 'diagram', 'brainstorm'],
   },
@@ -281,6 +328,8 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '☸️',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'manual',
+    setupInstructions: 'Wymaga skonfigurowanego kubectl z dostępem do klastra (kubeconfig).',
     docsUrl: 'https://github.com/Flux159/mcp-server-kubernetes',
     tags: ['k8s', 'cluster', 'devops', 'pods', 'orchestration'],
   },
@@ -294,6 +343,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🟧',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['POSTMAN_API_KEY'],
+    setupInstructions: 'Wygeneruj API key w Postman: Settings > API Keys.',
     docsUrl: 'https://github.com/delano/postman-mcp-server',
     tags: ['api', 'rest', 'testing', 'http'],
   },
@@ -319,6 +371,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🎨',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['FIGMA_ACCESS_TOKEN'],
+    setupInstructions: 'Wygeneruj Personal Access Token w Figma: Settings > Account > Personal access tokens.',
     docsUrl: 'https://github.com/dannote/figma-use',
     tags: ['design', 'ui', 'ux', 'prototyp', 'grafika'],
   },
@@ -332,6 +387,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '☁️',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['CLOUDFLARE_API_TOKEN'],
+    setupInstructions: 'Wygeneruj API token na dash.cloudflare.com/profile/api-tokens.',
     docsUrl: 'https://github.com/cloudflare/mcp-server-cloudflare',
     tags: ['cdn', 'workers', 'edge', 'r2', 'cloud'],
   },
@@ -359,6 +417,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🐬',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['MYSQL_HOST', 'MYSQL_USER', 'MYSQL_PASSWORD', 'MYSQL_DATABASE'],
+    setupInstructions: 'Podaj dane dostępowe do bazy MySQL.',
     docsUrl: 'https://github.com/benborla/mcp-server-mysql',
     tags: ['sql', 'database', 'baza', 'relacyjna'],
   },
@@ -372,6 +433,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🍃',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['MONGODB_URI'],
+    setupInstructions: 'Podaj MongoDB connection string, np. mongodb://localhost:27017/dbname',
     docsUrl: 'https://github.com/furey/mongodb-lens',
     tags: ['nosql', 'database', 'document', 'baza'],
   },
@@ -385,6 +449,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '⚡',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['SUPABASE_URL', 'SUPABASE_SERVICE_ROLE_KEY'],
+    setupInstructions: 'Znajdziesz URL i Service Role Key w Supabase Dashboard > Settings > API.',
     docsUrl: 'https://github.com/supabase-community/supabase-mcp',
     tags: ['postgres', 'backend', 'auth', 'realtime', 'baas'],
   },
@@ -398,6 +465,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '📊',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['AIRTABLE_API_KEY'],
+    setupInstructions: 'Wygeneruj Personal Access Token na airtable.com/create/tokens.',
     docsUrl: 'https://github.com/domdomegg/airtable-mcp-server',
     tags: ['spreadsheet', 'database', 'no-code', 'tabela'],
   },
@@ -461,6 +531,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🗺️',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['GOOGLE_MAPS_API_KEY'],
+    setupInstructions: 'Wygeneruj API key na console.cloud.google.com z włączonym Maps API.',
     docsUrl: 'https://github.com/modelcontextprotocol/servers',
     tags: ['mapy', 'maps', 'lokalizacja', 'trasa', 'poi'],
     featured: true,
@@ -475,6 +548,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🔎',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['EXA_API_KEY'],
+    setupInstructions: 'Zarejestruj się na exa.ai i wygeneruj klucz API.',
     docsUrl: 'https://github.com/exa-labs/exa-mcp-server',
     tags: ['search', 'ai', 'semantic', 'neural'],
   },
@@ -517,6 +593,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🤖',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['OPENAI_API_KEY'],
+    setupInstructions: 'Wygeneruj klucz API na platform.openai.com/api-keys.',
     docsUrl: 'https://github.com/pierrebrunelle/mcp-server-openai',
     tags: ['openai', 'gpt', 'llm', 'model', 'chatgpt'],
   },
@@ -544,6 +623,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '📊',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'oauth-google',
+    setupInstructions:
+      'Wymaga autoryzacji OAuth2 z kontem Google. Kliknij "Autoryzuj" aby zalogować się do Google Sheets.',
     docsUrl: 'https://github.com/xing5/mcp-google-sheets',
     tags: ['spreadsheet', 'arkusz', 'excel', 'tabela', 'google'],
   },
@@ -571,6 +653,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🔥',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['SENTRY_AUTH_TOKEN'],
+    setupInstructions: 'Wygeneruj Auth Token na sentry.io: Settings > Auth Tokens.',
     docsUrl: 'https://github.com/getsentry/sentry-mcp',
     tags: ['errors', 'crash', 'monitoring', 'debug', 'tracking'],
   },
@@ -586,6 +671,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '✔️',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['TODOIST_API_TOKEN'],
+    setupInstructions: 'Znajdziesz API token w Todoist: Settings > Integrations > Developer.',
     docsUrl: 'https://github.com/abhiz123/todoist-mcp-server',
     tags: ['todo', 'zadania', 'lista', 'produktywność', 'task manager'],
     featured: true,
@@ -600,6 +688,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '📂',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'oauth-google',
+    setupInstructions:
+      'Wymaga autoryzacji OAuth2 z kontem Google. Kliknij "Autoryzuj" aby zalogować się do Google Drive.',
     docsUrl: 'https://github.com/isaacphi/mcp-google-drive',
     tags: ['dysk', 'drive', 'google', 'pliki', 'storage'],
   },
@@ -615,6 +706,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '💳',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['STRIPE_SECRET_KEY'],
+    setupInstructions: 'Skopiuj Secret Key z dashboard.stripe.com/apikeys.',
     docsUrl: 'https://github.com/stripe/agent-toolkit',
     tags: ['payments', 'płatności', 'billing', 'invoices', 'subscription'],
   },
@@ -628,6 +722,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🧡',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['HUBSPOT_ACCESS_TOKEN'],
+    setupInstructions: 'Wygeneruj Private App token na developers.hubspot.com.',
     docsUrl: 'https://github.com/buryhuang/mcp-hubspot',
     tags: ['crm', 'sprzedaż', 'kontakty', 'marketing', 'deals'],
     featured: true,
@@ -644,6 +741,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🔀',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['N8N_BASE_URL', 'N8N_API_KEY'],
+    setupInstructions: 'Podaj URL instancji n8n i klucz API z Settings > API.',
     docsUrl: 'https://github.com/czlonkowski/n8n-mcp',
     tags: ['automation', 'workflow', 'integracja', 'no-code', 'n8n'],
     featured: true,
@@ -659,6 +759,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🎯',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['ANTHROPIC_API_KEY'],
+    setupInstructions: 'Wymaga klucza API Anthropic do zasilania agenta Claude. Wygeneruj na console.anthropic.com.',
     docsUrl: 'https://github.com/eyaltoledano/claude-task-master',
     tags: ['tasks', 'prd', 'development', 'planning', 'agile'],
     featured: true,
@@ -674,6 +777,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '🔥',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['FIRECRAWL_API_KEY'],
+    setupInstructions: 'Zarejestruj się na firecrawl.dev i wygeneruj klucz API.',
     docsUrl: 'https://github.com/firecrawl/firecrawl-mcp-server',
     tags: ['scraping', 'crawl', 'web', 'content', 'extract'],
     featured: true,
@@ -700,6 +806,9 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     icon: '📓',
     transport: 'stdio',
     requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['HACKMD_API_TOKEN'],
+    setupInstructions: 'Wygeneruj API token w HackMD: Settings > API.',
     docsUrl: 'https://github.com/yuna0x0/hackmd-mcp',
     tags: ['notes', 'markdown', 'colaboracja', 'dokumenty', 'wiki'],
   },
@@ -894,6 +1003,53 @@ export class McpClientService {
   async reconnect(id: string): Promise<void> {
     await this.disconnect(id);
     await this.connect(id);
+  }
+
+  // ─── OAuth Setup ───
+
+  /**
+   * Run OAuth setup for a server that requires browser-based authorization.
+   * Looks up the server in CURATED_REGISTRY to find the package name,
+   * then runs `npx <package> auth` which opens the browser for OAuth consent.
+   */
+  async runOAuthSetup(id: string): Promise<{ success: boolean; error?: string }> {
+    const config = this.configs.find((c) => c.id === id);
+    if (!config) return { success: false, error: `Server not found: ${id}` };
+
+    // Find the registry entry to determine the package
+    const registryEntry = CURATED_REGISTRY.find((e) => e.name.toLowerCase() === config.name.toLowerCase());
+    const setupType = registryEntry?.setupType;
+
+    if (setupType !== 'oauth-google' && setupType !== 'oauth-microsoft') {
+      return { success: false, error: 'Ten serwer nie wymaga autoryzacji OAuth' };
+    }
+
+    // Determine the package name from args (e.g. ['-y', '@gongrzhe/server-gmail-autoauth-mcp'])
+    const packageName = config.args?.[1] || registryEntry?.args?.[1];
+    if (!packageName) {
+      return { success: false, error: 'Nie można określić pakietu do autoryzacji' };
+    }
+
+    log.info(`Running OAuth setup for "${config.name}" (package: ${packageName})...`);
+
+    try {
+      const execAsync = promisify(exec);
+      const isWindows = process.platform === 'win32';
+
+      // Run the auth subcommand — most MCP OAuth servers support `npx <pkg> auth`
+      await execAsync(`npx -y ${packageName} auth`, {
+        timeout: 120_000,
+        shell: isWindows ? 'cmd.exe' : '/bin/sh',
+        env: { ...process.env, ...config.env },
+      });
+
+      log.info(`OAuth setup completed for "${config.name}"`);
+      return { success: true };
+    } catch (err: any) {
+      const msg = err.message || String(err);
+      log.error(`OAuth setup failed for "${config.name}": ${msg}`);
+      return { success: false, error: msg };
+    }
   }
 
   // ─── Tool Execution ───
@@ -1274,6 +1430,8 @@ export class McpClientService {
    */
   private async createConnection(config: McpServerConfig): Promise<{ client: Client; transport: Transport }> {
     const timeout = config.timeout ?? 30_000;
+    // stdio transports (npx) often need more time for initial package download
+    const stdioTimeout = config.timeout ?? 60_000;
 
     if (config.transport === 'stdio') {
       if (!config.command) throw new Error('stdio transport requires a command');
@@ -1318,7 +1476,33 @@ export class McpClientService {
         }
       };
 
-      await client.connect(transport);
+      // Race connect against a timeout — stdio has no built-in timeout
+      // and npx may hang downloading packages or waiting for auth
+      const connectPromise = client.connect(transport);
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(
+          () =>
+            reject(
+              new Error(
+                `Timeout po ${stdioTimeout / 1000}s — serwer nie odpowiedział. Sprawdź czy pakiet jest dostępny i czy konfiguracja (env vars / OAuth) jest poprawna.`,
+              ),
+            ),
+          stdioTimeout,
+        ),
+      );
+
+      try {
+        await Promise.race([connectPromise, timeoutPromise]);
+      } catch (err) {
+        // Clean up the transport on timeout
+        try {
+          await transport.close();
+        } catch {
+          /* ignore */
+        }
+        throw err;
+      }
+
       return { client, transport };
     }
 

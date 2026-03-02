@@ -224,6 +224,8 @@ const McpReconnectParams = z.tuple([nonEmptyString]);
 
 const McpCallToolParams = z.tuple([nonEmptyString, nonEmptyString, z.any()]);
 
+const McpRunOAuthSetupParams = z.tuple([nonEmptyString]);
+
 // ─── Calendar ───
 
 const CalendarAddConnectionParams = z.tuple([
@@ -372,6 +374,7 @@ export const IpcParamSchemas: Partial<Record<string, z.ZodType>> = {
   [Ch.MCP_DISCONNECT]: McpDisconnectParams,
   [Ch.MCP_RECONNECT]: McpReconnectParams,
   [Ch.MCP_CALL_TOOL]: McpCallToolParams,
+  [Ch.MCP_RUN_OAUTH_SETUP]: McpRunOAuthSetupParams,
 
   // Calendar
   [Ch.CALENDAR_ADD_CONNECTION]: CalendarAddConnectionParams,

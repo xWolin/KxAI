@@ -95,6 +95,7 @@ export type {
   McpHubStatus,
   McpRegistryEntry,
   McpCategory,
+  McpSetupType,
 } from './mcp';
 
 // File Intelligence

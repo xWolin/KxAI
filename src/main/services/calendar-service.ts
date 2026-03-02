@@ -708,12 +708,30 @@ export class CalendarService {
 
     if (config.authMethod === 'OAuth' && config.provider === 'google') {
       const refreshToken = this.loadCredential(`calendar_${config.id}_refresh_token`);
+      const clientId = config.googleClientId ?? '';
+      const clientSecret = config.googleClientSecret ?? '';
+
+      if (!clientId || !clientSecret) {
+        log.warn(
+          `Google Calendar "${config.name}": brakuje Google Client ID lub Client Secret. ` +
+            'Ustaw je w konfiguracji połączenia (Settings > Kalendarz). ' +
+            'Utwórz OAuth2 credentials w Google Cloud Console (APIs & Services > Credentials).',
+        );
+      }
+
+      if (!refreshToken) {
+        log.warn(
+          `Google Calendar "${config.name}": brakuje refresh tokena OAuth. ` +
+            'Połączenie może się nie udać bez wcześniejszej autoryzacji OAuth2.',
+        );
+      }
+
       return {
         tokenUrl: 'https://accounts.google.com/o/oauth2/token',
         username: config.username,
         refreshToken: refreshToken ?? '',
-        clientId: config.googleClientId ?? '',
-        clientSecret: config.googleClientSecret ?? '',
+        clientId,
+        clientSecret,
       };
     }
 
