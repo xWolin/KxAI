@@ -103,6 +103,12 @@ export const KxAIConfigSchema = z
 
     // ── Calendar connections ──
     calendarConnections: z.array(CalendarConnectionSchema).optional(),
+
+    // ── Telegram Bot ──
+    telegramAutoStart: z.boolean().default(false),
+    telegramAllowedChatIds: z.array(z.number()).default([]),
+    telegramAllowedUsernames: z.array(z.string()).default([]),
+    telegramDenyByDefault: z.boolean().default(true),
   })
   .passthrough(); // Allow unknown keys for forward-compat
 
