@@ -13,15 +13,22 @@ vi.mock('../src/main/services/logger', () => ({
 
 // Mock tool-loop-detector used inside runHeartbeatToolLoop
 vi.mock('../src/main/services/tool-loop-detector', () => ({
-  ToolLoopDetector: vi.fn().mockImplementation(() => ({
-    recordAndCheck: vi.fn().mockReturnValue({ shouldContinue: true }),
-  })),
+  ToolLoopDetector: function () {
+    return {
+      recordAndCheck: vi.fn().mockReturnValue({ shouldContinue: true }),
+    };
+  },
 }));
 
 function createMockDeps() {
   return {
     ai: {
       sendMessage: vi.fn().mockResolvedValue('HEARTBEAT_OK'),
+      streamMessageWithNativeTools: vi.fn().mockResolvedValue({
+        text: 'HEARTBEAT_OK',
+        toolCalls: [],
+        _messages: [],
+      }),
     },
     memory: {
       get: vi.fn().mockResolvedValue(null),
@@ -30,6 +37,7 @@ function createMockDeps() {
     workflow: {
       buildTimeContext: vi.fn().mockReturnValue('## Czas\n- Teraz: wtorek'),
       logActivity: vi.fn(),
+      getActivityStats: vi.fn().mockReturnValue({ totalSwitches: 0, topApps: [] }),
     },
     cron: {
       getJobs: vi.fn().mockReturnValue([]),
@@ -37,6 +45,7 @@ function createMockDeps() {
     tools: {
       execute: vi.fn().mockResolvedValue({ success: true, data: 'ok' }),
       getToolDefinitions: vi.fn().mockReturnValue([]),
+      selectToolsForMessage: vi.fn().mockReturnValue([]),
     },
     promptService: {
       render: vi.fn().mockReturnValue('prompt'),
@@ -44,7 +53,7 @@ function createMockDeps() {
     },
     responseProcessor: {
       isHeartbeatSuppressed: vi.fn().mockReturnValue(false),
-      postProcess: vi.fn().mockResolvedValue(undefined),
+      postProcess: vi.fn().mockResolvedValue({ memoryUpdatesApplied: 0, autoApprovedCron: null }),
     },
     screenMonitor: {
       isRunning: vi.fn().mockReturnValue(false),
@@ -75,7 +84,7 @@ describe('HeartbeatEngine', () => {
   describe('setters', () => {
     it('setScreenMonitor should update screen monitor', () => {
       const newMonitor = { isRunning: vi.fn().mockReturnValue(true), buildMonitorContext: vi.fn(), getCurrentWindow: vi.fn() };
-      engine.setScreenMonitor(newMonitor);
+      engine.setScreenMonitor(newMonitor as any);
       // Verify it's used: heartbeat should call the new monitor
       expect(newMonitor).toBeDefined();
     });
@@ -316,10 +325,8 @@ describe('HeartbeatEngine', () => {
 
     it('should escape markdown headers in output', () => {
       // sanitizeToolOutput applies regex on the JSON.stringified version
-      // \n# in raw data becomes \n# in JSON string output → replaced with \n\\$1
       const data = { text: 'line\n# Injection' };
       const result = sanitize('tool', data);
-      // The output is JSON.stringified first, then escaped
       expect(result).toContain('TOOL OUTPUT');
       expect(result).toContain('Tool: tool');
     });
@@ -447,10 +454,21 @@ describe('HeartbeatEngine', () => {
       expect(task.id).toBe('pattern-analysis');
     });
 
-    it('should return welcome-back after 15min AFK', () => {
+    it('should return email-digest after 15min AFK', () => {
       (engine as any).afkTasksDone.add('memory-review');
       (engine as any).afkTasksDone.add('pattern-analysis');
       const task = getTask(15);
+      expect(task).not.toBeNull();
+      expect(task.id).toBe('email-digest');
+    });
+
+    it('should return welcome-back after 35min AFK', () => {
+      (engine as any).afkTasksDone.add('memory-review');
+      (engine as any).afkTasksDone.add('pattern-analysis');
+      (engine as any).afkTasksDone.add('email-digest');
+      (engine as any).afkTasksDone.add('workflow-optimization');
+      (engine as any).afkTasksDone.add('research-scan');
+      const task = getTask(35);
       expect(task).not.toBeNull();
       expect(task.id).toBe('welcome-back');
     });
@@ -458,6 +476,9 @@ describe('HeartbeatEngine', () => {
     it('should return null when all tasks done', () => {
       (engine as any).afkTasksDone.add('memory-review');
       (engine as any).afkTasksDone.add('pattern-analysis');
+      (engine as any).afkTasksDone.add('email-digest');
+      (engine as any).afkTasksDone.add('workflow-optimization');
+      (engine as any).afkTasksDone.add('research-scan');
       (engine as any).afkTasksDone.add('welcome-back');
       expect(getTask(60)).toBeNull();
     });
@@ -562,7 +583,7 @@ describe('HeartbeatEngine', () => {
       engine.setProcessingCheck(() => true);
       const result = await engine.heartbeat();
       expect(result).toBeNull();
-      expect(deps.ai.sendMessage).not.toHaveBeenCalled();
+      expect(deps.ai.streamMessageWithNativeTools).not.toHaveBeenCalled();
     });
 
     it('should skip outside active hours', async () => {
@@ -590,14 +611,16 @@ describe('HeartbeatEngine', () => {
         return null;
       });
       const longResponse = 'Sprawdzilem email - jest 5 nowych wiadomosci i potrzebujesz je przejrzec na biezaco.';
-      deps.ai.sendMessage.mockResolvedValue(longResponse);
+      deps.ai.streamMessageWithNativeTools.mockResolvedValue({
+        content: longResponse,
+        toolCalls: [],
+        finishReason: 'stop',
+      });
       deps.responseProcessor.isHeartbeatSuppressed.mockReturnValue(false);
 
       const result = await engine.heartbeat();
-      expect(deps.ai.sendMessage).toHaveBeenCalled();
-      // Either result is the cleaned response or null if further cleaned
-      // The key assertion is that AI was consulted
-      const sendCall = deps.ai.sendMessage.mock.calls[0][0] as string;
+      expect(deps.ai.streamMessageWithNativeTools).toHaveBeenCalled();
+      const sendCall = deps.ai.streamMessageWithNativeTools.mock.calls[0][0] as string;
       expect(sendCall).toContain('HEARTBEAT');
     });
 
@@ -606,7 +629,11 @@ describe('HeartbeatEngine', () => {
         if (key === 'HEARTBEAT.md') return '# Tasks\n- [ ] Do something';
         return '';
       });
-      deps.ai.sendMessage.mockResolvedValue('HEARTBEAT_OK');
+      deps.ai.streamMessageWithNativeTools.mockResolvedValue({
+        content: 'HEARTBEAT_OK',
+        toolCalls: [],
+        finishReason: 'stop',
+      });
       deps.responseProcessor.isHeartbeatSuppressed.mockReturnValue(true);
 
       const result = await engine.heartbeat();
@@ -618,7 +645,7 @@ describe('HeartbeatEngine', () => {
         if (key === 'HEARTBEAT.md') return '# Tasks\n- [ ] Task';
         return '';
       });
-      deps.ai.sendMessage.mockRejectedValue(new Error('API error'));
+      deps.ai.streamMessageWithNativeTools.mockRejectedValue(new Error('API error'));
       const result = await engine.heartbeat();
       expect(result).toBeNull();
     });
@@ -628,7 +655,11 @@ describe('HeartbeatEngine', () => {
         if (key === 'HEARTBEAT.md') return '# Tasks\n- [ ] Check stuff';
         return '';
       });
-      deps.ai.sendMessage.mockResolvedValue('Done checking.');
+      deps.ai.streamMessageWithNativeTools.mockResolvedValue({
+        content: 'Done checking.',
+        toolCalls: [],
+        finishReason: 'stop',
+      });
 
       const statusCb = vi.fn();
       engine.onAgentStatus = statusCb;
@@ -653,6 +684,9 @@ describe('HeartbeatEngine', () => {
       engine.setAfkState(true);
       (engine as any).afkTasksDone.add('memory-review');
       (engine as any).afkTasksDone.add('pattern-analysis');
+      (engine as any).afkTasksDone.add('email-digest');
+      (engine as any).afkTasksDone.add('workflow-optimization');
+      (engine as any).afkTasksDone.add('research-scan');
       (engine as any).afkTasksDone.add('welcome-back');
       const result = await (engine as any).afkHeartbeat();
       expect(result).toBeNull();
@@ -661,11 +695,15 @@ describe('HeartbeatEngine', () => {
     it('should run first available task', async () => {
       engine.setAfkState(true);
       vi.advanceTimersByTime(6 * 60000); // 6 min AFK
-      deps.ai.sendMessage.mockResolvedValue('Reviewed memory — all good.');
+      deps.ai.streamMessageWithNativeTools.mockResolvedValue({
+        content: 'Reviewed memory — all good.',
+        toolCalls: [],
+        finishReason: 'stop',
+      });
       deps.responseProcessor.isHeartbeatSuppressed.mockReturnValue(false);
 
       const result = await (engine as any).afkHeartbeat();
-      expect(deps.ai.sendMessage).toHaveBeenCalled();
+      expect(deps.ai.streamMessageWithNativeTools).toHaveBeenCalled();
       expect((engine as any).afkTasksDone.has('memory-review')).toBe(true);
     });
   });
