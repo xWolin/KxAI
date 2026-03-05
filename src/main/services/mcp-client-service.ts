@@ -221,6 +221,57 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     docsUrl: 'https://github.com/barryyip0625/mcp-discord',
     tags: ['chat', 'gaming', 'community', 'serwer'],
   },
+  {
+    id: 'whatsapp',
+    name: 'WhatsApp',
+    description: 'Wysyłanie i odbieranie wiadomości WhatsApp, zarządzanie kontaktami i grupami przez WhatsApp Web API.',
+    command: 'npx',
+    args: ['-y', '@anthropic/whatsapp-mcp'],
+    category: 'Komunikacja',
+    icon: '💚',
+    transport: 'stdio',
+    requiresSetup: true,
+    setupType: 'manual',
+    setupInstructions:
+      'Przy pierwszym uruchomieniu serwer wygeneruje kod QR do zeskanowania w WhatsApp (Ustawienia > Połączone urządzenia).',
+    docsUrl: 'https://github.com/anthropics/whatsapp-mcp',
+    tags: ['chat', 'wiadomości', 'messenger', 'kontakty', 'grupy', 'whatsapp'],
+    featured: true,
+  },
+  {
+    id: 'telegram',
+    name: 'Telegram',
+    description: 'Wysyłanie wiadomości, zarządzanie czatami, wyszukiwanie kontaktów i grup przez Telegram Bot API.',
+    command: 'npx',
+    args: ['-y', 'telegram-mcp'],
+    category: 'Komunikacja',
+    icon: '✈️',
+    transport: 'stdio',
+    requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['TELEGRAM_BOT_TOKEN'],
+    setupInstructions:
+      'Utwórz bota przez @BotFather na Telegramie, skopiuj token i wpisz tutaj. Dodaj bota do czatów, które ma obsługiwać.',
+    docsUrl: 'https://github.com/nicepkg/telegram-mcp',
+    tags: ['chat', 'wiadomości', 'bot', 'komunikator', 'telegram'],
+  },
+  {
+    id: 'twitter',
+    name: 'X (Twitter)',
+    description: 'Publikowanie tweetów, odczyt timeline, wyszukiwanie, DM-y i zarządzanie kontem X/Twitter.',
+    command: 'npx',
+    args: ['-y', '@enescinar/twitter-mcp'],
+    category: 'Komunikacja',
+    icon: '🐦',
+    transport: 'stdio',
+    requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['TWITTER_API_KEY', 'TWITTER_API_SECRET', 'TWITTER_ACCESS_TOKEN', 'TWITTER_ACCESS_TOKEN_SECRET'],
+    setupInstructions:
+      'Utwórz Developer App na developer.x.com i skopiuj API Key, API Secret, Access Token i Access Token Secret.',
+    docsUrl: 'https://github.com/EnesCinworker/twitter-mcp',
+    tags: ['social', 'tweety', 'posty', 'media', 'x'],
+  },
 
   // ─── Produktywność ───
   {
@@ -829,6 +880,17 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
 ];
 
 /** Active connection state for one MCP server */
+/** Reconnect configuration */
+const RECONNECT = {
+  maxAttempts: 4,
+  baseDelayMs: 5_000,
+  maxDelayMs: 60_000,
+  backoffMultiplier: 2,
+} as const;
+
+/** Heartbeat configuration */
+const HEARTBEAT_INTERVAL_MS = 60_000;
+
 interface McpConnection {
   config: McpServerConfig;
   client: Client;
@@ -839,6 +901,9 @@ interface McpConnection {
   connectedAt?: number;
   callCount: number;
   registeredToolNames: string[];
+  reconnectAttempt: number;
+  reconnectTimer?: ReturnType<typeof setTimeout>;
+  heartbeatTimer?: ReturnType<typeof setInterval>;
 }
 
 export class McpClientService {
@@ -933,6 +998,7 @@ export class McpClientService {
       tools: [],
       callCount: 0,
       registeredToolNames: [],
+      reconnectAttempt: 0,
     };
     this.connections.set(id, conn);
     this.pushStatus();
@@ -960,6 +1026,13 @@ export class McpClientService {
 
       // Register tools with ToolsService
       this.registerMcpTools(conn);
+
+      // Start heartbeat to detect silent disconnections
+      this.startHeartbeat(conn);
+
+      // Reset reconnect counter on successful connection
+      conn.reconnectAttempt = 0;
+
       this.pushStatus();
     } catch (err: any) {
       conn.status = 'error';
@@ -976,6 +1049,13 @@ export class McpClientService {
   async disconnect(id: string): Promise<void> {
     const conn = this.connections.get(id);
     if (!conn) return;
+
+    // Clear timers
+    this.stopHeartbeat(conn);
+    if (conn.reconnectTimer) {
+      clearTimeout(conn.reconnectTimer);
+      conn.reconnectTimer = undefined;
+    }
 
     // Unregister tools
     this.unregisterMcpTools(conn);
@@ -1064,38 +1144,56 @@ export class McpClientService {
       return { success: false, error: `MCP server "${serverId}" is not connected` };
     }
 
-    try {
-      const result = await conn.client.callTool({ name: toolName, arguments: args });
-      conn.callCount++;
+    const maxRetries = 2;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        const result = await conn.client.callTool({ name: toolName, arguments: args });
+        conn.callCount++;
 
-      // Extract text content from MCP result
-      const textContent = (result.content as any[])
-        ?.filter((c: any) => c.type === 'text')
-        .map((c: any) => c.text)
-        .join('\n');
+        // Extract text content from MCP result
+        const textContent = (result.content as any[])
+          ?.filter((c: any) => c.type === 'text')
+          .map((c: any) => c.text)
+          .join('\n');
 
-      return {
-        success: !result.isError,
-        data: textContent || result.content,
-        error: result.isError ? textContent : undefined,
-      };
-    } catch (err: any) {
-      log.error(`MCP tool call failed: ${conn.config.name}/${toolName}: ${err.message}`);
+        return {
+          success: !result.isError,
+          data: textContent || result.content,
+          error: result.isError ? textContent : undefined,
+        };
+      } catch (err: any) {
+        const isTransient = err.message?.includes('timeout') || err.code === 'ECONNRESET';
+        const isConnectionDead = err.message?.includes('closed') || err.message?.includes('ECONNREFUSED');
 
-      // If connection lost, mark as error and unregister tools to prevent
-      // repeated -32000 errors from the agent trying to use dead tools
-      if (err.message?.includes('closed') || err.message?.includes('ECONNREFUSED')) {
-        conn.status = 'error';
-        conn.error = 'Connection lost';
-        if (this.toolsService) {
-          this.toolsService.unregisterByPrefix(`mcp_${conn.config.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_`);
-          log.info(`[MCP:${conn.config.name}] Unregistered tools after connection loss`);
+        // Retry on transient errors only
+        if (isTransient && attempt < maxRetries) {
+          log.warn(
+            `[MCP:${conn.config.name}] Tool call "${toolName}" failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying...`,
+          );
+          await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
+          continue;
         }
-        this.pushStatus();
-      }
 
-      return { success: false, error: err.message || String(err) };
+        log.error(`MCP tool call failed: ${conn.config.name}/${toolName}: ${err.message}`);
+
+        // If connection lost, mark as error and unregister tools
+        if (isConnectionDead) {
+          conn.status = 'error';
+          conn.error = 'Connection lost';
+          this.stopHeartbeat(conn);
+          if (this.toolsService) {
+            this.toolsService.unregisterByPrefix(`mcp_${conn.config.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_`);
+            log.info(`[MCP:${conn.config.name}] Unregistered tools after connection loss`);
+          }
+          this.pushStatus();
+          this.scheduleReconnect(conn);
+        }
+
+        return { success: false, error: err.message || String(err) };
+      }
     }
+
+    return { success: false, error: `Tool call "${toolName}" exhausted retries` };
   }
 
   // ─── Status & Registry ───
@@ -1172,6 +1270,81 @@ export class McpClientService {
   }
 
   // ─── Shutdown ───
+
+  // ─── Reconnect & Heartbeat ───
+
+  /**
+   * Schedule a reconnect with exponential backoff.
+   * Attempts: 5s → 10s → 20s → 40s (max 4 attempts).
+   */
+  private scheduleReconnect(conn: McpConnection): void {
+    if (conn.reconnectAttempt >= RECONNECT.maxAttempts) {
+      log.error(`[MCP:${conn.config.name}] Max reconnect attempts (${RECONNECT.maxAttempts}) reached — giving up`);
+      conn.status = 'error';
+      conn.error = `Reconnect failed after ${RECONNECT.maxAttempts} attempts`;
+      this.pushStatus();
+      return;
+    }
+
+    const delay = Math.min(
+      RECONNECT.baseDelayMs * Math.pow(RECONNECT.backoffMultiplier, conn.reconnectAttempt),
+      RECONNECT.maxDelayMs,
+    );
+    conn.reconnectAttempt++;
+    conn.status = 'reconnecting';
+    this.pushStatus();
+
+    log.info(
+      `[MCP:${conn.config.name}] Scheduling reconnect attempt ${conn.reconnectAttempt}/${RECONNECT.maxAttempts} in ${delay / 1000}s`,
+    );
+
+    conn.reconnectTimer = setTimeout(async () => {
+      conn.reconnectTimer = undefined;
+      try {
+        await this.reconnect(conn.config.id);
+        log.info(`[MCP:${conn.config.name}] Reconnect succeeded (attempt ${conn.reconnectAttempt})`);
+      } catch (err: any) {
+        log.error(`[MCP:${conn.config.name}] Reconnect attempt ${conn.reconnectAttempt} failed: ${err.message}`);
+        // Re-fetch conn — reconnect() may have recreated it
+        const refreshed = this.connections.get(conn.config.id);
+        if (refreshed) {
+          refreshed.reconnectAttempt = conn.reconnectAttempt;
+          this.scheduleReconnect(refreshed);
+        }
+      }
+    }, delay);
+  }
+
+  /**
+   * Start periodic heartbeat to detect silent disconnections.
+   * Uses listTools() as a lightweight ping — if it fails, triggers reconnect.
+   */
+  private startHeartbeat(conn: McpConnection): void {
+    this.stopHeartbeat(conn);
+    conn.heartbeatTimer = setInterval(async () => {
+      try {
+        await conn.client.listTools();
+      } catch {
+        log.warn(`[MCP:${conn.config.name}] Heartbeat failed — connection may be dead`);
+        conn.status = 'error';
+        conn.error = 'Heartbeat failed — connection lost';
+        this.stopHeartbeat(conn);
+        this.unregisterMcpTools(conn);
+        this.pushStatus();
+        this.scheduleReconnect(conn);
+      }
+    }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  /**
+   * Stop heartbeat timer for a connection.
+   */
+  private stopHeartbeat(conn: McpConnection): void {
+    if (conn.heartbeatTimer) {
+      clearInterval(conn.heartbeatTimer);
+      conn.heartbeatTimer = undefined;
+    }
+  }
 
   async shutdown(): Promise<void> {
     log.info('Shutting down MCP Client Service...');
@@ -1504,18 +1677,11 @@ export class McpClientService {
         if (conn && conn.status === 'connected') {
           conn.status = 'error';
           conn.error = 'Process exited unexpectedly';
+          this.stopHeartbeat(conn);
           this.pushStatus();
 
-          // Auto-reconnect after 5 seconds (one attempt only)
-          setTimeout(async () => {
-            log.info(`[MCP:${config.name}] Attempting auto-reconnect...`);
-            try {
-              await this.reconnect(config.id);
-              log.info(`[MCP:${config.name}] Auto-reconnect succeeded`);
-            } catch (err: any) {
-              log.error(`[MCP:${config.name}] Auto-reconnect failed:`, err.message);
-            }
-          }, 5000);
+          // Auto-reconnect with exponential backoff
+          this.scheduleReconnect(conn);
         }
       };
 
