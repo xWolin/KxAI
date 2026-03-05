@@ -595,8 +595,16 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
         });
       });
 
-      // Start heartbeat for autonomous operations
-      agentLoop.startHeartbeat(5 * 60 * 1000); // 5 min
+      // Start heartbeat for autonomous operations — only if CortexEngine is not active.
+      // CortexEngine (unified brain) covers autonomous think cycles when enabled,
+      // so running HeartbeatEngine simultaneously would cause duplicate AI calls.
+      const cortexActive = !!configService.get('cortexEnabled');
+      if (!cortexActive) {
+        log.info('[ipc] CortexEngine not active — starting legacy HeartbeatEngine');
+        agentLoop.startHeartbeat(5 * 60 * 1000); // 5 min legacy heartbeat
+      } else {
+        log.info('[ipc] CortexEngine is primary autonomous brain — skipping HeartbeatEngine');
+      }
 
       // Start Proactive Intelligence Engine — rule-based notifications
       const { proactiveEngine } = services;
