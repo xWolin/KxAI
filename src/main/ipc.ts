@@ -33,6 +33,7 @@ import { KnowledgeGraphService } from './services/knowledge-graph-service';
 import { ProactiveEngine } from './services/proactive-engine';
 import { WorkflowAutomator } from './services/workflow-automator';
 import { CortexEngine } from './services/cortex-engine';
+import { TelegramService } from './services/telegram-service';
 
 const log = createLogger('IPC');
 
@@ -67,6 +68,7 @@ interface Services {
   reflectionEngine: import('./services/reflection-engine').ReflectionEngine;
   embeddingService: import('./services/embedding-service').EmbeddingService;
   cortexEngine: CortexEngine;
+  telegramService: TelegramService;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
@@ -304,6 +306,65 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     return { success: true };
   });
 
+  // ──────────────── Conversation Export ────────────────
+  validatedHandle(Ch.CONVERSATION_EXPORT, async (_event, format?: string) => {
+    try {
+      const history = memoryService.getConversationHistory();
+      if (!history.length) {
+        return { success: false, error: 'No conversation to export' };
+      }
+
+      if (format === 'clipboard') {
+        // Return text for clipboard copy
+        const lines = history.map((msg: any) => {
+          const time = new Date(msg.timestamp).toLocaleString();
+          const role = msg.role === 'user' ? '👤 Ty' : msg.role === 'assistant' ? '🤖 Agent' : '⚙️ System';
+          return `[${time}] ${role}:\n${msg.content}`;
+        });
+        return { success: true, text: lines.join('\n\n---\n\n') };
+      }
+
+      // Default: save to file
+      const { app, dialog } = await import('electron');
+      const path = await import('path');
+      const fs = await import('fs/promises');
+
+      const defaultName = `konwersacja-${new Date().toISOString().slice(0, 10)}.md`;
+      const result = await dialog.showSaveDialog({
+        title: 'Eksportuj konwersację',
+        defaultPath: path.join(app.getPath('documents'), defaultName),
+        filters: [
+          { name: 'Markdown', extensions: ['md'] },
+          { name: 'Text', extensions: ['txt'] },
+        ],
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { success: false, error: 'Cancelled' };
+      }
+
+      const lines = history.map((msg: any) => {
+        const time = new Date(msg.timestamp).toLocaleString();
+        const role = msg.role === 'user' ? '👤 Ty' : msg.role === 'assistant' ? '🤖 Agent' : '⚙️ System';
+        return `### ${role} — ${time}\n\n${msg.content}`;
+      });
+
+      const content = `# Konwersacja KxAI — ${new Date().toLocaleDateString()}\n\n${lines.join('\n\n---\n\n')}`;
+      await fs.writeFile(result.filePath, content, 'utf-8');
+
+      return { success: true, path: result.filePath };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
+  });
+
+  // ──────────────── Clipboard Write ────────────────
+  validatedHandle(Ch.CLIPBOARD_WRITE_TEXT, async (_event, text: string) => {
+    const { clipboard } = await import('electron');
+    clipboard.writeText(text);
+    return { success: true };
+  });
+
   // ──────────────── Config ────────────────
   ipcMain.handle(Ch.CONFIG_GET, async () => {
     return configService.getAll();
@@ -351,6 +412,11 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   validatedHandle(Ch.SECURITY_DELETE_API_KEY, async (_event, provider: string) => {
     await securityService.deleteApiKey(provider);
+    await aiService.reinitialize();
+    // Re-init embedding service when OpenAI key is deleted
+    if (provider === 'openai' || provider === 'openai-embeddings') {
+      await services.embeddingService.reinitialize();
+    }
     return { success: true };
   });
 
@@ -777,7 +843,7 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
     },
   );
 
-  ipcMain.handle(Ch.CORTEX_TRIGGER_REFLECTION, async (_event, type?: string) => {
+  validatedHandle(Ch.CORTEX_TRIGGER_REFLECTION, async (_event, type?: string) => {
     try {
       await services.cortexEngine.triggerReflection((type as any) || 'manual');
       return { success: true };
@@ -1609,5 +1675,66 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   ipcMain.handle(Ch.KG_GET_STATS, async () => {
     return knowledgeGraphService.getStats();
+  });
+
+  // ─── Telegram Bot ───
+
+  const telegramService = services.telegramService;
+
+  // Push status changes to renderer
+  telegramService.onStatusChange((status: any) => {
+    safeSend(Ev.TELEGRAM_STATUS, status);
+  });
+
+  // Push incoming/outgoing messages to renderer
+  telegramService.onMessage((event: any) => {
+    safeSend(Ev.TELEGRAM_MESSAGE, event);
+  });
+
+  ipcMain.handle(Ch.TELEGRAM_GET_STATUS, async () => {
+    return telegramService.getStatusAsync();
+  });
+
+  validatedHandle(Ch.TELEGRAM_SET_TOKEN, async (_event, token: string) => {
+    return telegramService.setToken(token);
+  });
+
+  ipcMain.handle(Ch.TELEGRAM_REMOVE_TOKEN, async () => {
+    await telegramService.removeToken();
+    return { success: true };
+  });
+
+  ipcMain.handle(Ch.TELEGRAM_START, async () => {
+    return telegramService.start();
+  });
+
+  ipcMain.handle(Ch.TELEGRAM_STOP, async () => {
+    await telegramService.stop();
+    return { success: true };
+  });
+
+  validatedHandle(Ch.TELEGRAM_SEND_MESSAGE, async (_event, chatId: number, text: string) => {
+    const ok = await telegramService.sendMessage(chatId, text);
+    return { success: ok };
+  });
+
+  validatedHandle(Ch.TELEGRAM_SET_ALLOWED_CHATS, async (_event, chatIds: number[]) => {
+    telegramService.setAllowedChatIds(chatIds);
+    return { success: true };
+  });
+
+  validatedHandle(Ch.TELEGRAM_SET_ALLOWED_USERNAMES, async (_event, usernames: string[]) => {
+    telegramService.setAllowedUsernames(usernames);
+    return { success: true };
+  });
+
+  validatedHandle(Ch.TELEGRAM_SET_DENY_BY_DEFAULT, async (_event, enabled: boolean) => {
+    telegramService.setDenyByDefault(enabled);
+    return { success: true };
+  });
+
+  validatedHandle(Ch.TELEGRAM_SET_AUTO_START, async (_event, enabled: boolean) => {
+    telegramService.setAutoStart(enabled);
+    return { success: true };
   });
 }

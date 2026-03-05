@@ -99,6 +99,11 @@
   color: #ff5050;
 }
 
+.btnDeny:focus-visible {
+  outline: 2px solid var(--accent-color, #7c6fff);
+  outline-offset: 2px;
+}
+
 .btnApprove {
   padding: 8px 16px;
   border-radius: 8px;
@@ -113,6 +118,11 @@
 
 .btnApprove:hover {
   filter: brightness(1.15);
+}
+
+.btnApprove:focus-visible {
+  outline: 2px solid var(--accent-color, #7c6fff);
+  outline-offset: 2px;
 }
 
 .dangerous .btnApprove {
@@ -134,4 +144,11 @@
 @keyframes slideUp {
   from { transform: translateY(12px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay,
+  .dialog {
+    animation: none;
+  }
 }

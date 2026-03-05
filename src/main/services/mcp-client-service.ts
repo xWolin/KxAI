@@ -123,19 +123,38 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     id: 'gmail',
     name: 'Gmail',
     description:
-      'Pełna integracja z Gmail — wysyłanie, czytanie, wyszukiwanie emaili, załączniki, etykiety, filtry, operacje batch. OAuth2 auto-auth.',
+      'Integracja z Gmail via IMAP/SMTP — czytanie, wysyłanie, wyszukiwanie emaili, załączniki, etykiety, kategorie Gmail (Primary/Social/Promotions). Wymaga App Password.',
     command: 'npx',
-    args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],
+    args: ['-y', 'gmail-mcp-imap'],
     category: 'Komunikacja',
     icon: '📧',
     transport: 'stdio',
     requiresSetup: true,
-    setupType: 'oauth-google',
+    setupType: 'env',
+    requiredEnvVars: ['GMAIL_EMAIL', 'GMAIL_APP_PASSWORD'],
     setupInstructions:
-      'Wymaga jednorazowej autoryzacji OAuth2 z kontem Google. Kliknij "Autoryzuj" aby otworzyć przeglądarkę i zalogować się do Gmail.',
-    docsUrl: 'https://github.com/gongrzhe/server-gmail-autoauth-mcp',
-    tags: ['email', 'google', 'poczta', 'mail'],
+      '1. Włącz weryfikację dwuetapową na koncie Google (jeśli nie masz).\n2. Wejdź na myaccount.google.com/apppasswords\n3. Wygeneruj App Password dla "Poczta".\n4. Wpisz swój email Gmail i wygenerowane 16-znakowe hasło.',
+    docsUrl: 'https://www.npmjs.com/package/gmail-mcp-imap',
+    tags: ['email', 'google', 'poczta', 'mail', 'imap'],
     featured: true,
+  },
+  {
+    id: 'email-universal',
+    name: 'Email (IMAP/SMTP)',
+    description:
+      'Uniwersalny serwer email — działa z dowolną skrzynką (Gmail, Outlook, Yahoo, firmowy mail). IMAP do czytania + SMTP do wysyłania. Szyfrowane TLS/SSL.',
+    command: 'npx',
+    args: ['-y', 'mcp-mail-server'],
+    category: 'Komunikacja',
+    icon: '✉️',
+    transport: 'stdio',
+    requiresSetup: true,
+    setupType: 'env',
+    requiredEnvVars: ['EMAIL_USER', 'EMAIL_PASS', 'IMAP_HOST', 'IMAP_PORT', 'SMTP_HOST', 'SMTP_PORT'],
+    setupInstructions:
+      'Podaj dane IMAP/SMTP swojej skrzynki.\nGmail: IMAP imap.gmail.com:993, SMTP smtp.gmail.com:465 + App Password.\nOutlook: IMAP outlook.office365.com:993, SMTP smtp.office365.com:587.\nInne: sprawdź u swojego dostawcy.',
+    docsUrl: 'https://www.npmjs.com/package/mcp-mail-server',
+    tags: ['email', 'imap', 'smtp', 'poczta', 'mail', 'universal'],
   },
   {
     id: 'outlook',
@@ -238,23 +257,7 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
     tags: ['chat', 'wiadomości', 'messenger', 'kontakty', 'grupy', 'whatsapp'],
     featured: true,
   },
-  {
-    id: 'telegram',
-    name: 'Telegram',
-    description: 'Wysyłanie wiadomości, zarządzanie czatami, wyszukiwanie kontaktów i grup przez Telegram Bot API.',
-    command: 'npx',
-    args: ['-y', 'telegram-mcp'],
-    category: 'Komunikacja',
-    icon: '✈️',
-    transport: 'stdio',
-    requiresSetup: true,
-    setupType: 'env',
-    requiredEnvVars: ['TELEGRAM_BOT_TOKEN'],
-    setupInstructions:
-      'Utwórz bota przez @BotFather na Telegramie, skopiuj token i wpisz tutaj. Dodaj bota do czatów, które ma obsługiwać.',
-    docsUrl: 'https://github.com/nicepkg/telegram-mcp',
-    tags: ['chat', 'wiadomości', 'bot', 'komunikator', 'telegram'],
-  },
+  // Telegram removed — native TelegramService in dedicated Settings tab
   {
     id: 'twitter',
     name: 'X (Twitter)',
@@ -528,14 +531,14 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
   {
     id: 'fetch',
     name: 'Web Fetch',
-    description: 'Pobieranie treści ze stron internetowych — JSON, tekst, HTML.',
+    description: 'Pobieranie treści ze stron internetowych — HTTP requests, GraphQL, JSON, tekst, HTML.',
     command: 'npx',
-    args: ['-y', '@modelcontextprotocol/server-fetch'],
+    args: ['-y', 'mcp-fetch'],
     category: 'Web',
     icon: '🌐',
     transport: 'stdio',
-    docsUrl: 'https://github.com/modelcontextprotocol/servers',
-    tags: ['http', 'scraping', 'strona', 'webpage'],
+    docsUrl: 'https://github.com/nicobailon/mcp-fetch',
+    tags: ['http', 'scraping', 'strona', 'webpage', 'graphql'],
   },
   {
     id: 'duckduckgo',
@@ -564,14 +567,15 @@ const CURATED_REGISTRY: McpRegistryEntry[] = [
   {
     id: 'weather',
     name: 'Pogoda (Weather)',
-    description: 'Aktualna pogoda i prognoza dla dowolnego miasta — temperatura, wilgotność, wiatr, bez klucza API.',
+    description:
+      'Aktualna pogoda i prognoza dla dowolnego miasta — temperatura, wilgotność, wiatr, opady (Open-Meteo, bez klucza API).',
     command: 'npx',
-    args: ['-y', 'weather-mcp-server'],
+    args: ['-y', 'open-meteo-mcp-server'],
     category: 'Web',
     icon: '⛅',
     transport: 'stdio',
-    docsUrl: 'https://github.com/yagil/weather-mcp-server',
-    tags: ['pogoda', 'weather', 'temperatura', 'prognoza', 'free'],
+    docsUrl: 'https://github.com/cm3r/open-meteo-mcp-server',
+    tags: ['pogoda', 'weather', 'temperatura', 'prognoza', 'free', 'open-meteo'],
   },
   {
     id: 'google-maps',
@@ -1105,7 +1109,7 @@ export class McpClientService {
       return { success: false, error: 'Ten serwer nie wymaga autoryzacji OAuth' };
     }
 
-    // Determine the package name from args (e.g. ['-y', '@gongrzhe/server-gmail-autoauth-mcp'])
+    // Determine the package name from args (e.g. ['-y', 'outlook-mcp'])
     const packageName = config.args?.[1] || registryEntry?.args?.[1];
     if (!packageName) {
       return { success: false, error: 'Nie można określić pakietu do autoryzacji' };
@@ -1644,6 +1648,7 @@ export class McpClientService {
       const transport = new StdioClientTransport({
         command: config.command,
         args: config.args,
+        stderr: 'pipe',
         ...spawnOpts,
       });
 
@@ -1652,23 +1657,15 @@ export class McpClientService {
         log.error(`[MCP:${config.name}] Transport error:`, err.message || err);
       };
 
-      // Capture stderr from child process for better diagnostics
-      // StdioClientTransport exposes the child process after start()
-      const origStart = transport.start.bind(transport);
-      transport.start = async function (...args: Parameters<typeof transport.start>) {
-        const result = await origStart(...args);
-        // Access the internal child process stderr if available
-        const proc = (transport as any)._process;
-        if (proc?.stderr) {
-          proc.stderr.on('data', (data: Buffer) => {
-            const text = data.toString().trim();
-            if (text) {
-              log.warn(`[MCP:${config.name}] stderr: ${text.slice(0, 500)}`);
-            }
-          });
-        }
-        return result;
-      };
+      // Capture stderr via public API (available immediately when stderr: 'pipe')
+      if (transport.stderr) {
+        transport.stderr.on('data', (data: Buffer) => {
+          const text = data.toString().trim();
+          if (text) {
+            log.warn(`[MCP:${config.name}] stderr: ${text.slice(0, 500)}`);
+          }
+        });
+      }
 
       // Log when the stdio transport closes (child process exit)
       transport.onclose = () => {

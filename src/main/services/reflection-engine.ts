@@ -349,8 +349,8 @@ export class ReflectionEngine {
 
     this.emitStatus({ state: 'idle' });
 
-    // ── 5. Post-process: cron suggestions + memory updates ──
-    const postResult = await this.responseProcessor.postProcess(response);
+    // ── 5. Post-process: cron suggestions + memory updates (auto-approve safe categories) ──
+    const postResult = await this.responseProcessor.postProcess(response, undefined, { autoApproveCrons: true });
 
     // ── 6. Parse reflection insights from response ──
     const insights = this._parseInsights(response);

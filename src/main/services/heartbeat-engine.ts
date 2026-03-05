@@ -11,7 +11,7 @@
  * Uses ToolExecutor for tool loops and ResponseProcessor for post-processing.
  */
 
-import { AIService } from './ai-service';
+import { AIService, type NativeToolStreamResult } from './ai-service';
 import { MemoryService } from './memory';
 import { WorkflowService } from './workflow-service';
 import { CronService } from './cron-service';
@@ -20,6 +20,7 @@ import { ToolLoopDetector } from './tool-loop-detector';
 import { PromptService } from './prompt-service';
 import { ResponseProcessor } from './response-processor';
 import type { AgentStatus } from '../../shared/types/agent';
+import type { ToolDefinition } from '../../shared/types/tools';
 import { createLogger } from './logger';
 
 const log = createLogger('HeartbeatEngine');
@@ -233,7 +234,7 @@ export class HeartbeatEngine {
 
     const prompt = `[HEARTBEAT — Autonomiczny agent]\n\n${timeCtx}\n\nAktywne cron joby:\n${jobsSummary || '(brak)'}${heartbeatSection}${observationCtx}${screenSection}${memoryNudge}${memoryReminder}
 
-Masz pełny dostęp do narzędzi. Jeśli chcesz coś ZROBIĆ (sprawdzić, wyszukać, pobrać) — użyj narzędzia.
+Masz pełny dostęp do narzędzi (podane w API). Jeśli chcesz coś ZROBIĆ (sprawdzić, wyszukać, pobrać) — wywołaj narzędzie.
 Nie mów "mogę to zrobić" — PO PROSTU TO ZRÓB.
 
 ${await this.promptService.load('HEARTBEAT.md')}`;
@@ -243,10 +244,9 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       const signal = this.abortController.signal;
       this.emitStatus({ state: 'heartbeat', detail: 'Heartbeat...' });
 
-      let response = await this.ai.sendMessage(prompt, undefined, undefined, { skipHistory: true, signal });
-
-      // ── Heartbeat tool loop (max 5 iterations) ──
-      response = await this.runHeartbeatToolLoop(response, 5, signal);
+      // Use native function calling — tools passed via API
+      const toolDefs = this.tools.selectToolsForMessage(prompt);
+      let response = await this.runNativeHeartbeatToolLoop(prompt, toolDefs, 5, signal);
 
       this.emitStatus({ state: 'idle' });
 
@@ -259,8 +259,8 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       // Record observation for continuity
       this.recordObservation(currentWindowTitle, monitorCtx, response);
 
-      // Post-process: cron suggestions, memory updates
-      await this.responseProcessor.postProcess(response);
+      // Post-process: cron suggestions, memory updates (auto-approve safe categories)
+      await this.responseProcessor.postProcess(response, undefined, { autoApproveCrons: true });
 
       // Clean response for UI
       const cleanResponse = this.cleanHeartbeatResponse(response);
@@ -308,21 +308,17 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       this.abortController = new AbortController();
       const signal = this.abortController.signal;
       const timeCtx = this.workflow.buildTimeContext();
-      let response = await this.ai.sendMessage(
-        `[AFK MODE — Użytkownik jest nieaktywny od ${afkMinutes} minut]\n\n${timeCtx}\n\n${task.prompt}\n\nMasz pełny dostęp do narzędzi — używaj ich! Odpowiedz zwięźle.\nJeśli nie masz nic wartościowego do zrobienia, odpowiedz "HEARTBEAT_OK".`,
-        undefined,
-        undefined,
-        { skipHistory: true, signal },
-      );
+      const afkPrompt = `[AFK MODE — Użytkownik jest nieaktywny od ${afkMinutes} minut]\n\n${timeCtx}\n\n${task.prompt}\n\nMasz pełny dostęp do narzędzi (podane w API) — wywołuj je! Odpowiedz zwięźle.\nJeśli nie masz nic wartościowego do zrobienia, odpowiedz "HEARTBEAT_OK".`;
 
-      // AFK tool loop (max 3 iterations)
-      response = await this.runHeartbeatToolLoop(response, 3, signal);
+      // AFK tool loop with native function calling (max 3 iterations)
+      const toolDefs = this.tools.selectToolsForMessage(afkPrompt);
+      let response = await this.runNativeHeartbeatToolLoop(afkPrompt, toolDefs, 3, signal);
 
       if (this.responseProcessor.isHeartbeatSuppressed(response)) {
         return null;
       }
 
-      await this.responseProcessor.postProcess(response);
+      await this.responseProcessor.postProcess(response, undefined, { autoApproveCrons: true });
 
       const cleanResponse = this.cleanHeartbeatResponse(response);
       if (cleanResponse) {
@@ -341,11 +337,112 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
 
   /**
    * Run a simple tool loop for heartbeat/AFK (legacy ```tool blocks).
-   * Uses ToolLoopDetector for safety, simpler than full ToolExecutor.
+   * Uses native function calling (tools via API) for heartbeat/AFK cycles.
+   * Falls back to legacy ```tool block parsing if native FC fails.
    */
-  private async runHeartbeatToolLoop(
+  private async runNativeHeartbeatToolLoop(
+    userPrompt: string,
+    toolDefs: ToolDefinition[],
+    maxIterations: number = 50,
+    signal?: AbortSignal,
+  ): Promise<string> {
+    const detector = new ToolLoopDetector();
+    let iterations = 0;
+    let loopDetected = false;
+
+    // Initial call with native tool definitions
+    let result: NativeToolStreamResult;
+    try {
+      result = await this.ai.streamMessageWithNativeTools(userPrompt, toolDefs, undefined, undefined, undefined, {
+        signal,
+      });
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw err;
+      log.error('Heartbeat native tool call failed, falling back to sendMessage:', err);
+      const response = await this.ai.sendMessage(userPrompt, undefined, undefined, { skipHistory: true, signal });
+      return this.runLegacyHeartbeatToolLoop(response, maxIterations, signal);
+    }
+
+    let fullText = result.text || '';
+
+    // Post-process initial text for cron/memory blocks
+    if (fullText) {
+      const ppResult = await this.responseProcessor.postProcess(fullText, undefined, { autoApproveCrons: true });
+      if (ppResult.memoryUpdatesApplied > 0) {
+        log.info(`Heartbeat initial: ${ppResult.memoryUpdatesApplied} memory update(s) applied`);
+      }
+      if (ppResult.autoApprovedCron) {
+        log.info(`Heartbeat: auto-approved cron "${ppResult.autoApprovedCron.name}"`);
+      }
+    }
+
+    // Native tool loop
+    while (result.toolCalls.length > 0 && iterations < maxIterations) {
+      if (signal?.aborted) {
+        log.info('Heartbeat native tool loop aborted');
+        break;
+      }
+
+      const toolResults: Array<{ callId: string; name: string; result: string; isError?: boolean }> = [];
+
+      for (const tc of result.toolCalls) {
+        iterations++;
+        log.info(`Heartbeat tool call #${iterations}: ${tc.name}`);
+        this.emitStatus({ state: 'heartbeat', detail: `Heartbeat: ${tc.name}`, toolName: tc.name });
+
+        let execResult: import('./tools-service').ToolResult;
+        try {
+          execResult = await this.tools.execute(tc.name, tc.arguments);
+        } catch (err: any) {
+          execResult = { success: false, error: `Tool error: ${err.message}` };
+        }
+
+        const resultStr = this.sanitizeToolOutput(tc.name, execResult.data || execResult.error);
+        toolResults.push({
+          callId: tc.id,
+          name: tc.name,
+          result: resultStr,
+          isError: !execResult.success,
+        });
+
+        const loopCheck = detector.recordAndCheck(tc.name, tc.arguments, execResult.data || execResult.error);
+        if (!loopCheck.shouldContinue) {
+          log.info(`Heartbeat tool loop detector triggered for ${tc.name}: ${loopCheck.reason}`);
+          loopDetected = true;
+          break;
+        }
+      }
+
+      if (signal?.aborted || loopDetected) break;
+
+      // Continue conversation with tool results
+      try {
+        result = await this.ai.continueWithToolResults(result._messages, toolResults, toolDefs, undefined, { signal });
+      } catch (err: any) {
+        if (err?.name === 'AbortError') throw err;
+        log.error('Heartbeat continueWithToolResults failed:', err);
+        break;
+      }
+
+      if (result.text) {
+        fullText = result.text;
+        const ppResult = await this.responseProcessor.postProcess(result.text, undefined, { autoApproveCrons: true });
+        if (ppResult.memoryUpdatesApplied > 0) {
+          log.info(`Heartbeat continuation: ${ppResult.memoryUpdatesApplied} memory update(s) applied`);
+        }
+      }
+    }
+
+    return fullText;
+  }
+
+  /**
+   * Legacy tool loop — fallback for when native FC is unavailable.
+   * Parses ```tool blocks from AI text responses.
+   */
+  private async runLegacyHeartbeatToolLoop(
     initialResponse: string,
-    maxIterations: number,
+    maxIterations: number = 50,
     signal?: AbortSignal,
   ): Promise<string> {
     let response = initialResponse;
@@ -353,7 +450,6 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
     let iterations = 0;
 
     while (iterations < maxIterations) {
-      // Check abort signal
       if (signal?.aborted) {
         log.info('Heartbeat tool loop aborted');
         break;
@@ -362,18 +458,16 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       const toolCall = this.parseToolCall(response);
       if (!toolCall) break;
 
-      // Post-process CURRENT response before consuming it with tool loop.
-      // This ensures update_memory/cron blocks in the same response as a tool call are not lost.
-      const ppResult = await this.responseProcessor.postProcess(response);
+      const ppResult = await this.responseProcessor.postProcess(response, undefined, { autoApproveCrons: true });
       if (ppResult.memoryUpdatesApplied > 0) {
         log.info(`Heartbeat intermediate: ${ppResult.memoryUpdatesApplied} memory update(s) applied`);
       }
-      if (ppResult.cronSuggestion) {
-        log.info(`Heartbeat intermediate: cron suggestion parsed`);
+      if (ppResult.autoApprovedCron) {
+        log.info(`Heartbeat: auto-approved cron "${ppResult.autoApprovedCron.name}"`);
       }
 
       iterations++;
-      log.info(`Tool call #${iterations}: ${toolCall.tool}`);
+      log.info(`Legacy tool call #${iterations}: ${toolCall.tool}`);
       this.emitStatus({ state: 'heartbeat', detail: `Heartbeat: ${toolCall.tool}`, toolName: toolCall.tool });
 
       let result: import('./tools-service').ToolResult;
@@ -384,9 +478,12 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       }
 
       const loopCheck = detector.recordAndCheck(toolCall.tool, toolCall.params, result.data || result.error);
-      const feedbackSuffix = loopCheck.shouldContinue
-        ? 'Możesz użyć kolejnego narzędzia lub odpowiedzieć.'
-        : 'Odpowiedz (zakończ pętlę).';
+      if (!loopCheck.shouldContinue) {
+        log.info(`Heartbeat legacy tool loop detector triggered for ${toolCall.tool}: ${loopCheck.reason}`);
+        break;
+      }
+
+      const feedbackSuffix = 'Możesz użyć kolejnego narzędzia lub odpowiedzieć.';
 
       response = await this.ai.sendMessage(
         `${this.sanitizeToolOutput(toolCall.tool, result.data || result.error)}\n\n${feedbackSuffix}`,
@@ -394,8 +491,6 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         undefined,
         { skipHistory: true, signal },
       );
-
-      if (!loopCheck.shouldContinue) break;
     }
 
     return response;
@@ -420,12 +515,64 @@ Czy widzisz powtarzające się nawyki? Czy mógłbyś zaproponować cron job kt�
 Jeśli masz pomysł — zaproponuj go blokiem \`\`\`cron.`,
       },
       {
-        id: 'welcome-back',
+        id: 'email-digest',
         minAfk: 15,
+        prompt: `Użytkownik jest AFK — sprawdź jego emaile i przygotuj digest.
+
+KROKI:
+1. Użyj narzędzia mcp_gmail_search_emails (lub podobnego) żeby znaleźć nieprzeczytane emaile z ostatnich 24h
+2. Pogrupuj emaile po nadawcy/temacie
+3. Zidentyfikuj te wymagające odpowiedzi
+4. Przygotuj krótki raport (max 5 najważniejszych emaili)
+5. Zapisz digest w pamięci jako "Email Digest [data]" używając \`\`\`update_memory z plikiem "memory"
+
+Jeśli nie masz dostępu do narzędzi email, odpowiedz "HEARTBEAT_OK".
+NIE PYTAJ — po prostu zrób to.`,
+      },
+      {
+        id: 'workflow-optimization',
+        minAfk: 20,
+        prompt: `Przeanalizuj ostatnie aktywności użytkownika i znajdź możliwości optymalizacji.
+
+KROKI:
+1. Sprawdź listę cron jobów (cron_list) — czy wszystkie są aktualne? Czy jakiś jest zbędny?
+2. Sprawdź workflow patterns — czy widzisz powtarzalne sekwencje które można zamienić na makro?
+3. Sprawdź Knowledge Graph — czy są braki w profilu użytkownika?
+
+Jeśli znajdziesz coś do poprawy:
+- Zaktualizuj/usuń nieaktualne cron joby
+- Zaproponuj nowe cron joby blokiem \`\`\`cron
+- Uzupełnij Knowledge Graph (kg_add_entity, kg_add_relation)
+
+NIE PYTAJ — działaj. Jeśli nie masz nic do zrobienia, odpowiedz "HEARTBEAT_OK".`,
+      },
+      {
+        id: 'research-scan',
+        minAfk: 25,
+        prompt: `Użytkownik jest AFK od dłuższego czasu — wykorzystaj ten czas na research.
+
+KROKI (użyj dostępnych narzędzi):
+1. Sprawdź profil użytkownika w Knowledge Graph (kg_query) — jakie ma zainteresowania, projekty, technologie?
+2. Jeśli masz dostęp do przeglądarki (browser_*), przeszukaj aktualne newsy/trendy w tematach które interesują użytkownika
+3. Jeśli znajdziesz coś wartościowego — zapisz w pamięci jako krótka notatka
+
+KATEGORIE DO ŚLEDZENIA:
+- Technologie które użytkownik używa (z KG)
+- Branża/projekty użytkownika
+- Nowe narzędzia AI które mogą mu pomóc
+- Okazje biznesowe/zarobkowe powiązane z jego skillami
+
+Zapisz wyniki w pamięci (\`\`\`update_memory, plik "memory") z tagiem [RESEARCH].
+Jeśli nie masz wystarczających danych lub narzędzi, odpowiedz "HEARTBEAT_OK".`,
+      },
+      {
+        id: 'welcome-back',
+        minAfk: 30,
         prompt: `Użytkownik wróci niedługo. Przygotuj krótkie podsumowanie:
 - Co się działo w ostatnich godzinach (na podstawie logów aktywności)
-- Czy są jakieś zaległe zadania z HEARTBEAT.md
+- Czy są jakieś zaległe zadania
 - Jakie cron joby się wykonały
+- Wyniki Twojego researchu (jeśli robiłeś)
 Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_memory z plikiem "memory".`,
       },
     ];
@@ -512,15 +659,20 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
 
   // ─── Helpers ───
 
-  private isHeartbeatContentEmpty(content: string): boolean {
+  private isHeartbeatContentEmpty(content: string | null): boolean {
+    if (!content) return true;
     const lines = content.split('\n');
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
+      // Skip headers
       if (/^#+(?:\s|$)/.test(trimmed)) continue;
-      if (/^#[^#]/.test(trimmed)) continue;
-      if (/^[-*+]\s*(?:\[[\sXx]?\]\s*)?$/.test(trimmed)) continue;
-      return false;
+      // Skip empty checklist items: "- [ ]", "- [ ] ", etc.
+      if (/^[-*+]\s*\[[\sXx]?\]\s*$/.test(trimmed)) continue;
+      // Skip bullet points with no text: "- ", "* ", "+ "
+      if (/^[-*+]\s*$/.test(trimmed)) continue;
+
+      return false; // Found actual content
     }
     return true;
   }

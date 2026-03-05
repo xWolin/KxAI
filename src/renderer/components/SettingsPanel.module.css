@@ -216,6 +216,12 @@
   box-shadow: 0 0 10px var(--accent-glow);
 }
 
+.grid2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
 .select {
   composes: input;
   cursor: pointer;

@@ -103,8 +103,8 @@ function startCortexEngine(win: BrowserWindow): void {
         .filter((s: any) => s.base64 && s.base64.length >= 100)
         .map((s: any, i: number) => ({
           base64: `data:image/png;base64,${s.base64}`,
-          width: 1024,
-          height: 768,
+          width: s.width ?? s.dimensions?.width ?? 1024,
+          height: s.height ?? s.dimensions?.height ?? 768,
           displayId: i,
           displayLabel: s.label || `Monitor ${i + 1}`,
           timestamp: Date.now(),

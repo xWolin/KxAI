@@ -1787,7 +1787,7 @@ export class DatabaseService {
       // Update duration of previous entry (same day) to be diff from its timestamp to now
       this.db
         .prepare(
-          `UPDATE activity_log SET duration_ms = ? - timestamp
+          `UPDATE activity_log SET duration_ms = MAX(0, ? - timestamp)
            WHERE id = (SELECT id FROM activity_log ORDER BY timestamp DESC LIMIT 1)
              AND duration_ms IS NULL`,
         )
@@ -1853,7 +1853,7 @@ export class DatabaseService {
       const rows = this.db
         .prepare(
           `SELECT timestamp, hour, day_of_week, process_name, window_title, category, action, context, duration_ms
-           FROM activity_log WHERE timestamp >= ? ORDER BY timestamp ASC LIMIT ?`,
+           FROM activity_log WHERE timestamp >= ? ORDER BY timestamp DESC LIMIT ?`,
         )
         .all(sinceMs, limit) as Array<{
         timestamp: number;
@@ -1940,6 +1940,10 @@ export class DatabaseService {
   searchActivities(query: string, limit = 50): ActivityEntry[] {
     if (!this.db || !query.trim()) return [];
     try {
+      // Sanitize FTS5 query — strip all special characters that FTS5 interprets
+      const sanitized = query.replace(/['"*()\-?:^~{}[@\]#$%&+=<>!\\/|,.;]/g, ' ').trim();
+      if (!sanitized) return [];
+
       const rows = this.db
         .prepare(
           `SELECT a.timestamp, a.hour, a.day_of_week, a.process_name, a.window_title,
@@ -1949,7 +1953,7 @@ export class DatabaseService {
            WHERE activity_log_fts MATCH ?
            ORDER BY a.timestamp DESC LIMIT ?`,
         )
-        .all(query, limit) as Array<{
+        .all(sanitized, limit) as Array<{
         timestamp: number;
         hour: number;
         day_of_week: number;

@@ -113,10 +113,13 @@ const ReflectionSetIntervalParams = z.tuple([positiveInt]);
 
 // ─── Cortex Engine ───
 
+const CortexTriggerReflectionParams = z.tuple([z.enum(['deep', 'evening', 'weekly', 'manual']).optional()]);
+
 const CortexActionRespondParams = z.tuple([
   z.object({
     requestId: z.string(),
     approved: z.boolean(),
+    alwaysApprove: z.boolean().optional(),
     modifiedParams: z.record(z.string(), z.unknown()).optional(),
   }),
 ]);
@@ -261,6 +264,14 @@ const CalendarGetCalendarsParams = z.tuple([nonEmptyString]);
 
 const CalendarStoreCredentialParams = z.tuple([nonEmptyString, nonEmptyString]);
 
+// ─── Conversation Export ───
+
+const ConversationExportParams = z.tuple([z.enum(['clipboard', 'file']).optional()]);
+
+// ─── Clipboard ───
+
+const ClipboardWriteTextParams = z.tuple([nonEmptyString]);
+
 // ─── Send Channels ───
 
 const MeetingAudioChunkParams = z.tuple([
@@ -329,6 +340,7 @@ export const IpcParamSchemas: Partial<Record<string, z.ZodType>> = {
   [Ch.REFLECTION_SET_INTERVAL]: ReflectionSetIntervalParams,
 
   // Cortex Engine
+  [Ch.CORTEX_TRIGGER_REFLECTION]: CortexTriggerReflectionParams,
   [Ch.CORTEX_ACTION_RESPOND]: CortexActionRespondParams,
 
   // Cron
@@ -396,6 +408,12 @@ export const IpcParamSchemas: Partial<Record<string, z.ZodType>> = {
   [Ch.CALENDAR_DISCONNECT]: CalendarDisconnectParams,
   [Ch.CALENDAR_GET_CALENDARS]: CalendarGetCalendarsParams,
   [Ch.CALENDAR_STORE_CREDENTIAL]: CalendarStoreCredentialParams,
+
+  // Conversation
+  [Ch.CONVERSATION_EXPORT]: ConversationExportParams,
+
+  // Clipboard
+  [Ch.CLIPBOARD_WRITE_TEXT]: ClipboardWriteTextParams,
 };
 
 /**

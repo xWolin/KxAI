@@ -63,6 +63,38 @@ function renderMarkdown(text: string): string {
 }
 
 /**
+ * Copy button for user messages (plain text).
+ */
+function UserBubble({ content }: { content: string }) {
+  const { t } = useTranslation();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(async () => {
+    try {
+      await window.kxai.copyToClipboard(content);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard unavailable */
+    }
+  }, [content]);
+
+  return (
+    <div className={s.bubbleWrapper}>
+      <button
+        className={copied ? s.copyBtnCopied : s.copyBtn}
+        onClick={handleCopy}
+        title={t('chat.copyMessage')}
+        aria-label={t('chat.copyMessage')}
+      >
+        {copied ? '✓' : '📋'}
+      </button>
+      <span>{content}</span>
+    </div>
+  );
+}
+
+/**
  * Memoized markdown message bubble with copy button.
  */
 function MessageContent({ content, highlighterReady }: { content: string; highlighterReady: boolean }) {
@@ -73,7 +105,7 @@ function MessageContent({ content, highlighterReady }: { content: string; highli
   const handleCopy = useCallback(async () => {
     const cleaned = stripControlBlocks(content);
     try {
-      await navigator.clipboard.writeText(cleaned);
+      await window.kxai.copyToClipboard(cleaned);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
@@ -90,7 +122,7 @@ function MessageContent({ content, highlighterReady }: { content: string; highli
       if (block) {
         const code = block.querySelector('code');
         if (code) {
-          navigator.clipboard.writeText(code.textContent || '');
+          window.kxai.copyToClipboard(code.textContent || '');
           target.textContent = '✓';
           setTimeout(() => {
             target.textContent = '📋';
@@ -141,6 +173,7 @@ export function ChatPanel({
   const [highlighterReady, setHighlighterReady] = useState(false);
   const [screenshotPreviews, setScreenshotPreviews] = useState<Record<string, string[]>>({});
   const [isDragging, setIsDragging] = useState(false);
+  const [exportFeedback, setExportFeedback] = useState(false);
 
   // ─── Chat state from global store — persists while panel is closed ───
   // When the user presses Esc/X during an ongoing tool loop, streaming
@@ -240,13 +273,7 @@ export function ChatPanel({
       /AKIA[A-Z0-9]{16}/,
     ];
     if (secretPatterns.some((p) => p.test(userMessage))) {
-      const confirmed = window.confirm(
-        '⚠️ Wykryto potencjalny klucz API / secret w wiadomości!\n\n' +
-          'Wysłanie go w czacie zapisze go w historii. Klucze API powinny być konfigurowane ' +
-          'wyłącznie w Ustawieniach → API Keys.\n\n' +
-          'Jeśli klucz został przypadkowo ujawniony, natychmiast go zrotuj.\n\n' +
-          'Czy na pewno chcesz wysłać tę wiadomość?',
-      );
+      const confirmed = window.confirm(t('chat.secretWarning'));
       if (!confirmed) return;
     }
 
@@ -357,6 +384,34 @@ export function ChatPanel({
       });
     }
   }, [setStreaming, storeSetStreamingContent, t, addMessage, loadHistory]);
+
+  // ─── Export conversation ───
+
+  const exportConversation = useCallback(async () => {
+    if (messages.length === 0) return;
+
+    const lines = messages.map((msg) => {
+      const time = new Date(msg.timestamp).toLocaleString();
+      const role =
+        msg.role === 'user'
+          ? t('chat.export.roleUser')
+          : msg.role === 'assistant'
+            ? t('chat.export.roleAssistant')
+            : 'System';
+      const content = msg.role === 'assistant' ? stripControlBlocks(msg.content) : msg.content;
+      return `[${time}] ${role}:\n${content}`;
+    });
+
+    const text = lines.join('\n\n---\n\n');
+    try {
+      // Use electron.clipboard via IPC — always works (navigator.clipboard may fail in Electron)
+      await window.kxai.copyToClipboard(text);
+      setExportFeedback(true);
+      setTimeout(() => setExportFeedback(false), 2000);
+    } catch {
+      /* ignore */
+    }
+  }, [messages, t]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -679,6 +734,17 @@ export function ChatPanel({
             📸
           </button>
 
+          {/* Export conversation */}
+          <button
+            onClick={exportConversation}
+            title={t('chat.export.title')}
+            aria-label={t('chat.export.title')}
+            className={exportFeedback ? s.btnActive : s.btn}
+            disabled={messages.length === 0}
+          >
+            {exportFeedback ? '✓' : '📋'}
+          </button>
+
           {/* Cron Jobs */}
           <button onClick={onOpenCron} title="Cron Jobs" aria-label="Cron Jobs" className={s.btn}>
             ⏰
@@ -776,7 +842,7 @@ export function ChatPanel({
               {msg.role === 'assistant' ? (
                 <MessageContent content={msg.content} highlighterReady={highlighterReady} />
               ) : (
-                msg.content
+                <UserBubble content={msg.content} />
               )}
             </div>
             <div className={s.msgTime}>{formatTime(msg.timestamp)}</div>

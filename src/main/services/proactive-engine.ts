@@ -74,8 +74,8 @@ export interface ProactiveRule {
   cooldownMs: number;
   /** Check if rule should fire given current context */
   shouldFire(ctx: ProactiveContext, engine: ProactiveEngine): boolean;
-  /** Generate the notification message */
-  generate(ctx: ProactiveContext, engine: ProactiveEngine): ProactiveNotification;
+  /** Generate the notification message (can be async for AI-powered rules) */
+  generate(ctx: ProactiveContext, engine: ProactiveEngine): ProactiveNotification | Promise<ProactiveNotification>;
 }
 
 export interface ProactiveNotification {
@@ -113,6 +113,13 @@ interface ProactiveEngineDeps {
   memory: MemoryService;
   config: ConfigService;
 }
+
+/** Function that runs an AI prompt through the full tool loop and returns the final response. */
+export type AIProcessFn = (
+  prompt: string,
+  extraContext?: string,
+  options?: { skipHistory?: boolean; signal?: AbortSignal },
+) => Promise<string>;
 
 // ─── Rule Feedback Tracking ───
 
@@ -154,6 +161,9 @@ export class ProactiveEngine {
   // Rules
   private rules: ProactiveRule[] = [];
 
+  // AI processor for smart briefings (optional — falls back to static if not set)
+  private aiProcess?: AIProcessFn;
+
   // Callbacks
   private onProactiveMessage?: (notification: ProactiveNotification) => void;
 
@@ -188,6 +198,17 @@ export class ProactiveEngine {
 
   setResultCallback(cb: (notification: ProactiveNotification) => void): void {
     this.onProactiveMessage = cb;
+  }
+
+  /** Set AI processor for smart briefings that use tool calls (e.g. check emails, calendar). */
+  setAIProcessor(fn: AIProcessFn): void {
+    this.aiProcess = fn;
+    log.info('AI processor set — smart briefings enabled');
+  }
+
+  /** Get the AI processor (used by rules that need AI-powered content). */
+  getAIProcessor(): AIProcessFn | undefined {
+    return this.aiProcess;
   }
 
   setAfkState(isAfk: boolean): void {
@@ -344,7 +365,7 @@ export class ProactiveEngine {
       const winner = candidates[0];
 
       try {
-        const notification = winner.generate(ctx, this);
+        const notification = await winner.generate(ctx, this);
         notification.ruleId = winner.id;
 
         // Set cooldown
@@ -669,99 +690,11 @@ function createBuiltinRules(): ProactiveRule[] {
       },
     },
 
-    // ── 7. Morning Briefing ──
-    {
-      id: 'daily-briefing',
-      name: 'Poranny briefing',
-      priority: 6,
-      cooldownMs: 22 * 60 * 60_000, // 22h (essentially once per day)
+    // NOTE: daily-briefing and evening-summary are NOT hardcoded rules.
+    // They are user/agent-managed cron jobs — fully customizable.
+    // Agent creates them autonomously (see AUTONOMOUS.md).
 
-      shouldFire(ctx: ProactiveContext): boolean {
-        // Fire between 7-10 AM
-        return ctx.hourOfDay >= 7 && ctx.hourOfDay <= 10 && ctx.timeOfDay === 'morning';
-      },
-
-      generate(ctx: ProactiveContext): ProactiveNotification {
-        const parts = ['🌅 Dzień dobry! Oto Twój poranny briefing:'];
-
-        // Today's calendar
-        if (ctx.todayEvents.length > 0) {
-          const eventList = ctx.todayEvents
-            .slice(0, 5)
-            .map((e) => {
-              const time = new Date(e.start).toLocaleTimeString('pl-PL', {
-                hour: '2-digit',
-                minute: '2-digit',
-              });
-              return `• ${time} — ${e.summary}`;
-            })
-            .join('\n');
-          parts.push(`\n📅 **Spotkania dzisiaj (${ctx.todayEvents.length}):**\n${eventList}`);
-        } else if (ctx.calendarConnected) {
-          parts.push('\n📅 Brak zaplanowanych spotkań na dzisiaj.');
-        }
-
-        // System warnings
-        if (ctx.systemWarnings.length > 0) {
-          parts.push(`\n⚠️ ${ctx.systemWarnings.join(', ')}`);
-        }
-
-        return {
-          type: 'proactive',
-          message: parts.join('\n'),
-          context: 'briefing:morning',
-        };
-      },
-    },
-
-    // ── 8. Evening Summary ──
-    {
-      id: 'evening-summary',
-      name: 'Wieczorne podsumowanie',
-      priority: 4,
-      cooldownMs: 22 * 60 * 60_000, // 22h
-
-      shouldFire(ctx: ProactiveContext): boolean {
-        // Fire between 17-19 PM
-        return ctx.hourOfDay >= 17 && ctx.hourOfDay <= 19 && ctx.timeOfDay === 'evening';
-      },
-
-      generate(ctx: ProactiveContext): ProactiveNotification {
-        const parts = ['🌆 Wieczorne podsumowanie:'];
-
-        // Tomorrow's events
-        if (ctx.calendarConnected) {
-          const tomorrow = new Date(ctx.now);
-          tomorrow.setDate(tomorrow.getDate() + 1);
-          const tomorrowEvents = ctx.todayEvents.filter(() => false); // placeholder — would need getTomorrowEvents
-          if (tomorrowEvents.length > 0) {
-            parts.push(`\n📅 Jutro masz ${tomorrowEvents.length} spotkań.`);
-          }
-        }
-
-        // Session summary
-        if (ctx.currentSessionMinutes > 30) {
-          const hours = Math.floor(ctx.currentSessionMinutes / 60);
-          const mins = ctx.currentSessionMinutes % 60;
-          parts.push(`\n⏱️ Dzisiejsza sesja: ${hours}h ${mins}min.`);
-        }
-
-        // System health
-        if (ctx.systemWarnings.length > 0) {
-          parts.push(`\n⚠️ ${ctx.systemWarnings.join(', ')}`);
-        }
-
-        parts.push('\nDobra robota! 🎉');
-
-        return {
-          type: 'proactive',
-          message: parts.join('\n'),
-          context: 'summary:evening',
-        };
-      },
-    },
-
-    // ── 9. High Memory Usage ──
+    // ── 7. High Memory Usage ──
     {
       id: 'high-memory',
       name: 'Wysokie zużycie pamięci',

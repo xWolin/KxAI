@@ -204,6 +204,12 @@ export const Ch = {
   PRIVACY_EXPORT_DATA: 'privacy:export-data',
   PRIVACY_DELETE_DATA: 'privacy:delete-data',
 
+  // Conversation export
+  CONVERSATION_EXPORT: 'conversation:export',
+
+  // Clipboard write (electron.clipboard — always works)
+  CLIPBOARD_WRITE_TEXT: 'clipboard:write-text',
+
   // Clipboard
   CLIPBOARD_GET_STATUS: 'clipboard:get-status',
   CLIPBOARD_START_MONITORING: 'clipboard:start-monitoring',
@@ -228,6 +234,18 @@ export const Ch = {
   REFLECTION_TRIGGER: 'reflection:trigger',
   REFLECTION_GET_STATUS: 'reflection:get-status',
   REFLECTION_SET_INTERVAL: 'reflection:set-interval',
+
+  // Telegram Bot
+  TELEGRAM_GET_STATUS: 'telegram:get-status',
+  TELEGRAM_SET_TOKEN: 'telegram:set-token',
+  TELEGRAM_REMOVE_TOKEN: 'telegram:remove-token',
+  TELEGRAM_START: 'telegram:start',
+  TELEGRAM_STOP: 'telegram:stop',
+  TELEGRAM_SEND_MESSAGE: 'telegram:send-message',
+  TELEGRAM_SET_ALLOWED_CHATS: 'telegram:set-allowed-chats',
+  TELEGRAM_SET_ALLOWED_USERNAMES: 'telegram:set-allowed-usernames',
+  TELEGRAM_SET_DENY_BY_DEFAULT: 'telegram:set-deny-by-default',
+  TELEGRAM_SET_AUTO_START: 'telegram:set-auto-start',
 
   // Cortex Engine (unified autonomous agent)
   CORTEX_SET_ENABLED: 'cortex:set-enabled',
@@ -277,6 +295,8 @@ export const Ev = {
   CONVERSATION_UPDATED: 'conversation:updated',
   CORTEX_MESSAGE: 'cortex:message',
   CORTEX_ACTION_REQUEST: 'cortex:action-request',
+  TELEGRAM_STATUS: 'telegram:status',
+  TELEGRAM_MESSAGE: 'telegram:message',
 } as const;
 
 // ─── Type helpers ───

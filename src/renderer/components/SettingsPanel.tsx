@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { KxAIConfig, RAGFolderInfo, UpdateState } from '../types';
 import type { McpServerConfig, McpHubStatus, McpRegistryEntry, McpCategory, McpSetupType } from '@shared/types/mcp';
 import type { CalendarStatus, CalendarInfo, CalendarProvider } from '@shared/types/calendar';
+import type { TelegramStatus } from '@shared/types/telegram';
 import s from './SettingsPanel.module.css';
 import { cn } from '../utils/cn';
 import { useTranslation } from '../i18n';
@@ -39,7 +40,7 @@ const MODELS = {
   ],
 };
 
-type SettingsTabId = 'general' | 'persona' | 'memory' | 'knowledge' | 'mcp' | 'calendar' | 'privacy';
+type SettingsTabId = 'general' | 'persona' | 'memory' | 'knowledge' | 'mcp' | 'calendar' | 'telegram' | 'privacy';
 
 const DEFAULT_INDEXED_EXTENSIONS =
   '.ts, .tsx, .js, .jsx, .py, .md, .txt, .json, .yaml, .yml, .xml, .csv, .pdf, .docx, .epub';
@@ -187,6 +188,336 @@ function PrivacyTab() {
   );
 }
 
+// ─── Telegram Bot Tab ───
+function TelegramTab() {
+  const { t } = useTranslation();
+  const [status, setStatus] = useState<TelegramStatus | null>(null);
+  const [token, setToken] = useState('');
+  const [allowedChats, setAllowedChats] = useState('');
+  const [allowedUsernames, setAllowedUsernames] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    loadStatus();
+    const unsub = window.kxai.onTelegramStatus((s) => setStatus(s));
+    return unsub;
+  }, []);
+
+  async function loadStatus() {
+    try {
+      const s = await window.kxai.telegramGetStatus();
+      setStatus(s);
+      setAllowedChats(s.allowedChatIds.length > 0 ? s.allowedChatIds.join(', ') : '');
+      setAllowedUsernames(s.allowedUsernames.length > 0 ? s.allowedUsernames.join(', ') : '');
+    } catch {
+      /* ignore */
+    }
+  }
+
+  async function handleSetToken() {
+    if (!token.trim()) return;
+    setLoading(true);
+    setMessage('');
+    try {
+      const result = await window.kxai.telegramSetToken(token.trim());
+      if (result.success) {
+        setMessage(`✅ ${t('settings.telegram.connected')} @${result.botUsername}`);
+        setToken('');
+        await loadStatus();
+      } else {
+        setMessage(`❌ ${result.error}`);
+      }
+    } catch (err: any) {
+      setMessage(`❌ ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleRemoveToken() {
+    setLoading(true);
+    try {
+      await window.kxai.telegramRemoveToken();
+      setMessage(t('settings.telegram.tokenRemoved'));
+      await loadStatus();
+    } catch (err: any) {
+      setMessage(`❌ ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStart() {
+    setLoading(true);
+    setMessage('');
+    try {
+      const result = await window.kxai.telegramStart();
+      if (result.success) {
+        setMessage(`✅ ${t('settings.telegram.pollingStarted')}`);
+      } else {
+        setMessage(`❌ ${result.error}`);
+      }
+      await loadStatus();
+    } catch (err: any) {
+      setMessage(`❌ ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleStop() {
+    setLoading(true);
+    try {
+      await window.kxai.telegramStop();
+      setMessage(t('settings.telegram.pollingStopped'));
+      await loadStatus();
+    } catch (err: any) {
+      setMessage(`❌ ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleSaveAllowedChats() {
+    const chatIds = allowedChats
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map(Number)
+      .filter((n) => !isNaN(n) && n !== 0);
+    try {
+      await window.kxai.telegramSetAllowedChats(chatIds);
+      setMessage(`✅ ${t('settings.telegram.chatsSaved')}`);
+      await loadStatus();
+    } catch (err: any) {
+      setMessage(`❌ ${err.message}`);
+    }
+  }
+
+  async function handleSaveAllowedUsernames() {
+    const usernames = allowedUsernames
+      .split(',')
+      .map((s) => s.trim().replace(/^@/, ''))
+      .filter(Boolean);
+    try {
+      await window.kxai.telegramSetAllowedUsernames(usernames);
+      setMessage(`✅ ${t('settings.telegram.usernamesSaved')}`);
+      await loadStatus();
+    } catch (err: any) {
+      setMessage(`❌ ${err.message}`);
+    }
+  }
+
+  async function handleToggleDenyByDefault() {
+    const newVal = !(status?.denyByDefault ?? true);
+    try {
+      await window.kxai.telegramSetDenyByDefault(newVal);
+      await loadStatus();
+    } catch (err: any) {
+      setMessage(`❌ ${err.message}`);
+    }
+  }
+
+  async function handleToggleAutoStart() {
+    const newVal = !(status?.autoStart ?? false);
+    try {
+      await window.kxai.telegramSetAutoStart(newVal);
+      await loadStatus();
+    } catch (err: any) {
+      setMessage(`❌ ${err.message}`);
+    }
+  }
+
+  const isConnected = status?.status === 'connected';
+  const isPolling = status?.polling;
+  const hasToken = status?.hasToken;
+
+  return (
+    <div className="fade-in">
+      <div className={s.section}>
+        <h3 className={s.sectionTitle}>{t('settings.telegram.title')}</h3>
+        <p className={s.hint}>{t('settings.telegram.description')}</p>
+
+        {/* Status */}
+        {status && (
+          <div className={s.mcpServerItem} style={{ marginBottom: 12 }}>
+            <div className={s.mcpServerHeader}>
+              <div className={s.mcpServerInfo}>
+                <span className={s.mcpServerIcon}>🤖</span>
+                <div>
+                  <div className={s.mcpServerName}>
+                    {status.botUsername ? `@${status.botUsername}` : 'Telegram Bot'}
+                  </div>
+                  <div className={s.mcpServerTransport}>
+                    {t('settings.telegram.status')}: {t(`settings.telegram.state.${status.status}`)}
+                    {isPolling && ` · ${t('settings.telegram.messagesProcessed')}: ${status.messagesProcessed}`}
+                  </div>
+                  {status.lastError && (
+                    <div className={s.mcpServerTransport} style={{ color: 'var(--neon-magenta)' }}>
+                      {status.lastError}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <div className={s.mcpServerActions}>
+                <span className={isConnected ? s.mcpBadgeConnected : s.mcpBadgeError}>
+                  {isPolling ? `🟢 ${t('settings.telegram.online')}` : `⚪ ${t('settings.telegram.offline')}`}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Bot Token */}
+        <div style={{ marginBottom: 16 }}>
+          <label className={s.label}>{t('settings.telegram.botToken')}</label>
+          <p className={s.hint}>{t('settings.telegram.botTokenHint')}</p>
+          {hasToken ? (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
+              <span style={{ color: 'var(--accent)' }}>✅ {t('settings.telegram.tokenStored')}</span>
+              <button className={s.mcpBtnSmall} onClick={handleRemoveToken} disabled={loading}>
+                {t('settings.telegram.removeToken')}
+              </button>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <input
+                type="password"
+                className={s.input}
+                value={token}
+                onChange={(e) => setToken(e.target.value)}
+                placeholder="123456789:ABCdef..."
+                style={{ flex: 1 }}
+              />
+              <button className={s.mcpBtnPrimary} onClick={handleSetToken} disabled={loading || !token.trim()}>
+                {t('settings.telegram.saveToken')}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Start/Stop polling */}
+        {hasToken && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={s.label}>{t('settings.telegram.polling')}</label>
+            <p className={s.hint}>{t('settings.telegram.pollingHint')}</p>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4, alignItems: 'center' }}>
+              {isPolling ? (
+                <button className={s.mcpBtnSmallAccent} onClick={handleStop} disabled={loading}>
+                  ⏹ {t('settings.telegram.stop')}
+                </button>
+              ) : (
+                <button className={s.mcpBtnPrimary} onClick={handleStart} disabled={loading}>
+                  ▶ {t('settings.telegram.start')}
+                </button>
+              )}
+              <label
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  fontSize: 12,
+                  color: 'var(--text-secondary)',
+                  cursor: 'pointer',
+                }}
+              >
+                <input type="checkbox" checked={status?.autoStart ?? false} onChange={handleToggleAutoStart} />
+                {t('settings.telegram.autoStart')}
+              </label>
+            </div>
+          </div>
+        )}
+
+        {/* Allowed Chat IDs */}
+        {hasToken && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={s.label}>{t('settings.telegram.allowedChats')}</label>
+            <p className={s.hint}>{t('settings.telegram.allowedChatsHint')}</p>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <input
+                className={s.input}
+                value={allowedChats}
+                onChange={(e) => setAllowedChats(e.target.value)}
+                placeholder={t('settings.telegram.allowedChatsPlaceholder')}
+                style={{ flex: 1 }}
+              />
+              <button
+                className={s.mcpBtnSmall}
+                onClick={handleSaveAllowedChats}
+                disabled={loading}
+                aria-label={t('settings.telegram.saveAllowedChats')}
+              >
+                💾
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Allowed Usernames */}
+        {hasToken && (
+          <div style={{ marginBottom: 16 }}>
+            <label className={s.label}>{t('settings.telegram.allowedUsernames')}</label>
+            <p className={s.hint}>{t('settings.telegram.allowedUsernamesHint')}</p>
+            <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+              <input
+                className={s.input}
+                value={allowedUsernames}
+                onChange={(e) => setAllowedUsernames(e.target.value)}
+                placeholder={t('settings.telegram.allowedUsernamesPlaceholder')}
+                style={{ flex: 1 }}
+              />
+              <button
+                className={s.mcpBtnSmall}
+                onClick={handleSaveAllowedUsernames}
+                disabled={loading}
+                aria-label={t('settings.telegram.saveAllowedUsernames')}
+              >
+                💾
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Deny by default */}
+        {hasToken && (
+          <div style={{ marginBottom: 16 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input type="checkbox" checked={status?.denyByDefault ?? true} onChange={handleToggleDenyByDefault} />
+              <span className={s.label} style={{ margin: 0 }}>
+                {t('settings.telegram.denyByDefault')}
+              </span>
+            </label>
+            <p className={s.hint}>{t('settings.telegram.denyByDefaultHint')}</p>
+          </div>
+        )}
+
+        {/* Setup guide */}
+        {!hasToken && (
+          <div
+            className={s.section}
+            style={{ marginTop: 12, padding: 12, background: 'rgba(0,255,136,0.05)', borderRadius: 8 }}
+          >
+            <h4 style={{ margin: '0 0 8px', fontSize: 13 }}>📋 {t('settings.telegram.setupGuide')}</h4>
+            <ol style={{ margin: 0, paddingLeft: 20, fontSize: 12, lineHeight: 1.6, color: 'var(--text-secondary)' }}>
+              <li>{t('settings.telegram.step1')}</li>
+              <li>{t('settings.telegram.step2')}</li>
+              <li>{t('settings.telegram.step3')}</li>
+              <li>{t('settings.telegram.step4')}</li>
+            </ol>
+          </div>
+        )}
+
+        {message && (
+          <div className={s.hint} style={{ marginTop: 12, color: 'var(--accent)' }}>
+            {message}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelProps) {
   const { t } = useTranslation();
   const [provider, setProvider] = useState(config.aiProvider || 'openai');
@@ -285,6 +616,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     { id: 'knowledge', label: t('settings.tabs.knowledge') },
     { id: 'mcp', label: t('settings.tabs.mcp') },
     { id: 'calendar', label: t('settings.tabs.calendar') },
+    { id: 'telegram', label: t('settings.tabs.telegram') },
     { id: 'privacy', label: t('settings.tabs.privacy') },
   ];
 
@@ -1068,8 +1400,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                   </select>
                   <p className={s.hint}>{t('settings.general.cortexIntensityHint')}</p>
 
-                  <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
-                    <div style={{ flex: 1 }}>
+                  <div className={s.grid2}>
+                    <div>
                       <label className={s.label}>{t('settings.general.activeHoursStart')}</label>
                       <input
                         type="time"
@@ -1078,7 +1410,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                         onChange={(e) => setCortexActiveHoursStart(e.target.value)}
                       />
                     </div>
-                    <div style={{ flex: 1 }}>
+                    <div>
                       <label className={s.label}>{t('settings.general.activeHoursEnd')}</label>
                       <input
                         type="time"
@@ -2258,6 +2590,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         )}
 
         {activeTab === 'privacy' && <PrivacyTab />}
+        {activeTab === 'telegram' && <TelegramTab />}
       </div>
     </div>
   );

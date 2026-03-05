@@ -431,8 +431,7 @@ export class WorkflowService {
   getActivityLog(limit: number = 50): ActivityEntry[] {
     if (this.dbReady && this.db) {
       const sinceMs = Date.now() - 24 * 60 * 60 * 1000; // Last 24h
-      const all = this.db.getActivities(sinceMs, limit);
-      return all.slice(-limit);
+      return this.db.getActivities(sinceMs, limit);
     }
     return this.activityLog.slice(-limit);
   }

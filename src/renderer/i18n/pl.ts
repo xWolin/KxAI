@@ -18,6 +18,9 @@ export const pl: TranslationDict = {
   // ChatPanel
   // ═══════════════════════════════════════
   'chat.copyMessage': 'Kopiuj wiadomość',
+  'chat.export.title': 'Eksportuj konwersację do schowka',
+  'chat.export.roleUser': '👤 Ty',
+  'chat.export.roleAssistant': '🤖 Agent',
   'chat.status.thinking': 'myślę...',
   'chat.status.toolCalling': 'narzędzie...',
   'chat.status.streaming': 'odpowiadam...',
@@ -28,6 +31,12 @@ export const pl: TranslationDict = {
   'chat.proactive.enable': 'Włącz tryb proaktywny',
   'chat.cortex.disable': 'Wyłącz Cortex (autonomiczny mózg)',
   'chat.cortex.enable': 'Włącz Cortex (autonomiczny mózg)',
+  'chat.secretWarning':
+    '⚠️ Wykryto potencjalny klucz API / secret w wiadomości!\n\n' +
+    'Wysłanie go w czacie zapisze go w historii. Klucze API powinny być konfigurowane ' +
+    'wyłącznie w Ustawieniach → API Keys.\n\n' +
+    'Jeśli klucz został przypadkowo ujawniony, natychmiast go zrotuj.\n\n' +
+    'Czy na pewno chcesz wysłać tę wiadomość?',
   'chat.screenshot.title': 'Zrób screenshot i analizuj',
   'chat.dashboard.title': 'Otwórz Dashboard',
   'chat.settings.title': 'Ustawienia',
@@ -101,6 +110,7 @@ export const pl: TranslationDict = {
   'settings.tabs.mcp': '🔌 MCP',
   'settings.tabs.calendar': '📅 Kalendarz',
   'settings.tabs.privacy': '🔒 Prywatność',
+  'settings.tabs.telegram': '📱 Telegram',
   'settings.tabs.scrollLeft': 'Przewiń zakładki w lewo',
   'settings.tabs.scrollRight': 'Przewiń zakładki w prawo',
   'settings.general.userProfile': 'Profil użytkownika',
@@ -121,9 +131,9 @@ export const pl: TranslationDict = {
     'Włączone: agent autonomicznie myśli, obserwuje, uczy się i proaktywnie reaguje.',
   'settings.general.cortexDisabledHint': 'Wyłączone: agent działa tylko reaktywnie — odpowiada tylko na wiadomości.',
   'settings.general.cortexIntensity': 'Intensywność',
-  'settings.general.cortexEco': '🌿 Eco — minimalne koszty API',
-  'settings.general.cortexBalanced': '⚖️ Balanced — umiarkowane cykle',
-  'settings.general.cortexPerformance': '🚀 Performance — maksymalna autonomia',
+  'settings.general.cortexEco': '🌿 Eko — minimalne koszty API',
+  'settings.general.cortexBalanced': '⚖️ Zrównoważony — umiarkowane cykle',
+  'settings.general.cortexPerformance': '🚀 Wydajność — maksymalna autonomia',
   'settings.general.cortexIntensityHint':
     'Eco = rzadsze cykle AI, niższe koszty. Performance = częste cykle, pełna autonomia.',
   'settings.general.activeHoursStart': 'Aktywne godziny (od)',
@@ -259,6 +269,10 @@ export const pl: TranslationDict = {
   'settings.mcp.filterCategory': 'Filtruj wg kategorii',
   'settings.mcp.allCategories': 'Wszystkie kategorie',
   'settings.mcp.noResults': 'Brak wyników — spróbuj inną frazę lub kategorię.',
+  'settings.mcp.setup.oauthGoogle': 'Wymaga OAuth Google — skonfiguruj w konsoli GCP',
+  'settings.mcp.setup.oauthMicrosoft': 'Wymaga OAuth Microsoft — skonfiguruj w Azure AD',
+  'settings.mcp.setup.manual': 'Wymaga ręcznej konfiguracji — sprawdź dokumentację serwera',
+  'settings.mcp.setup.apiKeyRequired': 'Wymaga klucza API — ustaw w zmiennych środowiskowych',
 
   // SettingsPanel — Calendar
   'settings.calendar.title': '📅 Połączenia kalendarzy (CalDAV)',
@@ -483,6 +497,54 @@ export const pl: TranslationDict = {
   'settings.privacy.clipboardDisabled': 'Monitoring schowka wyłączony',
   'settings.privacy.clipboardToggle': 'Włącz monitoring schowka',
   'settings.privacy.entries': 'wpisów',
+
+  // SettingsPanel — Telegram Bot
+  'settings.telegram.title': 'Telegram Bot',
+  'settings.telegram.description':
+    'Podłącz bota Telegram żeby sterować agentem z telefonu. Piszesz na Telegramie — agent natychmiast reaguje.',
+  'settings.telegram.status': 'Status',
+  'settings.telegram.state.disconnected': 'Rozłączony',
+  'settings.telegram.state.connecting': 'Łączenie...',
+  'settings.telegram.state.connected': 'Połączony',
+  'settings.telegram.state.error': 'Błąd',
+  'settings.telegram.messagesProcessed': 'Wiadomości',
+  'settings.telegram.botToken': 'Bot Token',
+  'settings.telegram.botTokenHint': 'Token z @BotFather na Telegramie. Przechowywany w zaszyfrowanym storage.',
+  'settings.telegram.tokenStored': 'Token zapisany',
+  'settings.telegram.removeToken': 'Usuń token',
+  'settings.telegram.tokenRemoved': 'Token usunięty.',
+  'settings.telegram.saveToken': 'Zapisz',
+  'settings.telegram.connected': 'Połączono z',
+  'settings.telegram.polling': 'Long Polling',
+  'settings.telegram.pollingHint':
+    'Uruchom nasłuchiwanie wiadomości. Agent odpowie natychmiast na Twoje wiadomości z Telegrama.',
+  'settings.telegram.pollingStarted': 'Nasłuchiwanie uruchomione',
+  'settings.telegram.pollingStopped': 'Nasłuchiwanie zatrzymane.',
+  'settings.telegram.start': 'Uruchom',
+  'settings.telegram.stop': 'Zatrzymaj',
+  'settings.telegram.allowedChats': 'Dozwolone Chat ID',
+  'settings.telegram.allowedChatsHint':
+    'Ogranicz dostęp do wybranych czatów (bezpieczniejsze). Puste = każdy może pisać.',
+  'settings.telegram.allowedChatsPlaceholder': 'np. 123456789, 987654321',
+  'settings.telegram.chatsSaved': 'Lista czatów zapisana.',
+  'settings.telegram.online': 'Online',
+  'settings.telegram.offline': 'Offline',
+  'settings.telegram.saveAllowedChats': 'Zapisz dozwolone czaty',
+  'settings.telegram.allowedUsernames': 'Dozwolone nazwy użytkowników',
+  'settings.telegram.allowedUsernamesHint':
+    'Ogranicz dostęp do wybranych użytkowników Telegram (bez @). Działa razem z listą Chat ID.',
+  'settings.telegram.allowedUsernamesPlaceholder': 'np. jan_kowalski, anna_nowak',
+  'settings.telegram.saveAllowedUsernames': 'Zapisz dozwolone nazwy',
+  'settings.telegram.usernamesSaved': 'Lista dozwolonych użytkowników zapisana.',
+  'settings.telegram.denyByDefault': 'Blokuj domyślnie (deny by default)',
+  'settings.telegram.denyByDefaultHint':
+    'Gdy włączone, bot odrzuca WSZYSTKIE wiadomości od osób spoza listy dozwolonych (Chat ID lub username). Zalecane.',
+  'settings.telegram.autoStart': 'Auto-start przy uruchomieniu',
+  'settings.telegram.setupGuide': 'Jak ustawić?',
+  'settings.telegram.step1': 'Otwórz @BotFather na Telegramie',
+  'settings.telegram.step2': 'Wyślij /newbot i nadaj nazwę',
+  'settings.telegram.step3': 'Skopiuj token (np. 123456:ABC...)',
+  'settings.telegram.step4': 'Wklej token powyżej i kliknij Zapisz',
 
   // SettingsPanel — Updates
   'settings.general.updatesTitle': '🔄 Aktualizacje',

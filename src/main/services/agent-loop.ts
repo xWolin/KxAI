@@ -168,6 +168,7 @@ export class AgentLoop {
     this.takeControlEngine.onAgentStatus = (status) => this.emitStatus(status);
 
     this.cronExecutor = new CronExecutor(workflow, (msg, extra, opts) => this.processWithTools(msg, extra, opts));
+    this.cronExecutor.setMemoryService(memory);
 
     // Sub-agent completion → notify UI
     this.subAgentManager.setCompletionCallback((result) => {
@@ -188,6 +189,27 @@ export class AgentLoop {
 
     // Register agent-level tools (sub-agents, background exec, screenshot)
     this.registerAgentTools();
+
+    // Initial config load for active hours
+    this.loadActiveHours();
+
+    // Listen to config changes
+    this.config.on('cortexActiveHoursStart', () => this.loadActiveHours());
+    this.config.on('cortexActiveHoursEnd', () => this.loadActiveHours());
+  }
+
+  private loadActiveHours(): void {
+    const startStr = this.config.get('cortexActiveHoursStart') as string;
+    const endStr = this.config.get('cortexActiveHoursEnd') as string;
+    if (startStr && endStr) {
+      const startH = parseInt(startStr.split(':')[0], 10);
+      const endH = parseInt(endStr.split(':')[0], 10);
+      if (!isNaN(startH) && !isNaN(endH)) {
+        this.setActiveHours(startH, endH);
+      }
+    } else {
+      this.setActiveHours(null, null);
+    }
   }
 
   /**
@@ -282,6 +304,11 @@ export class AgentLoop {
 
   setKnowledgeGraphService(kg: import('./knowledge-graph-service').KnowledgeGraphService): void {
     this.contextBuilder.setKnowledgeGraphService(kg);
+    this.cronExecutor.setKnowledgeGraphService(kg);
+  }
+
+  setCalendarService(calendar: import('./calendar-service').CalendarService): void {
+    this.cronExecutor.setCalendarService(calendar);
   }
 
   setProactiveEngine(engine: import('./proactive-engine').ProactiveEngine): void {
@@ -459,8 +486,8 @@ export class AgentLoop {
     let response = await this.ai.sendMessage(userMessage, fullContext || undefined, enhancedCtx, sendOpts);
     const detector = new ToolLoopDetector();
 
-    // Hard iteration cap to prevent runaway loops
-    const MAX_ITERATIONS = 50;
+    // Hard iteration cap to prevent runaway loops (safety net)
+    const MAX_ITERATIONS = 100;
     let iterations = 0;
 
     // Multi-step tool loop with intelligent loop detection
@@ -896,8 +923,9 @@ export class AgentLoop {
 
     // Tool loop — execute tools and continue conversation
     const detector = new ToolLoopDetector();
-    const MAX_ITERATIONS = 50;
+    const MAX_ITERATIONS = 100;
     let iterations = 0;
+    let loopDetected = false;
 
     while (result.toolCalls.length > 0) {
       if (this.isCancelled) {
@@ -954,14 +982,19 @@ export class AgentLoop {
         );
 
         if (!loopCheck.shouldContinue) {
-          log.info(`[AgentLoop] Tool loop detector triggered for ${tc.name}, stopping loop`);
-          // Still send results but don't continue after
+          log.info(`[AgentLoop] Tool loop detector triggered for ${tc.name}: ${loopCheck.reason}`);
+          if (loopCheck.nudgeMessage) {
+            onChunk?.(`\n${loopCheck.nudgeMessage}\n`);
+          }
+          loopDetected = true;
           break;
         }
       }
 
-      if (this.isCancelled) {
-        onChunk?.('\n\n⛔ Agent zatrzymany przez użytkownika.\n');
+      if (this.isCancelled || loopDetected) {
+        if (this.isCancelled) {
+          onChunk?.('\n\n⛔ Agent zatrzymany przez użytkownika.\n');
+        }
         break;
       }
 
@@ -1598,16 +1631,33 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
     }
 
     // Last resort: bare {"tool":"...", "params":{...}} in response text (no fences)
-    const bareMatch = response.match(/\{"tool"\s*:\s*"([^"]+)"\s*,\s*"params"\s*:\s*(\{[^}]*\})\s*\}/);
-    if (bareMatch) {
-      try {
-        const full = JSON.parse(bareMatch[0]);
-        if (full.tool && typeof full.tool === 'string') {
-          log.info('parseToolCall: Recovered bare JSON tool call from response text');
-          return { tool: full.tool, params: full.params || {} };
+    // Uses brace matching to handle nested params objects
+    const barePattern = /\{"tool"\s*:\s*"/g;
+    let bareMatch;
+    while ((bareMatch = barePattern.exec(response)) !== null) {
+      let depth = 0;
+      let i = bareMatch.index;
+      let balanced = false;
+      for (; i < response.length; i++) {
+        if (response[i] === '{') depth++;
+        else if (response[i] === '}') {
+          depth--;
+          if (depth === 0) {
+            balanced = true;
+            break;
+          }
         }
-      } catch {
-        /* not valid JSON */
+      }
+      if (balanced) {
+        try {
+          const full = JSON.parse(response.substring(bareMatch.index, i + 1));
+          if (full.tool && typeof full.tool === 'string') {
+            log.info('parseToolCall: Recovered bare JSON tool call from response text');
+            return { tool: full.tool, params: full.params || {} };
+          }
+        } catch {
+          /* not valid JSON */
+        }
       }
     }
 

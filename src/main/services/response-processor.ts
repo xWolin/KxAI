@@ -30,7 +30,21 @@ export interface PostProcessResult {
   bootstrapComplete: boolean;
   /** Number of memory updates applied */
   memoryUpdatesApplied: number;
+  /** Auto-approved cron job (if auto-approve was enabled and category was safe) */
+  autoApprovedCron: CronJob | null;
 }
+
+/** Categories that are safe to auto-approve without user confirmation */
+const SAFE_CRON_CATEGORIES = new Set([
+  'briefing',
+  'reminder',
+  'digest',
+  'monitoring',
+  'review',
+  'summary',
+  'optimization',
+  'research',
+]);
 
 // ─── ResponseProcessor ───
 
@@ -48,20 +62,36 @@ export class ResponseProcessor {
    *
    * @param response - The AI response text
    * @param onChunk - Optional UI feedback callback
+   * @param options - Optional: { autoApproveCrons: true } to auto-approve safe cron categories from autonomous mode
    */
-  async postProcess(response: string, onChunk?: (chunk: string) => void): Promise<PostProcessResult> {
+  async postProcess(
+    response: string,
+    onChunk?: (chunk: string) => void,
+    options?: { autoApproveCrons?: boolean },
+  ): Promise<PostProcessResult> {
     const result: PostProcessResult = {
       cronSuggestion: null,
       takeControlTask: null,
       bootstrapComplete: false,
       memoryUpdatesApplied: 0,
+      autoApprovedCron: null,
     };
 
     // 1. Cron suggestions
     result.cronSuggestion = this.parseCronSuggestion(response);
     if (result.cronSuggestion) {
-      this.pendingCronSuggestions.push(result.cronSuggestion);
-      onChunk?.('\n\n📋 Zasugerowano nowy cron job (oczekuje na zatwierdzenie) — sprawdź zakładkę Cron Jobs.\n');
+      // Auto-approve safe categories from autonomous/heartbeat mode
+      if (options?.autoApproveCrons && this.isSafeCronCategory(result.cronSuggestion.category)) {
+        const job = this.cron.addJob(result.cronSuggestion);
+        result.autoApprovedCron = job;
+        log.info(
+          `Auto-approved cron job "${result.cronSuggestion.name}" (category: ${result.cronSuggestion.category})`,
+        );
+        onChunk?.(`\n\n✅ Automatycznie utworzono cron job: "${result.cronSuggestion.name}".\n`);
+      } else {
+        this.pendingCronSuggestions.push(result.cronSuggestion);
+        onChunk?.('\n\n📋 Zasugerowano nowy cron job (oczekuje na zatwierdzenie) — sprawdź zakładkę Cron Jobs.\n');
+      }
     }
 
     // 2. Take control request
@@ -94,7 +124,9 @@ export class ResponseProcessor {
         .filter((line) => !line.trim().startsWith('#'))
         .join('\n')
         .trim();
-      const raw = JSON.parse(cleaned);
+      let raw = JSON.parse(cleaned);
+      // AI sometimes wraps the suggestion in an array — unwrap first element
+      if (Array.isArray(raw)) raw = raw[0];
       const parsed = CronSuggestionSchema.safeParse(raw);
       if (!parsed.success) {
         log.warn('Invalid cron suggestion schema:', parsed.error.message);
@@ -155,10 +187,13 @@ export class ResponseProcessor {
           .filter((line) => !line.trim().startsWith('#'))
           .join('\n')
           .trim();
-        const raw = JSON.parse(cleaned);
+        let raw = JSON.parse(cleaned);
+        // Normalize: AI sometimes sends alternative formats
+        raw = this.normalizeMemoryUpdate(raw);
         const parsed = MemoryUpdateSchema.safeParse(raw);
         if (!parsed.success) {
           log.warn('Invalid memory update schema:', parsed.error.message);
+          log.warn('Raw data was:', JSON.stringify(raw));
           continue;
         }
 
@@ -187,23 +222,110 @@ export class ResponseProcessor {
   }
 
   /**
+   * Normalize alternative memory update formats to {file, section, content}.
+   * Handles:
+   * - "SOUL.md" / "SOUL" / "Soul" → "soul"
+   * - {user: {name, role, notes}} → {file:"user", section:"Profil", content:"..."}
+   * - Arrays → unwrap first element
+   */
+  private normalizeMemoryUpdate(raw: unknown): unknown {
+    if (Array.isArray(raw)) raw = raw[0];
+    if (!raw || typeof raw !== 'object') return raw;
+
+    const obj = raw as Record<string, unknown>;
+
+    // Standard format — just normalize file field
+    if ('file' in obj && typeof obj.file === 'string') {
+      obj.file = obj.file.toLowerCase().replace(/\.md$/, '');
+      return obj;
+    }
+
+    // Alternative format: {user: {...}} or {memory: {...}} or {soul: {...}}
+    const fileNames = ['soul', 'user', 'memory'];
+    for (const fname of fileNames) {
+      if (fname in obj && typeof obj[fname] === 'object' && obj[fname] !== null) {
+        const data = obj[fname] as Record<string, unknown>;
+        // Convert the structured data to content string
+        const lines: string[] = [];
+        for (const [key, value] of Object.entries(data)) {
+          if (Array.isArray(value)) {
+            lines.push(`**${key}**: ${value.join(', ')}`);
+          } else if (typeof value === 'object' && value !== null) {
+            lines.push(`**${key}**: ${JSON.stringify(value)}`);
+          } else {
+            lines.push(`**${key}**: ${value}`);
+          }
+        }
+        return {
+          file: fname,
+          section: data.name ? String(data.name) : 'Info',
+          content: lines.join('\n'),
+        };
+      }
+    }
+
+    return raw;
+  }
+
+  /**
    * Clean AI response for conversation history.
    * Strips tool blocks, tool outputs, bare JSON tool calls, and progress indicators.
    */
   cleanForHistory(response: string): string {
-    return (
-      response
-        .replace(/```tool\s*\n[\s\S]*?```/g, '')
-        .replace(/```cron\s*\n[\s\S]*?```/g, '')
-        .replace(/```take_control\s*\n[\s\S]*?```/g, '')
-        .replace(/```update_memory\s*\n[\s\S]*?```/g, '')
-        .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
-        .replace(/⚙️ Wykonuję:.*?\n/g, '')
-        .replace(/[✅❌] [^:]+:.*?\n/g, '')
-        // Strip bare JSON tool calls that model sometimes generates without fences
-        .replace(/\{"tool"\s*:\s*"[^"]+"\s*,\s*"params"\s*:\s*\{[^}]*\}\s*\}/g, '')
-        .trim()
-    );
+    let cleaned = response
+      .replace(/```tool\s*\n[\s\S]*?```/g, '')
+      .replace(/```cron\s*\n[\s\S]*?```/g, '')
+      .replace(/```take_control\s*\n[\s\S]*?```/g, '')
+      .replace(/```update_memory\s*\n[\s\S]*?```/g, '')
+      .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
+      .replace(/⚙️ Wykonuję:.*?\n/g, '')
+      .replace(/[✅❌] [^:]+:.*?\n/g, '');
+    // Strip bare JSON tool calls with proper brace matching (handles nested params)
+    cleaned = this.stripBareToolCalls(cleaned);
+    return cleaned.trim();
+  }
+
+  /**
+   * Remove bare {"tool":"...","params":{...}} JSON from text using brace matching.
+   */
+  private stripBareToolCalls(text: string): string {
+    const toolPattern = /\{"tool"\s*:\s*"/g;
+    let result = '';
+    let lastIndex = 0;
+    let match;
+
+    while ((match = toolPattern.exec(text)) !== null) {
+      let depth = 0;
+      let i = match.index;
+      let balanced = false;
+      for (; i < text.length; i++) {
+        if (text[i] === '{') depth++;
+        else if (text[i] === '}') {
+          depth--;
+          if (depth === 0) {
+            balanced = true;
+            break;
+          }
+        }
+      }
+      if (balanced) {
+        const candidate = text.substring(match.index, i + 1);
+        try {
+          const parsed = JSON.parse(candidate);
+          if (parsed.tool && typeof parsed.tool === 'string') {
+            result += text.substring(lastIndex, match.index);
+            lastIndex = i + 1;
+            toolPattern.lastIndex = i + 1;
+            continue;
+          }
+        } catch {
+          /* not valid JSON — skip */
+        }
+      }
+    }
+
+    result += text.substring(lastIndex);
+    return result;
   }
 
   /**
@@ -230,5 +352,11 @@ export class ResponseProcessor {
     if (index < 0 || index >= this.pendingCronSuggestions.length) return false;
     this.pendingCronSuggestions.splice(index, 1);
     return true;
+  }
+
+  /** Check if a cron category is safe to auto-approve */
+  private isSafeCronCategory(category?: string): boolean {
+    if (!category) return false;
+    return SAFE_CRON_CATEGORIES.has(category.toLowerCase());
   }
 }

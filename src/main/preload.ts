@@ -47,6 +47,8 @@ contextBridge.exposeInMainWorld('kxai', {
   setMemory: (key: string, value: string) => ipcRenderer.invoke(Ch.MEMORY_SET, key, value),
   getConversationHistory: () => ipcRenderer.invoke(Ch.MEMORY_GET_HISTORY),
   clearConversationHistory: () => ipcRenderer.invoke(Ch.MEMORY_CLEAR_HISTORY),
+  exportConversation: (format?: string) => ipcRenderer.invoke(Ch.CONVERSATION_EXPORT, format),
+  copyToClipboard: (text: string) => ipcRenderer.invoke(Ch.CLIPBOARD_WRITE_TEXT, text),
 
   // Config
   getConfig: () => ipcRenderer.invoke(Ch.CONFIG_GET),
@@ -435,6 +437,33 @@ contextBridge.exposeInMainWorld('kxai', {
   kgDeleteRelation: (id: string) => ipcRenderer.invoke(Ch.KG_DELETE_RELATION, id),
   kgGetGraph: (entityId?: string, depth?: number) => ipcRenderer.invoke(Ch.KG_GET_GRAPH, entityId, depth),
   kgGetStats: () => ipcRenderer.invoke(Ch.KG_GET_STATS),
+
+  // Telegram Bot
+  telegramGetStatus: () => ipcRenderer.invoke(Ch.TELEGRAM_GET_STATUS),
+  telegramSetToken: (token: string) => ipcRenderer.invoke(Ch.TELEGRAM_SET_TOKEN, token),
+  telegramRemoveToken: () => ipcRenderer.invoke(Ch.TELEGRAM_REMOVE_TOKEN),
+  telegramStart: () => ipcRenderer.invoke(Ch.TELEGRAM_START),
+  telegramStop: () => ipcRenderer.invoke(Ch.TELEGRAM_STOP),
+  telegramSendMessage: (chatId: number, text: string) => ipcRenderer.invoke(Ch.TELEGRAM_SEND_MESSAGE, chatId, text),
+  telegramSetAllowedChats: (chatIds: number[]) => ipcRenderer.invoke(Ch.TELEGRAM_SET_ALLOWED_CHATS, chatIds),
+  telegramSetAllowedUsernames: (usernames: string[]) =>
+    ipcRenderer.invoke(Ch.TELEGRAM_SET_ALLOWED_USERNAMES, usernames),
+  telegramSetDenyByDefault: (enabled: boolean) => ipcRenderer.invoke(Ch.TELEGRAM_SET_DENY_BY_DEFAULT, enabled),
+  telegramSetAutoStart: (enabled: boolean) => ipcRenderer.invoke(Ch.TELEGRAM_SET_AUTO_START, enabled),
+  onTelegramStatus: (callback: (status: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(Ev.TELEGRAM_STATUS, handler);
+    return () => {
+      ipcRenderer.removeListener(Ev.TELEGRAM_STATUS, handler);
+    };
+  },
+  onTelegramMessage: (callback: (event: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(Ev.TELEGRAM_MESSAGE, handler);
+    return () => {
+      ipcRenderer.removeListener(Ev.TELEGRAM_MESSAGE, handler);
+    };
+  },
 
   // App version (injected at build time via npm_package_version)
   appVersion: process.env['npm_package_version'] ?? '',

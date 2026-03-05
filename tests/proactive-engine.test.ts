@@ -60,7 +60,7 @@ describe('ProactiveEngine constructor', () => {
     const engine = createEngine();
     const stats = engine.getStats();
     expect(stats.rulesEnabled).toBeGreaterThan(0);
-    expect(stats.rulesEnabled).toBe(10); // 10 builtin rules
+    expect(stats.rulesEnabled).toBe(8); // 8 builtin rules (briefing/summary are cron jobs, not rules)
   });
 });
 
@@ -136,7 +136,7 @@ describe('getStats', () => {
 
   it('returns stats for all rules', () => {
     const stats = engine.getStats();
-    expect(stats.ruleStats).toHaveLength(10);
+    expect(stats.ruleStats).toHaveLength(8);
     expect(stats.totalFired).toBe(0);
     expect(stats.totalAccepted).toBe(0);
     expect(stats.totalDismissed).toBe(0);
@@ -508,41 +508,8 @@ describe('rule shouldFire — meeting-reminder', () => {
   });
 });
 
-describe('rule shouldFire — daily-briefing', () => {
-  let rules: any[];
-  let engine: ProactiveEngine;
-  beforeEach(() => { engine = createEngine(); rules = (engine as any).rules; });
-
-  it('fires between 7-10 AM in morning', () => {
-    const rule = rules.find((r: any) => r.id === 'daily-briefing');
-    const ctx = mockContext({ hourOfDay: 8, timeOfDay: 'morning' });
-    expect(rule.shouldFire(ctx, engine)).toBe(true);
-  });
-
-  it('does not fire at noon', () => {
-    const rule = rules.find((r: any) => r.id === 'daily-briefing');
-    const ctx = mockContext({ hourOfDay: 12, timeOfDay: 'afternoon' });
-    expect(rule.shouldFire(ctx, engine)).toBe(false);
-  });
-});
-
-describe('rule shouldFire — evening-summary', () => {
-  let rules: any[];
-  let engine: ProactiveEngine;
-  beforeEach(() => { engine = createEngine(); rules = (engine as any).rules; });
-
-  it('fires between 17-19 in evening', () => {
-    const rule = rules.find((r: any) => r.id === 'evening-summary');
-    const ctx = mockContext({ hourOfDay: 18, timeOfDay: 'evening' });
-    expect(rule.shouldFire(ctx, engine)).toBe(true);
-  });
-
-  it('does not fire in morning', () => {
-    const rule = rules.find((r: any) => r.id === 'evening-summary');
-    const ctx = mockContext({ hourOfDay: 9, timeOfDay: 'morning' });
-    expect(rule.shouldFire(ctx, engine)).toBe(false);
-  });
-});
+// NOTE: daily-briefing and evening-summary rules were removed.
+// Briefings/summaries are now user/agent-managed cron jobs — fully customizable.
 
 describe('rule shouldFire — high-memory', () => {
   let rules: any[];
@@ -684,57 +651,5 @@ describe('high-memory generate', () => {
   });
 });
 
-// =============================================================================
-// Generate — daily-briefing
-// =============================================================================
-describe('daily-briefing generate', () => {
-  let rules: any[];
-  let engine: ProactiveEngine;
-  beforeEach(() => { engine = createEngine(); rules = (engine as any).rules; });
-
-  it('includes calendar events in briefing', () => {
-    const rule = rules.find((r: any) => r.id === 'daily-briefing');
-    const ctx = mockContext({
-      todayEvents: [
-        { uid: 'e1', summary: 'Morning standup', start: '2024-06-15T09:00:00' },
-        { uid: 'e2', summary: 'Lunch', start: '2024-06-15T12:00:00' },
-      ] as any,
-      calendarConnected: true,
-    });
-    const notif = rule.generate(ctx, engine);
-    expect(notif.message).toContain('Dzień dobry');
-    expect(notif.message).toContain('Morning standup');
-    expect(notif.message).toContain('Lunch');
-  });
-
-  it('shows no events message when calendar connected but empty', () => {
-    const rule = rules.find((r: any) => r.id === 'daily-briefing');
-    const ctx = mockContext({ todayEvents: [], calendarConnected: true });
-    const notif = rule.generate(ctx, engine);
-    expect(notif.message).toContain('Brak zaplanowanych');
-  });
-
-  it('includes system warnings', () => {
-    const rule = rules.find((r: any) => r.id === 'daily-briefing');
-    const ctx = mockContext({ systemWarnings: ['Niski poziom baterii'] });
-    const notif = rule.generate(ctx, engine);
-    expect(notif.message).toContain('Niski poziom baterii');
-  });
-});
-
-// =============================================================================
-// Generate — evening-summary
-// =============================================================================
-describe('evening-summary generate', () => {
-  let rules: any[];
-  let engine: ProactiveEngine;
-  beforeEach(() => { engine = createEngine(); rules = (engine as any).rules; });
-
-  it('shows session duration when > 30 min', () => {
-    const rule = rules.find((r: any) => r.id === 'evening-summary');
-    const ctx = mockContext({ currentSessionMinutes: 180 });
-    const notif = rule.generate(ctx, engine);
-    expect(notif.message).toContain('3h');
-    expect(notif.message).toContain('Dobra robota');
-  });
-});
+// NOTE: daily-briefing and evening-summary generate tests removed.
+// These are now user/agent-managed cron jobs, not proactive rules.

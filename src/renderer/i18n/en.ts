@@ -18,6 +18,9 @@ export const en: TranslationDict = {
   // ChatPanel
   // ═══════════════════════════════════════
   'chat.copyMessage': 'Copy message',
+  'chat.export.title': 'Export conversation to clipboard',
+  'chat.export.roleUser': '👤 You',
+  'chat.export.roleAssistant': '🤖 Agent',
   'chat.status.thinking': 'thinking...',
   'chat.status.toolCalling': 'tool call...',
   'chat.status.streaming': 'responding...',
@@ -28,6 +31,12 @@ export const en: TranslationDict = {
   'chat.proactive.enable': 'Enable proactive mode',
   'chat.cortex.disable': 'Disable Cortex (autonomous brain)',
   'chat.cortex.enable': 'Enable Cortex (autonomous brain)',
+  'chat.secretWarning':
+    '⚠️ Potential API key / secret detected in your message!\n\n' +
+    'Sending it in chat will save it in history. API keys should be configured ' +
+    'only in Settings → API Keys.\n\n' +
+    'If the key was accidentally exposed, rotate it immediately.\n\n' +
+    'Are you sure you want to send this message?',
   'chat.screenshot.title': 'Take screenshot and analyze',
   'chat.dashboard.title': 'Open Dashboard',
   'chat.settings.title': 'Settings',
@@ -101,6 +110,7 @@ export const en: TranslationDict = {
   'settings.tabs.mcp': '🔌 MCP',
   'settings.tabs.calendar': '📅 Calendar',
   'settings.tabs.privacy': '🔒 Privacy',
+  'settings.tabs.telegram': '📱 Telegram',
   'settings.tabs.scrollLeft': 'Scroll tabs left',
   'settings.tabs.scrollRight': 'Scroll tabs right',
   'settings.general.userProfile': 'User profile',
@@ -256,6 +266,10 @@ export const en: TranslationDict = {
   'settings.mcp.filterCategory': 'Filter by category',
   'settings.mcp.allCategories': 'All categories',
   'settings.mcp.noResults': 'No results — try a different query or category.',
+  'settings.mcp.setup.oauthGoogle': 'Requires Google OAuth — configure in GCP console',
+  'settings.mcp.setup.oauthMicrosoft': 'Requires Microsoft OAuth — configure in Azure AD',
+  'settings.mcp.setup.manual': 'Requires manual setup — check server documentation',
+  'settings.mcp.setup.apiKeyRequired': 'Requires API key — set in environment variables',
 
   // SettingsPanel — Calendar
   'settings.calendar.title': '📅 Calendar connections (CalDAV)',
@@ -479,6 +493,53 @@ export const en: TranslationDict = {
   'settings.privacy.clipboardDisabled': 'Clipboard monitoring disabled',
   'settings.privacy.clipboardToggle': 'Enable clipboard monitoring',
   'settings.privacy.entries': 'entries',
+
+  // SettingsPanel — Telegram Bot
+  'settings.telegram.title': 'Telegram Bot',
+  'settings.telegram.description':
+    'Connect a Telegram bot to control your agent from your phone. Write on Telegram — the agent responds instantly.',
+  'settings.telegram.status': 'Status',
+  'settings.telegram.state.disconnected': 'Disconnected',
+  'settings.telegram.state.connecting': 'Connecting...',
+  'settings.telegram.state.connected': 'Connected',
+  'settings.telegram.state.error': 'Error',
+  'settings.telegram.messagesProcessed': 'Messages',
+  'settings.telegram.botToken': 'Bot Token',
+  'settings.telegram.botTokenHint': 'Token from @BotFather on Telegram. Stored in encrypted storage.',
+  'settings.telegram.tokenStored': 'Token stored',
+  'settings.telegram.removeToken': 'Remove token',
+  'settings.telegram.tokenRemoved': 'Token removed.',
+  'settings.telegram.saveToken': 'Save',
+  'settings.telegram.connected': 'Connected to',
+  'settings.telegram.polling': 'Long Polling',
+  'settings.telegram.pollingHint':
+    'Start listening for messages. The agent will respond instantly to your Telegram messages.',
+  'settings.telegram.pollingStarted': 'Polling started',
+  'settings.telegram.pollingStopped': 'Polling stopped.',
+  'settings.telegram.start': 'Start',
+  'settings.telegram.stop': 'Stop',
+  'settings.telegram.allowedChats': 'Allowed Chat IDs',
+  'settings.telegram.allowedChatsHint': 'Restrict access to specific chats (more secure). Empty = anyone can message.',
+  'settings.telegram.allowedChatsPlaceholder': 'e.g. 123456789, 987654321',
+  'settings.telegram.chatsSaved': 'Chat list saved.',
+  'settings.telegram.online': 'Online',
+  'settings.telegram.offline': 'Offline',
+  'settings.telegram.saveAllowedChats': 'Save allowed chats',
+  'settings.telegram.allowedUsernames': 'Allowed Usernames',
+  'settings.telegram.allowedUsernamesHint':
+    'Restrict access to specific Telegram usernames (without @). Works together with Chat ID list.',
+  'settings.telegram.allowedUsernamesPlaceholder': 'e.g. john_doe, jane_smith',
+  'settings.telegram.saveAllowedUsernames': 'Save allowed usernames',
+  'settings.telegram.usernamesSaved': 'Allowed usernames list saved.',
+  'settings.telegram.denyByDefault': 'Block by default (deny by default)',
+  'settings.telegram.denyByDefaultHint':
+    'When enabled, the bot rejects ALL messages from people not on the allowlist (Chat ID or username). Recommended.',
+  'settings.telegram.autoStart': 'Auto-start on launch',
+  'settings.telegram.setupGuide': 'How to set up?',
+  'settings.telegram.step1': 'Open @BotFather on Telegram',
+  'settings.telegram.step2': 'Send /newbot and choose a name',
+  'settings.telegram.step3': 'Copy the token (e.g. 123456:ABC...)',
+  'settings.telegram.step4': 'Paste the token above and click Save',
 
   // SettingsPanel — Updates
   'settings.general.updatesTitle': '🔄 Updates',

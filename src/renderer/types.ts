@@ -21,6 +21,8 @@ export interface KxAIBridge {
   setMemory: (key: string, value: string) => Promise<{ success: boolean }>;
   getConversationHistory: () => Promise<ConversationMessage[]>;
   clearConversationHistory: () => Promise<{ success: boolean }>;
+  exportConversation: (format?: string) => Promise<{ success: boolean; text?: string; path?: string; error?: string }>;
+  copyToClipboard: (text: string) => Promise<{ success: boolean }>;
 
   // Config
   getConfig: () => Promise<KxAIConfig>;
@@ -308,6 +310,20 @@ export interface KxAIBridge {
   kgDeleteRelation: (id: string) => Promise<boolean>;
   kgGetGraph: (entityId?: string, depth?: number) => Promise<import('@shared/types').KGGraphResult>;
   kgGetStats: () => Promise<import('@shared/types').KGStats>;
+
+  // Telegram Bot
+  telegramGetStatus: () => Promise<import('@shared/types').TelegramStatus>;
+  telegramSetToken: (token: string) => Promise<{ success: boolean; botUsername?: string; error?: string }>;
+  telegramRemoveToken: () => Promise<{ success: boolean }>;
+  telegramStart: () => Promise<{ success: boolean; error?: string }>;
+  telegramStop: () => Promise<{ success: boolean }>;
+  telegramSendMessage: (chatId: number, text: string) => Promise<{ success: boolean }>;
+  telegramSetAllowedChats: (chatIds: number[]) => Promise<{ success: boolean }>;
+  telegramSetAllowedUsernames: (usernames: string[]) => Promise<{ success: boolean }>;
+  telegramSetDenyByDefault: (enabled: boolean) => Promise<{ success: boolean }>;
+  telegramSetAutoStart: (enabled: boolean) => Promise<{ success: boolean }>;
+  onTelegramStatus: (callback: (status: import('@shared/types').TelegramStatus) => void) => () => void;
+  onTelegramMessage: (callback: (event: import('@shared/types').TelegramMessageEvent) => void) => () => void;
 }
 
 // ──────────────── Updates ────────────────

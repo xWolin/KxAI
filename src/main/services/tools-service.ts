@@ -3126,6 +3126,55 @@ export class ToolsService {
     if (!this.memoryService) return;
     const mem = this.memoryService;
 
+    // --- export_conversation ---
+    this.register(
+      {
+        name: 'export_conversation',
+        description:
+          'Eksportuje bieżącą konwersację (sesję czatu) jako sformatowany tekst. ' +
+          'Zwraca pełną historię wiadomości z tej sesji. ' +
+          'Użyj gdy użytkownik mówi "eksportuj konwersację", "skopiuj czat", "wyeksportuj rozmowę", "pokaż historię".',
+        category: 'privacy',
+        parameters: {
+          format: {
+            type: 'string',
+            description: 'Format wyjściowy: "text" (czysty tekst) lub "markdown" (ze stylami). Domyślnie: "markdown".',
+            required: false,
+          },
+        },
+      },
+      async (params) => {
+        try {
+          const history = mem.getConversationHistory();
+          if (!history.length) {
+            return { success: true, data: 'Brak wiadomości w bieżącej sesji.' };
+          }
+
+          const isMarkdown = params.format !== 'text';
+          const lines = history.map((msg: any) => {
+            const time = new Date(msg.timestamp).toLocaleString();
+            const role = msg.role === 'user' ? '👤 Użytkownik' : msg.role === 'assistant' ? '🤖 Agent' : '⚙️ System';
+            if (isMarkdown) {
+              return `### ${role} — ${time}\n\n${msg.content}`;
+            }
+            return `[${time}] ${role}:\n${msg.content}`;
+          });
+
+          const separator = isMarkdown ? '\n\n---\n\n' : '\n\n';
+          const header = isMarkdown
+            ? `# Konwersacja KxAI — ${new Date().toLocaleDateString()}\n\n`
+            : `Konwersacja KxAI — ${new Date().toLocaleDateString()}\n${'='.repeat(40)}\n\n`;
+
+          return {
+            success: true,
+            data: header + lines.join(separator),
+          };
+        } catch (err: any) {
+          return { success: false, error: err.message };
+        }
+      },
+    );
+
     // ── update_memory ── persists facts about user/agent/notes
     this.register(
       {
@@ -3226,6 +3275,29 @@ export class ToolsService {
     });
 
     return `# Available Tools\n\nYou can use tools by responding with a JSON block:\n\`\`\`tool\n{"tool": "tool_name", "params": { ... }}\n\`\`\`\n\nAvailable tools:\n\n${tools.join('\n\n')}`;
+  }
+
+  /**
+   * Get a compact tool summary for Cortex autonomous prompts.
+   * Returns tool names grouped by category — minimal token usage.
+   */
+  getToolsSummary(excludeCategories?: string[]): string {
+    const filtered = excludeCategories
+      ? this.definitions.filter((t) => !excludeCategories.includes(t.category))
+      : this.definitions;
+
+    const byCategory = new Map<string, string[]>();
+    for (const t of filtered) {
+      const cat = t.category;
+      if (!byCategory.has(cat)) byCategory.set(cat, []);
+      byCategory.get(cat)!.push(t.name);
+    }
+
+    const sections = Array.from(byCategory.entries())
+      .map(([cat, names]) => `**${cat}**: ${names.join(', ')}`)
+      .join('\n');
+
+    return `## Dostępne narzędzia\n\nUżywaj bloków:\n\`\`\`tool\n{"tool": "nazwa", "params": {...}}\n\`\`\`\n\n${sections}`;
   }
 
   // ─── Repair & Diagnostic Tools ───

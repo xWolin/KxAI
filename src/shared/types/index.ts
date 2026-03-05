@@ -167,6 +167,14 @@ export type {
   KGStats,
 } from './knowledge-graph';
 
+// Telegram
+export type {
+  TelegramConnectionStatus,
+  TelegramStatus,
+  TelegramIncomingMessage,
+  TelegramMessageEvent,
+} from './telegram';
+
 // Cortex (Unified Autonomous Agent)
 export type {
   CortexIntensity,

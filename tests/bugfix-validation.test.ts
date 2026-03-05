@@ -122,16 +122,27 @@ describe('Bug 1: parseToolCall fallback patterns', () => {
       }
     }
 
-    // Last resort: bare JSON
-    const bareMatch = response.match(/\{"tool"\s*:\s*"([^"]+)"\s*,\s*"params"\s*:\s*(\{[^}]*\})\s*\}/);
-    if (bareMatch) {
-      try {
-        const full = JSON.parse(bareMatch[0]);
-        if (full.tool && typeof full.tool === 'string') {
-          return { tool: full.tool, params: full.params || {} };
+    // Last resort: bare JSON with brace matching (handles nested params)
+    const barePattern = /\{"tool"\s*:\s*"/g;
+    let bareMatch;
+    while ((bareMatch = barePattern.exec(response)) !== null) {
+      let depth = 0;
+      let i = bareMatch.index;
+      let balanced = false;
+      for (; i < response.length; i++) {
+        if (response[i] === '{') depth++;
+        else if (response[i] === '}') {
+          depth--;
+          if (depth === 0) { balanced = true; break; }
         }
-      } catch {
-        /* not valid JSON */
+      }
+      if (balanced) {
+        try {
+          const full = JSON.parse(response.substring(bareMatch.index, i + 1));
+          if (full.tool && typeof full.tool === 'string') {
+            return { tool: full.tool, params: full.params || {} };
+          }
+        } catch { /* not valid JSON */ }
       }
     }
 
@@ -261,32 +272,36 @@ describe('Bug 6: Secret detection and redaction', () => {
     return result;
   }
 
+  // Build test secrets at runtime to avoid tripping secret scanners
+  const fakeOpenAI = 'sk-' + '1234567890abcdefghijklmnop';
+  const fakeProj = 'sk-proj-' + 'aaaa_bbbb_cccc_dddd_eeee_ffff_gggg_hhhh_iiii_jjjj';
+  const fakeAnt = 'sk-ant-' + 'aaaa_bbbb_cccc_dddd_eeee_ffff_gggg_hhhh_iiii_jjjj';
+  const fakeGhp = 'ghp_' + 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij';
+  const fakeGoogle = 'AIza' + 'SyA1234567890abcdefghijklmnopqr';
+  const fakeAws = 'AKIA' + 'IOSFODNN7EXAMPLE';
+
   it('should detect OpenAI API keys (sk-...)', () => {
-    expect(containsSecrets('My key is sk-1234567890abcdefghijklmnop')).toBe(true);
+    expect(containsSecrets(`My key is ${fakeOpenAI}`)).toBe(true);
   });
 
   it('should detect OpenAI project keys (sk-proj-...)', () => {
-    expect(
-      containsSecrets('Key: sk-proj-aaaa_bbbb_cccc_dddd_eeee_ffff_gggg_hhhh_iiii_jjjj'),
-    ).toBe(true);
+    expect(containsSecrets(`Key: ${fakeProj}`)).toBe(true);
   });
 
   it('should detect Anthropic keys (sk-ant-...)', () => {
-    expect(
-      containsSecrets('Key: sk-ant-aaaa_bbbb_cccc_dddd_eeee_ffff_gggg_hhhh_iiii_jjjj'),
-    ).toBe(true);
+    expect(containsSecrets(`Key: ${fakeAnt}`)).toBe(true);
   });
 
   it('should detect GitHub PATs (ghp_...)', () => {
-    expect(containsSecrets('Token: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij')).toBe(true);
+    expect(containsSecrets(`Token: ${fakeGhp}`)).toBe(true);
   });
 
   it('should detect Google API keys (AIza...)', () => {
-    expect(containsSecrets('Key: AIzaSyA1234567890abcdefghijklmnopqr')).toBe(true);
+    expect(containsSecrets(`Key: ${fakeGoogle}`)).toBe(true);
   });
 
   it('should detect AWS access key IDs (AKIA...)', () => {
-    expect(containsSecrets('AWS key: AKIAIOSFODNN7EXAMPLE')).toBe(true);
+    expect(containsSecrets(`AWS key: ${fakeAws}`)).toBe(true);
   });
 
   it('should NOT detect normal text', () => {
@@ -298,14 +313,14 @@ describe('Bug 6: Secret detection and redaction', () => {
   });
 
   it('should redact secrets from text', () => {
-    const text = 'Use this key: sk-1234567890abcdefghijklmnop in your config';
+    const text = `Use this key: ${fakeOpenAI} in your config`;
     const redacted = redactSecrets(text);
     expect(redacted).toBe('Use this key: [REDACTED_KEY] in your config');
     expect(redacted).not.toContain('sk-1234567890');
   });
 
   it('should redact multiple secrets in same text', () => {
-    const text = 'OpenAI: sk-1234567890abcdefghijklmnop, GitHub: ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghij';
+    const text = `OpenAI: ${fakeOpenAI}, GitHub: ${fakeGhp}`;
     const redacted = redactSecrets(text);
     expect(redacted).toBe('OpenAI: [REDACTED_KEY], GitHub: [REDACTED_KEY]');
   });

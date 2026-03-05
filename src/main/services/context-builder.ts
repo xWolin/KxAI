@@ -249,6 +249,7 @@ export class ContextBuilder {
   /**
    * Context compaction — AI-powered summarization of old messages.
    * When context exceeds threshold, older messages are summarized and replaced.
+   * This implementation focuses on preserving the "Soul" and "State" of the agent.
    */
   async maybeCompactContext(): Promise<void> {
     const history = this.memory.getConversationHistory();
@@ -285,7 +286,7 @@ SKUP SIĘ NA:
 1. **Ustalenia i Decyzje**: Co zostało postanowione? Jakie parametry wybrano? Jakie zmiany w kodzie/systemie zaakceptowano?
 2. **Profil Użytkownika**: Czego się dowiedzieliśmy o użytkowniku? (Język, styl pracy, preferencje, specyficzne potrzeby).
 3. **Stan Projektu**: Nad jakimi plikami pracowaliśmy? Jakie błędy naprawiliśmy? Jakie testy wykonaliśmy?
-4. **Niezakończone Zadania**: Co obiecałeś zrobić? O co użytkownik prosił, a co jeszcze nie zostało dowiezione?
+4. **Niezakończone Zadania**: Co obiecałeś zrobić? O o użytkownik prosił, a co jeszcze nie zostało dowiezione?
 5. **Wyniki Krytycznych Narzędzi**: Jeśli narzędzie zwróciło kluczową informację (np. ścieżkę do pliku, wynik testu, ID rekordu) — ZACHOWAJ JĄ.
 
 FORMAT PODSUMOWANIA:
@@ -299,7 +300,10 @@ ${conversationText.slice(0, 40000)}`;
       const summary = await this.ai.sendMessage(compactionPrompt, undefined, undefined, { skipHistory: true });
 
       if (summary && summary.length > 50) {
-        this.memory.compactHistory(KEEP_RECENT, `[Podsumowanie wcześniejszej rozmowy]\n${summary}`);
+        this.memory.compactHistory(
+          KEEP_RECENT,
+          `[KOMPAKCJA KONTEKSTU — PODSUMOWANIE POPRZEDNIEJ CZĘŚCI ROZMOWY]\n\n${summary}`,
+        );
         log.info(`Successfully compacted history into ${summary.length} characters`);
       }
     } catch (err) {
@@ -477,6 +481,10 @@ ${conversationText.slice(0, 40000)}`;
     if (modules.loadResourceful) {
       const resourcefulPrompt = await this.promptService.load('RESOURCEFUL.md');
       if (resourcefulPrompt) parts.push(resourcefulPrompt, '\n');
+
+      // AUTONOMOUS.md — action-first philosophy (loaded alongside RESOURCEFUL)
+      const autonomousPrompt = await this.promptService.load('AUTONOMOUS.md');
+      if (autonomousPrompt) parts.push(autonomousPrompt, '\n');
     }
 
     // === TIER 5: Tool instructions (stable — tool docs don't change mid-conversation) ===

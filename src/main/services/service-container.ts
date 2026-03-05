@@ -49,6 +49,7 @@ import { ReflectionEngine } from './reflection-engine';
 import { PromptService } from './prompt-service';
 import { ResponseProcessor } from './response-processor';
 import { CortexEngine } from './cortex-engine';
+import { TelegramService } from './telegram-service';
 
 const log = createLogger('Container');
 
@@ -89,6 +90,7 @@ export interface ServiceMap {
   workflowAutomator: WorkflowAutomator;
   reflectionEngine: ReflectionEngine;
   cortexEngine: CortexEngine;
+  telegram: TelegramService;
 }
 
 export type ServiceKey = keyof ServiceMap;
@@ -128,6 +130,7 @@ export interface IPCServices {
   reflectionEngine: ReflectionEngine;
   embeddingService: EmbeddingService;
   cortexEngine: CortexEngine;
+  telegramService: TelegramService;
 }
 
 export class ServiceContainer {
@@ -217,6 +220,7 @@ export class ServiceContainer {
     const knowledgeGraph = new KnowledgeGraphService();
     const proactiveEngine = new ProactiveEngine({ workflow, memory, config });
     const workflowAutomator = new WorkflowAutomator();
+    const telegram = new TelegramService();
 
     this.set('memory', memory);
     this.set('ai', ai);
@@ -242,6 +246,7 @@ export class ServiceContainer {
     this.set('knowledgeGraph', knowledgeGraph);
     this.set('proactiveEngine', proactiveEngine);
     this.set('workflowAutomator', workflowAutomator);
+    this.set('telegram', telegram);
     p();
 
     // ── Phase 3: Async initialization (parallelized — no cross-deps) ──
@@ -343,8 +348,12 @@ export class ServiceContainer {
     agentLoop.setAutomationService(automation);
     agentLoop.setScreenCaptureService(screenCapture);
     agentLoop.setKnowledgeGraphService(knowledgeGraph);
+    agentLoop.setCalendarService(calendar);
     agentLoop.setProactiveEngine(proactiveEngine);
     this.set('agentLoop', agentLoop);
+
+    // Wire AI processor to ProactiveEngine — enables AI-powered briefings/summaries
+    proactiveEngine.setAIProcessor(agentLoop.processWithTools.bind(agentLoop));
 
     // Screen monitor ↔ screen capture
     screenMonitor.setScreenCapture(screenCapture);
@@ -353,6 +362,10 @@ export class ServiceContainer {
     // Meeting Coach
     const meetingCoach = new MeetingCoachService(transcription, ai, config, security, rag, screenCapture);
     this.set('meetingCoach', meetingCoach);
+
+    // Telegram Bot — wired after agentLoop
+    telegram.setDependencies({ security, config, agentLoop });
+    void telegram.initialize().catch((err) => log.error('Telegram init failed:', err));
 
     // Start cron jobs (non-blocking, no I/O)
     cron.startAll();
@@ -505,6 +518,7 @@ export class ServiceContainer {
     this.trySync('proactiveEngine', (s) => s.stop());
     this.trySync('reflectionEngine', (s) => s.stop());
     this.trySync('cortexEngine', (s) => s.stop());
+    this.trySync('telegram', (s) => s.shutdown());
 
     // ── Phase 2: Close network connections ──
     await this.tryAsync('calendar', (s) => s.shutdown());
@@ -571,6 +585,7 @@ export class ServiceContainer {
       reflectionEngine: this.get('reflectionEngine'),
       embeddingService: this.get('embedding'),
       cortexEngine: this.get('cortexEngine'),
+      telegramService: this.get('telegram'),
     };
   }
 

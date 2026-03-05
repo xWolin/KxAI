@@ -73,8 +73,9 @@ export class EmbeddingService {
    * Re-reads config + API keys without the `initialized` guard.
    */
   async reinitialize(): Promise<void> {
+    this.hotCache.clear();
     await this.initOpenAIClient();
-    log.info(`Reinitialized (model: ${this.embeddingModel}, openai: ${!!this.openaiClient})`);
+    log.info(`Reinitialized (model: ${this.embeddingModel}, openai: ${!!this.openaiClient}, hot cache cleared)`);
   }
 
   /**

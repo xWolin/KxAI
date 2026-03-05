@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAgentStore } from '../stores';
 import { useTranslation } from '../i18n';
 import s from './ActionApproval.module.css';
@@ -30,12 +30,22 @@ function SingleApproval({
   onRespond: (approved: boolean) => void;
 }) {
   const { t } = useTranslation();
-  const [remaining, setRemaining] = useState(Math.ceil((TIMEOUT_MS - (Date.now() - request.timestamp)) / 1000));
+  const [remaining, setRemaining] = useState(
+    Math.max(0, Math.ceil((TIMEOUT_MS - (Date.now() - request.timestamp)) / 1000)),
+  );
   const config = RISK_CONFIG[request.risk] || RISK_CONFIG.moderate;
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const approveRef = useRef<HTMLButtonElement>(null);
+  const denyRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    // Focus approve button on mount
+    approveRef.current?.focus();
+  }, []);
 
   useEffect(() => {
     const iv = setInterval(() => {
-      const left = Math.ceil((TIMEOUT_MS - (Date.now() - request.timestamp)) / 1000);
+      const left = Math.max(0, Math.ceil((TIMEOUT_MS - (Date.now() - request.timestamp)) / 1000));
       if (left <= 0) {
         onRespond(false);
       } else {
@@ -45,9 +55,42 @@ function SingleApproval({
     return () => clearInterval(iv);
   }, [request.timestamp, onRespond]);
 
+  // Keyboard: Escape to deny, Tab trap within dialog
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onRespond(false);
+        return;
+      }
+      if (e.key === 'Tab') {
+        const focusable = [denyRef.current, approveRef.current].filter(Boolean) as HTMLElement[];
+        if (focusable.length === 0) return;
+        const idx = focusable.indexOf(document.activeElement as HTMLElement);
+        if (e.shiftKey) {
+          if (idx <= 0) {
+            e.preventDefault();
+            focusable[focusable.length - 1].focus();
+          }
+        } else {
+          if (idx >= focusable.length - 1) {
+            e.preventDefault();
+            focusable[0].focus();
+          }
+        }
+      }
+    },
+    [onRespond],
+  );
+
   return (
-    <div className={s.overlay} role="alertdialog" aria-modal="true" aria-label={t(config.labelKey)}>
-      <div className={cn(s.dialog, request.risk === 'dangerous' ? s.dangerous : '')}>
+    <div
+      className={s.overlay}
+      role="alertdialog"
+      aria-modal="true"
+      aria-label={t(config.labelKey)}
+      onKeyDown={handleKeyDown}
+    >
+      <div ref={dialogRef} className={cn(s.dialog, request.risk === 'dangerous' ? s.dangerous : '')}>
         <div className={s.header}>
           <span className={s.riskBadge}>{config.icon}</span>
           <span className={s.title}>{t(config.labelKey)}</span>
@@ -61,10 +104,15 @@ function SingleApproval({
         </div>
 
         <div className={s.actions}>
-          <button className={s.btnDeny} onClick={() => onRespond(false)} aria-label={t('action.deny')}>
+          <button ref={denyRef} className={s.btnDeny} onClick={() => onRespond(false)} aria-label={t('action.deny')}>
             {t('action.deny')}
           </button>
-          <button className={s.btnApprove} onClick={() => onRespond(true)} aria-label={t('action.approve')}>
+          <button
+            ref={approveRef}
+            className={s.btnApprove}
+            onClick={() => onRespond(true)}
+            aria-label={t('action.approve')}
+          >
             {t('action.approve')}
           </button>
         </div>
@@ -91,7 +139,9 @@ export function ActionApproval() {
         requestId: current.requestId,
         approved,
       })
-      .catch(() => {});
+      .catch((err: unknown) => {
+        console.error(`[ActionApproval] Failed to respond to ${current.requestId}:`, err);
+      });
   };
 
   return <SingleApproval key={current.requestId} request={current} onRespond={handleRespond} />;

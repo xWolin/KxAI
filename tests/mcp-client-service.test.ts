@@ -359,12 +359,12 @@ describe('McpClientService', () => {
 
     it('runs OAuth for matching server and succeeds', async () => {
       service.setDependencies({ configService: createMockConfigService() });
-      // Add a server matching an OAuth entry (Gmail)
+      // Add a server matching an OAuth entry (Outlook)
       const server = await service.addServer({
-        name: 'Gmail',
+        name: 'Microsoft Outlook',
         transport: 'stdio',
         command: 'npx',
-        args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],
+        args: ['-y', 'outlook-mcp'],
         enabled: true,
         autoConnect: false,
       } as any);
@@ -379,10 +379,10 @@ describe('McpClientService', () => {
     it('returns error when exec fails', async () => {
       service.setDependencies({ configService: createMockConfigService() });
       const server = await service.addServer({
-        name: 'Gmail',
+        name: 'Microsoft Outlook',
         transport: 'stdio',
         command: 'npx',
-        args: ['-y', '@gongrzhe/server-gmail-autoauth-mcp'],
+        args: ['-y', 'outlook-mcp'],
         enabled: true,
         autoConnect: false,
       } as any);
