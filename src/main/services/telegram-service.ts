@@ -19,7 +19,7 @@ import type {
   TelegramConnectionStatus,
   TelegramIncomingMessage,
   TelegramMessageEvent,
-} from '../../shared/types/telegram';
+} from '@shared/types/telegram';
 
 const log = createLogger('Telegram');
 const BOT_API = 'https://api.telegram.org';

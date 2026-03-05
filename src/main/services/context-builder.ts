@@ -109,6 +109,9 @@ export class ContextBuilder {
   /** Knowledge Graph — optional, set via setKnowledgeGraphService() */
   private knowledgeGraph?: KnowledgeGraphService;
 
+  /** Context Manager for token estimation and windowing */
+  private contextManager: ContextManager;
+
   /** Track if memory flush was done this compaction cycle */
   private memoryFlushDone = false;
 
@@ -138,6 +141,7 @@ export class ContextBuilder {
     this.rag = deps.rag;
     this.automationEnabled = !!deps.automation;
     this.screenMonitor = deps.screenMonitor;
+    this.contextManager = new ContextManager();
   }
 
   // ─── Setters for optional/late-bound dependencies ───
@@ -202,10 +206,13 @@ export class ContextBuilder {
     if (this.memoryFlushDone) return;
 
     const history = this.memory.getConversationHistory();
-    const historyTokens = history.reduce((sum, m) => sum + Math.ceil(m.content.length / 3.5), 0);
+    const historyTokens = history.reduce((sum, m) => sum + this.contextManager.estimateTokens(m.content), 0);
 
-    // Flush threshold — ~60% of compaction threshold
-    const FLUSH_THRESHOLD = 50000;
+    const model = this.config.get('aiModel') || 'gpt-5';
+    const limit = ContextManager.getModelContextLimit(model);
+
+    // Flush threshold — 15% of context limit (e.g. 60k for GPT-5)
+    const FLUSH_THRESHOLD = Math.floor(limit * 0.15);
     if (historyTokens < FLUSH_THRESHOLD || history.length < 20) return;
 
     this.memoryFlushDone = true;
@@ -245,45 +252,55 @@ export class ContextBuilder {
    */
   async maybeCompactContext(): Promise<void> {
     const history = this.memory.getConversationHistory();
-    const historyTokens = history.reduce((sum, m) => sum + Math.ceil(m.content.length / 3.5), 0);
+    const historyTokens = history.reduce((sum, m) => sum + this.contextManager.estimateTokens(m.content), 0);
 
-    const COMPACT_THRESHOLD = 80000;
-    const MIN_MESSAGES = 40;
-    const KEEP_RECENT = 20;
+    const model = this.config.get('aiModel') || 'gpt-5';
+    const limit = ContextManager.getModelContextLimit(model);
+
+    // Compaction threshold — 20% of context limit (e.g. 80k for GPT-5, 25k for GPT-4o)
+    const COMPACT_THRESHOLD = Math.floor(limit * 0.2);
+    const MIN_MESSAGES = limit > 100000 ? 40 : 20;
+    const KEEP_RECENT = limit > 100000 ? 20 : 10;
 
     if (historyTokens < COMPACT_THRESHOLD || history.length < MIN_MESSAGES) return;
 
     const messagesToSummarize = history.slice(0, -KEEP_RECENT);
     if (messagesToSummarize.length < 5) return;
 
-    log.info(`Summarizing ${messagesToSummarize.length} messages (${historyTokens} tokens total)`);
+    log.info(
+      `Summarizing ${messagesToSummarize.length} messages (${historyTokens} tokens total) for context compaction`,
+    );
 
     try {
       const conversationText = messagesToSummarize
-        .map(
-          (m) =>
-            `${m.role === 'user' ? 'User' : m.role === 'assistant' ? 'Assistant' : 'System'}: ${m.content.slice(0, 2000)}`,
-        )
+        .map((m) => `${m.role.toUpperCase()}: ${m.content.slice(0, 3000)}`)
         .join('\n---\n');
 
-      const summary = await this.ai.sendMessage(
-        `[CONTEXT COMPACTION]\n\n` +
-          `Podsumuj tę rozmowę w 500-1500 słów. Zachowaj WSZYSTKIE istotne detale:\n` +
-          `- Kluczowe decyzje i ustalenia\n` +
-          `- Wyniki narzędzi i ich kontekst\n` +
-          `- Preferencje wyrażone przez użytkownika\n` +
-          `- Aktualne zadania w toku\n` +
-          `- Komendy i wyniki narzędzi\n` +
-          `- Pliki nad którymi pracowano\n\n` +
-          `Rozmowa do podsumowania:\n${conversationText.slice(0, 50000)}`,
-        undefined,
-        undefined,
-        { skipHistory: true },
-      );
+      const compactionPrompt = `[CONTEXT COMPACTION — ARCHIWIZACJA SESJI]
+
+Jesteś systemem zarządzania pamięcią KxAI. Twoim zadaniem jest stworzenie GĘSTEGO i PRECYZYJNEGO podsumowania dotychczasowej rozmowy w języku polskim.
+To podsumowanie zastąpi oryginalne wiadomości, więc musi zawierać KAŻDY istotny szczegół potrzebny do kontynuacji pracy.
+
+SKUP SIĘ NA:
+1. **Ustalenia i Decyzje**: Co zostało postanowione? Jakie parametry wybrano? Jakie zmiany w kodzie/systemie zaakceptowano?
+2. **Profil Użytkownika**: Czego się dowiedzieliśmy o użytkowniku? (Język, styl pracy, preferencje, specyficzne potrzeby).
+3. **Stan Projektu**: Nad jakimi plikami pracowaliśmy? Jakie błędy naprawiliśmy? Jakie testy wykonaliśmy?
+4. **Niezakończone Zadania**: Co obiecałeś zrobić? O co użytkownik prosił, a co jeszcze nie zostało dowiezione?
+5. **Wyniki Krytycznych Narzędzi**: Jeśli narzędzie zwróciło kluczową informację (np. ścieżkę do pliku, wynik testu, ID rekordu) — ZACHOWAJ JĄ.
+
+FORMAT PODSUMOWANIA:
+- Pisz w 1. osobie (jako Agent) lub 3. osobie (jako System).
+- Używaj list punktowych dla przejrzystości.
+- Maksimum treści, minimum "wypełniaczy".
+
+Rozmowa do podsumowania:
+${conversationText.slice(0, 40000)}`;
+
+      const summary = await this.ai.sendMessage(compactionPrompt, undefined, undefined, { skipHistory: true });
 
       if (summary && summary.length > 50) {
         this.memory.compactHistory(KEEP_RECENT, `[Podsumowanie wcześniejszej rozmowy]\n${summary}`);
-        log.info(`Compacted ${messagesToSummarize.length} messages → summary (${summary.length} chars)`);
+        log.info(`Successfully compacted history into ${summary.length} characters`);
       }
     } catch (err) {
       log.error('Context compaction error:', err);
@@ -404,7 +421,7 @@ export class ContextBuilder {
     const dynamic = await this.buildDynamicContext(modules);
 
     const full = stable + '\n' + dynamic;
-    const estimatedTokens = ContextManager.prototype.estimateTokens.call({ config: {} }, full);
+    const estimatedTokens = this.contextManager.estimateTokens(full);
 
     // Token budget enforcement — warn if system prompt is too large
     const model = this.config.get('aiModel') || 'gpt-5';

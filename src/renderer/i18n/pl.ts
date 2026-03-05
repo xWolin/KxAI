@@ -126,6 +126,10 @@ export const pl: TranslationDict = {
   'settings.general.cortexPerformance': '🚀 Performance — maksymalna autonomia',
   'settings.general.cortexIntensityHint':
     'Eco = rzadsze cykle AI, niższe koszty. Performance = częste cykle, pełna autonomia.',
+  'settings.general.activeHoursStart': 'Aktywne godziny (od)',
+  'settings.general.activeHoursEnd': 'Aktywne godziny (do)',
+  'settings.general.activeHoursHint':
+    'Określa godziny, w których agent może autonomicznie podejmować działania i wyświetlać proaktywne powiadomienia (np. 07:00 - 23:00).',
   'settings.general.nativeFc': 'Native Function Calling',
   'settings.general.nativeFcHint': 'Włączone = stabilniejsze i szybsze wywołania narzędzi AI.',
   'settings.general.aiProvider': 'AI Provider',

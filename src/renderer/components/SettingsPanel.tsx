@@ -211,6 +211,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [proactiveMode, setProactiveMode] = useState(Boolean(config.proactiveMode));
   const [cortexEnabled, setCortexEnabled] = useState(config.cortexEnabled !== false);
   const [cortexIntensity, setCortexIntensity] = useState(config.cortexIntensity || 'balanced');
+  const [cortexActiveHoursStart, setCortexActiveHoursStart] = useState(config.cortexActiveHoursStart || '07:00');
+  const [cortexActiveHoursEnd, setCortexActiveHoursEnd] = useState(config.cortexActiveHoursEnd || '23:00');
   const [embeddingModel, setEmbeddingModel] = useState(config.embeddingModel || 'text-embedding-3-small');
   const [useNativeFunctionCalling, setUseNativeFunctionCalling] = useState(config.useNativeFunctionCalling ?? true);
   const [indexedExtensionsInput, setIndexedExtensionsInput] = useState(
@@ -424,6 +426,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         proactiveIntervalMs: normalizedInterval * 1000,
         cortexEnabled,
         cortexIntensity,
+        cortexActiveHoursStart,
+        cortexActiveHoursEnd,
         embeddingModel,
         useNativeFunctionCalling,
         indexedExtensions: parseIndexedExtensions(indexedExtensionsInput),
@@ -1063,6 +1067,28 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     <option value="performance">{t('settings.general.cortexPerformance')}</option>
                   </select>
                   <p className={s.hint}>{t('settings.general.cortexIntensityHint')}</p>
+
+                  <div style={{ display: 'flex', gap: '12px', marginTop: '12px' }}>
+                    <div style={{ flex: 1 }}>
+                      <label className={s.label}>{t('settings.general.activeHoursStart')}</label>
+                      <input
+                        type="time"
+                        className={s.input}
+                        value={cortexActiveHoursStart}
+                        onChange={(e) => setCortexActiveHoursStart(e.target.value)}
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label className={s.label}>{t('settings.general.activeHoursEnd')}</label>
+                      <input
+                        type="time"
+                        className={s.input}
+                        value={cortexActiveHoursEnd}
+                        onChange={(e) => setCortexActiveHoursEnd(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <p className={s.hint}>{t('settings.general.activeHoursHint')}</p>
                 </>
               )}
 

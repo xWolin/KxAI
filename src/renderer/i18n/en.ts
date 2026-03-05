@@ -125,6 +125,10 @@ export const en: TranslationDict = {
   'settings.general.cortexPerformance': '🚀 Performance — maximum autonomy',
   'settings.general.cortexIntensityHint':
     'Eco = less frequent AI cycles, lower costs. Performance = frequent cycles, full autonomy.',
+  'settings.general.activeHoursStart': 'Active hours (from)',
+  'settings.general.activeHoursEnd': 'Active hours (to)',
+  'settings.general.activeHoursHint':
+    'Determines the hours during which the agent can autonomously take actions and display proactive notifications (e.g., 07:00 - 23:00).',
   'settings.general.nativeFc': 'Native Function Calling',
   'settings.general.nativeFcHint': 'Enabled = more stable and faster AI tool calls.',
   'settings.general.aiProvider': 'AI Provider',
