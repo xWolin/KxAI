@@ -111,6 +111,16 @@ const ReflectionTriggerParams = z.tuple([z.enum(['deep', 'evening', 'weekly', 'm
 
 const ReflectionSetIntervalParams = z.tuple([positiveInt]);
 
+// ─── Cortex Engine ───
+
+const CortexActionRespondParams = z.tuple([
+  z.object({
+    requestId: z.string(),
+    approved: z.boolean(),
+    modifiedParams: z.record(z.string(), z.unknown()).optional(),
+  }),
+]);
+
 // ─── Cron ───
 
 const CronAddJobParams = z.tuple([
@@ -317,6 +327,9 @@ export const IpcParamSchemas: Partial<Record<string, z.ZodType>> = {
   // Reflection
   [Ch.REFLECTION_TRIGGER]: ReflectionTriggerParams,
   [Ch.REFLECTION_SET_INTERVAL]: ReflectionSetIntervalParams,
+
+  // Cortex Engine
+  [Ch.CORTEX_ACTION_RESPOND]: CortexActionRespondParams,
 
   // Cron
   [Ch.CRON_ADD_JOB]: CronAddJobParams,

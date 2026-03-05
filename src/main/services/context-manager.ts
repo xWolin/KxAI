@@ -168,6 +168,18 @@ export class ContextManager {
     // Content-based importance boosters
     const content = msg.content;
 
+    // Cron/heartbeat prompts should never appear in context — deprioritize aggressively
+    // (they should be filtered upstream, but this is a safety net)
+    if (
+      msg.type === 'cron' ||
+      msg.type === 'heartbeat' ||
+      msg.type === 'system-internal' ||
+      content.startsWith('[CRON JOB:') ||
+      content.startsWith('[HEARTBEAT')
+    ) {
+      importance = 0;
+    }
+
     // Tool results are important (agent actually did something)
     if (TOOL_RESULT_PATTERN.test(content)) {
       importance += 0.2;

@@ -7,7 +7,7 @@ export interface ConversationMessage {
   role: 'user' | 'assistant' | 'system' | 'developer';
   content: string;
   timestamp: number;
-  type?: 'chat' | 'proactive' | 'analysis';
+  type?: 'chat' | 'proactive' | 'analysis' | 'cron' | 'heartbeat' | 'system-internal';
   /** Estimated token count for context budgeting */
   tokenCount?: number;
   /** Importance score 0-1 for context window prioritization */

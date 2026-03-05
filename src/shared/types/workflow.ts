@@ -9,6 +9,30 @@ export interface ActivityEntry {
   action: string;
   context: string;
   category: string;
+  /** Process name (e.g. 'code.exe', 'chrome.exe') — added in Cortex v2 */
+  processName?: string;
+  /** Full window title — added in Cortex v2 */
+  windowTitle?: string;
+  /** Duration in ms (calculated as diff to next entry) — added in Cortex v2 */
+  durationMs?: number;
+}
+
+/** Aggregated activity statistics for a time window */
+export interface ActivityStats {
+  /** Top apps by total time (ms) */
+  topApps: Array<{ processName: string; totalMs: number; switches: number }>;
+  /** Top categories by total time (ms) */
+  topCategories: Array<{ category: string; totalMs: number }>;
+  /** Total window switches in the period */
+  totalSwitches: number;
+  /** Total tracked time (ms) */
+  totalTrackedMs: number;
+  /** Time period start */
+  since: number;
+  /** Current active app */
+  currentApp?: string;
+  /** Current window title */
+  currentTitle?: string;
 }
 
 export interface WorkflowPattern {

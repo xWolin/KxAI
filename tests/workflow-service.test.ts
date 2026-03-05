@@ -97,9 +97,12 @@ describe('WorkflowService', () => {
       expect(log[0].dayOfWeek).toBeLessThanOrEqual(6);
     });
 
-    it('should trigger async save', () => {
+    it('should store activity in memory (no DB fallback)', () => {
       service.logActivity('test', 'ctx', 'cat');
-      expect(fspMock.writeFile).toHaveBeenCalledTimes(2); // log + patterns
+      // Without DB set, logActivity stores in-memory (no file write for activities)
+      // Only patterns.json is written on save()
+      const log = service.getActivityLog();
+      expect(log.length).toBeGreaterThanOrEqual(1);
     });
 
     it('should accumulate multiple entries', () => {

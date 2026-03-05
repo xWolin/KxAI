@@ -36,6 +36,8 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
 
   const sendFeedback = (action: 'accepted' | 'dismissed' | 'replied') => {
     if (message.ruleId) {
+      // Send to both Cortex and legacy proactive engines
+      window.kxai?.cortexFeedback?.(message.ruleId, action).catch(() => {});
       window.kxai?.sendProactiveFeedback(message.ruleId, action).catch(() => {});
     }
   };

@@ -710,8 +710,7 @@ src/
 - [ ] Integration z kalendarzem — auto-tworzenie eventów z reminderów (wymaga Phase 8.2)
 
 ### Krok 8.5 — MCP Server Discovery ✅
-> **Zaimplementowano**: Rozszerzony `McpRegistryEntry` o `McpCategory` (12 kategorii), `tags?: string[]`, `featured?: boolean`. CURATED_REGISTRY rozbudowany z 14 do 50 serwerów (11 kategorii: Komunikacja, Developer, Produktywność, Web, Bazy danych, System, AI, Finanse, Monitoring, Dane, Inne). Nowe metody: `searchRegistry(query?, category?)` — filtrowanie po name/description/tags + kategoria, featured first; `getRegistryCategories()`. 2 nowe kanały IPC: `MCP_SEARCH_REGISTRY`, `MCP_GET_CATEGORIES`. UI w SettingsPanel: search input + category dropdown + featured badge (⭐) + category badge. i18n: 4 nowe klucze PL+EN. CSS: discovery bar, category select, featured highlight, empty state.
-
+> **Zaimplementowano**: Rozszerzony `McpRegistryEntry` o `McpCategory` (12 kategorii), `tags?: string[]`, `featured?: boolean`. CURATED_REGISTRY rozbudowany z 14 do 50 serwerów (12 kategorii: Komunikacja, Developer, Produktywność, Web, Bazy danych, System, AI, Finanse, Monitoring, Dane, Media, Inne). Nowe metody: `searchRegistry(query?, category?)` — filtrowanie po name/description/tags + kategoria, featured first; `getRegistryCategories()`. 2 nowe kanały IPC: `MCP_SEARCH_REGISTRY`, `MCP_GET_CATEGORIES`. UI w SettingsPanel: search input + category dropdown + featured badge (⭐) + category badge. i18n: 4 nowe klucze PL+EN. CSS: discovery bar, category select, featured highlight, empty state.
 - [x] Curated registry rozbudowany z 14 do 50 serwerów ✅ (12 kategorii, tags, featured)
 - [x] Search + filter w Settings UI ✅ (search input + category dropdown)
 - [x] One-click install z auto-detect wymaganych env vars ✅ (istniejący handleMcpAddFromRegistry)

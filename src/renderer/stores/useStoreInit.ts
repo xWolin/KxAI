@@ -110,6 +110,35 @@ export function useStoreInit(): void {
       }
     });
 
+    // ── Cortex Engine unified messages ──
+    const cleanupCortex = window.kxai.onCortexMessage?.((msg: any) => {
+      const currentView = useNavigationStore.getState().view;
+
+      // Critical alerts always show as popup
+      const alwaysPopup = msg.priority === 'critical' || msg.source === 'think' || msg.source === 'reflection';
+
+      if (currentView === 'chat' && !alwaysPopup) {
+        bumpChatRefresh();
+      } else {
+        if (currentView === 'widget') {
+          window.kxai.setWindowSize(420, 400);
+        }
+        addProactiveMessage({
+          id: msg.id || `cortex-${Date.now()}`,
+          type: msg.source || 'cortex',
+          message: msg.message,
+          context: msg.context || '',
+          ruleId: msg.ruleId,
+        });
+      }
+    });
+
+    // ── Cortex Action Requests (approval dialogs) ──
+    const { addActionRequest } = useAgentStore.getState();
+    const cleanupActionRequest = window.kxai.onCortexActionRequest?.((request: any) => {
+      addActionRequest(request);
+    });
+
     const cleanupNavigate = window.kxai.onNavigate((target) => {
       navigateTo(target as Parameters<typeof navigateTo>[0]);
     });
@@ -155,6 +184,8 @@ export function useStoreInit(): void {
       cleanupStream();
       cleanupConversation();
       cleanupProactive();
+      cleanupCortex?.();
+      cleanupActionRequest?.();
       cleanupNavigate();
       cleanupMeeting();
       cleanupControl();

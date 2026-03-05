@@ -63,9 +63,15 @@ export const KxAIConfigSchema = z
     aiModel: z.string().default('gpt-5'),
     embeddingModel: z.string().optional(),
 
-    // ── Proactive mode ──
-    proactiveMode: z.boolean().default(false),
-    proactiveIntervalMs: z.number().default(60000),
+    // ── Cortex (unified autonomous engine) ──
+    cortexEnabled: z.boolean().default(true),
+    cortexIntensity: z.enum(['eco', 'balanced', 'performance']).default('balanced'),
+    cortexActiveHoursStart: z.string().default('07:00'),
+    cortexActiveHoursEnd: z.string().default('23:00'),
+
+    // ── Legacy (kept for migration compat, ignored at runtime) ──
+    proactiveMode: z.boolean().optional(),
+    proactiveIntervalMs: z.number().optional(),
 
     // ── UI ──
     widgetPosition: WidgetPositionSchema.optional(),
@@ -110,7 +116,7 @@ export type KxAIConfigInput = z.input<typeof KxAIConfigSchema>;
 
 // ─── Migration system ───
 
-export const CURRENT_CONFIG_VERSION = 1;
+export const CURRENT_CONFIG_VERSION = 2;
 
 export type ConfigMigration = (config: Record<string, unknown>) => Record<string, unknown>;
 
@@ -121,4 +127,23 @@ export type ConfigMigration = (config: Record<string, unknown>) => Record<string
 export const CONFIG_MIGRATIONS: Record<number, ConfigMigration> = {
   // v0 → v1: add _version field (initial migration for configs without version)
   0: (cfg) => ({ ...cfg, _version: 1 }),
+
+  // v1 → v2: proactiveMode → cortexEnabled, remove proactiveIntervalMs
+  1: (cfg) => {
+    const c = cfg as Record<string, any>;
+    const migrated: Record<string, any> = { ...c, _version: 2 };
+    // Migrate proactiveMode → cortexEnabled (if user had it on, keep it on; default to true)
+    if (typeof c.proactiveMode === 'boolean') {
+      migrated.cortexEnabled = c.proactiveMode;
+    } else {
+      migrated.cortexEnabled = true;
+    }
+    migrated.cortexIntensity = 'balanced';
+    migrated.cortexActiveHoursStart = '07:00';
+    migrated.cortexActiveHoursEnd = '23:00';
+    // Clean up legacy fields
+    delete migrated.proactiveMode;
+    delete migrated.proactiveIntervalMs;
+    return migrated;
+  },
 };

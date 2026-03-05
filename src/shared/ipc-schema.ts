@@ -228,6 +228,16 @@ export const Ch = {
   REFLECTION_TRIGGER: 'reflection:trigger',
   REFLECTION_GET_STATUS: 'reflection:get-status',
   REFLECTION_SET_INTERVAL: 'reflection:set-interval',
+
+  // Cortex Engine (unified autonomous agent)
+  CORTEX_SET_ENABLED: 'cortex:set-enabled',
+  CORTEX_GET_STATUS: 'cortex:get-status',
+  CORTEX_SET_INTENSITY: 'cortex:set-intensity',
+  CORTEX_SET_SCREEN_MODE: 'cortex:set-screen-mode',
+  CORTEX_FEEDBACK: 'cortex:feedback',
+  CORTEX_TRIGGER_REFLECTION: 'cortex:trigger-reflection',
+  CORTEX_ACTION_RESPOND: 'cortex:action-respond',
+  CORTEX_GET_PENDING_ACTIONS: 'cortex:get-pending-actions',
 } as const;
 
 // ─── Send Channels (renderer → main, fire-and-forget) ───
@@ -265,6 +275,8 @@ export const Ev = {
   NAVIGATE: 'navigate',
   REFLECTION_COMPLETE: 'reflection:complete',
   CONVERSATION_UPDATED: 'conversation:updated',
+  CORTEX_MESSAGE: 'cortex:message',
+  CORTEX_ACTION_REQUEST: 'cortex:action-request',
 } as const;
 
 // ─── Type helpers ───

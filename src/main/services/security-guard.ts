@@ -16,7 +16,7 @@ import { app } from 'electron';
 
 // Re-export from shared types (canonical source)
 export type { AuditEntry } from '../../shared/types/security';
-import type { AuditEntry } from '../../shared/types/security';
+import type { AuditEntry, ActionRisk, ActionPolicyDecision } from '../../shared/types/security';
 
 interface RateLimitBucket {
   count: number;
@@ -273,6 +273,132 @@ export class SecurityGuard {
 
     this.audit(action, params, 'browser', 'allowed');
     return { allowed: true };
+  }
+
+  // ─── Risk Assessment (Action Policy) ───
+
+  /** Tool names classified as dangerous — always require approval */
+  private static readonly DANGEROUS_TOOLS = new Set([
+    'run_command',
+    'shell_execute',
+    'execute_script',
+    'delete_file',
+    'automation_click',
+    'automation_type',
+    'automation_key',
+    'take_control',
+    'browser_click',
+    'browser_type',
+    'browser_navigate',
+    'browser_fill_form',
+    'data_delete',
+  ]);
+
+  /** Tool names classified as moderate — warn on first occurrence per session */
+  private static readonly MODERATE_TOOLS = new Set([
+    'write_file',
+    'create_file',
+    'edit_file',
+    'send_email',
+    'calendar_create_event',
+    'calendar_delete_event',
+    'clipboard_clear',
+    'set_reminder',
+    'macro_replay',
+    'cron_add',
+    'cron_remove',
+    'browser_extract_text',
+    'browser_screenshot',
+    'kg_add_entity',
+    'kg_add_relation',
+    'kg_delete_entity',
+  ]);
+
+  /** Track which moderate tools were already approved this session */
+  private approvedModerateTools = new Set<string>();
+
+  /**
+   * Assess the risk level of a tool call.
+   * Used by CortexEngine to decide if an autonomous action needs user approval.
+   *
+   * @param toolName - Name of the tool being called
+   * @param params - Tool parameters
+   * @param source - Who initiated: 'cortex' (autonomous) or 'user' (explicit request)
+   * @returns ActionPolicyDecision with risk level and whether approval is needed
+   */
+  assessRisk(
+    toolName: string,
+    params: Record<string, unknown>,
+    source: 'cortex' | 'user' = 'cortex',
+  ): ActionPolicyDecision {
+    // User-initiated actions are implicitly approved
+    if (source === 'user') {
+      return { risk: 'safe', requiresApproval: false, reason: 'Akcja zainicjowana przez użytkownika' };
+    }
+
+    // Check dangerous tools
+    if (SecurityGuard.DANGEROUS_TOOLS.has(toolName)) {
+      const reason = this.getDangerousReason(toolName, params);
+      this.audit(toolName, params, 'cortex', 'warned', `Dangerous tool: ${reason}`);
+      return { risk: 'dangerous', requiresApproval: true, reason };
+    }
+
+    // Check MCP tools (external services) — always moderate
+    if (toolName.startsWith('mcp_')) {
+      return {
+        risk: 'moderate',
+        requiresApproval: !this.approvedModerateTools.has(toolName),
+        reason: `Zewnętrzny serwis MCP: ${toolName}`,
+      };
+    }
+
+    // Check moderate tools
+    if (SecurityGuard.MODERATE_TOOLS.has(toolName)) {
+      const alreadyApproved = this.approvedModerateTools.has(toolName);
+      return {
+        risk: 'moderate',
+        requiresApproval: !alreadyApproved,
+        reason: `Operacja modyfikująca: ${toolName}`,
+      };
+    }
+
+    // Default: safe
+    return { risk: 'safe', requiresApproval: false };
+  }
+
+  /**
+   * Mark a moderate tool as approved for the rest of this session.
+   * Called after user approves a moderate action.
+   */
+  approveModerateToolForSession(toolName: string): void {
+    this.approvedModerateTools.add(toolName);
+  }
+
+  /**
+   * Reset session approvals (e.g., on new session or config change).
+   */
+  resetSessionApprovals(): void {
+    this.approvedModerateTools.clear();
+  }
+
+  private getDangerousReason(toolName: string, params: Record<string, unknown>): string {
+    switch (toolName) {
+      case 'run_command':
+      case 'shell_execute':
+      case 'execute_script':
+        return `Wykonanie komendy: ${String(params.command || params.script || '').slice(0, 100)}`;
+      case 'delete_file':
+        return `Usunięcie pliku: ${String(params.path || params.filePath || '')}`;
+      case 'take_control':
+        return 'Przejęcie kontroli nad pulpitem (mysz/klawiatura)';
+      case 'data_delete':
+        return 'Usunięcie danych użytkownika';
+      default:
+        if (toolName.startsWith('automation_') || toolName.startsWith('browser_')) {
+          return `Automatyzacja: ${toolName}`;
+        }
+        return `Operacja niebezpieczna: ${toolName}`;
+    }
   }
 
   // ─── Input Sanitization ───

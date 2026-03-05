@@ -136,6 +136,7 @@ export function ChatPanel({
   // ─── Local UI state (not persisted across panel open/close) ───
   const [input, setInput] = useState('');
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
+  const [cortexEnabled, setCortexEnabled] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [highlighterReady, setHighlighterReady] = useState(false);
   const [screenshotPreviews, setScreenshotPreviews] = useState<Record<string, string[]>>({});
@@ -172,7 +173,7 @@ export function ChatPanel({
 
   useEffect(() => {
     loadHistory();
-    loadProactiveMode();
+    loadCortexState();
     initHighlighter().then(() => setHighlighterReady(true));
     // onAIStream is now registered globally in useStoreInit — it persists
     // across ChatPanel mount/unmount so progress is never lost.
@@ -211,15 +212,44 @@ export function ChatPanel({
     }
   }, [refreshTrigger, loadHistory]);
 
-  async function loadProactiveMode() {
-    const mode = await window.kxai.getProactiveMode();
-    setProactiveEnabled(mode);
+  async function loadCortexState() {
+    try {
+      const status = await window.kxai.cortexGetStatus();
+      setCortexEnabled(status?.enabled ?? true);
+    } catch {
+      // Fallback to legacy proactive mode
+      const mode = await window.kxai.getProactiveMode();
+      setProactiveEnabled(mode);
+      setCortexEnabled(mode);
+    }
   }
 
   async function sendMessage() {
     if (!input.trim() || isStreaming) return;
 
     const userMessage = input.trim();
+
+    // Secret detection — warn user before sending API keys, tokens, etc.
+    const secretPatterns = [
+      /sk-[a-zA-Z0-9]{20,}/,
+      /sk-proj-[a-zA-Z0-9_-]{40,}/,
+      /sk-ant-[a-zA-Z0-9_-]{40,}/,
+      /AIza[a-zA-Z0-9_-]{30,}/,
+      /ghp_[a-zA-Z0-9]{36}/,
+      /github_pat_[a-zA-Z0-9_]{50,}/,
+      /AKIA[A-Z0-9]{16}/,
+    ];
+    if (secretPatterns.some((p) => p.test(userMessage))) {
+      const confirmed = window.confirm(
+        '⚠️ Wykryto potencjalny klucz API / secret w wiadomości!\n\n' +
+          'Wysłanie go w czacie zapisze go w historii. Klucze API powinny być konfigurowane ' +
+          'wyłącznie w Ustawieniach → API Keys.\n\n' +
+          'Jeśli klucz został przypadkowo ujawniony, natychmiast go zrotuj.\n\n' +
+          'Czy na pewno chcesz wysłać tę wiadomość?',
+      );
+      if (!confirmed) return;
+    }
+
     setInput('');
     setStreaming(true);
     storeSetStreamingContent('');
@@ -262,9 +292,11 @@ export function ChatPanel({
     }
   }
 
-  async function toggleProactive() {
-    const newMode = !proactiveEnabled;
-    await window.kxai.setProactiveMode(newMode);
+  async function toggleCortex() {
+    const newMode = !cortexEnabled;
+    await window.kxai.cortexSetEnabled(newMode);
+    setCortexEnabled(newMode);
+    // Sync legacy proactive state
     setProactiveEnabled(newMode);
   }
 
@@ -627,14 +659,14 @@ export function ChatPanel({
         </div>
 
         <div className={s.headerActions}>
-          {/* Proactive toggle */}
+          {/* Cortex Engine toggle */}
           <button
-            onClick={toggleProactive}
-            title={proactiveEnabled ? t('chat.proactive.disable') : t('chat.proactive.enable')}
-            aria-label={proactiveEnabled ? t('chat.proactive.disable') : t('chat.proactive.enable')}
-            className={proactiveEnabled ? s.btnActive : s.btn}
+            onClick={toggleCortex}
+            title={cortexEnabled ? t('chat.cortex.disable') : t('chat.cortex.enable')}
+            aria-label={cortexEnabled ? t('chat.cortex.disable') : t('chat.cortex.enable')}
+            className={cortexEnabled ? s.btnActive : s.btn}
           >
-            👁️
+            🧠
           </button>
 
           {/* Screenshot */}

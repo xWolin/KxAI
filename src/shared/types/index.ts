@@ -34,6 +34,7 @@ export type { CronJob, CronExecution } from './cron';
 // Workflow
 export type {
   ActivityEntry,
+  ActivityStats,
   WorkflowPattern,
   WorkflowStep,
   WorkflowMacro,
@@ -50,7 +51,14 @@ export type { AgentStatus, SubAgentInfo, SubAgentResult, BackgroundTaskInfo } fr
 export type { SubAgentStatus } from './agent';
 
 // Security
-export type { AuditEntry, SecurityStats } from './security';
+export type {
+  AuditEntry,
+  SecurityStats,
+  ActionRisk,
+  ActionPolicyDecision,
+  ActionApprovalRequest,
+  ActionApprovalResponse,
+} from './security';
 
 // TTS
 export type { TTSConfig } from './tts';
@@ -158,3 +166,19 @@ export type {
   KGGraphResult,
   KGStats,
 } from './knowledge-graph';
+
+// Cortex (Unified Autonomous Agent)
+export type {
+  CortexIntensity,
+  CortexTierConfig,
+  CortexScreenMode,
+  CortexMessageSource,
+  CortexMessagePriority,
+  CortexMessage,
+  CortexStatus,
+  CortexRuleStats,
+  CortexFeedback,
+  CortexSystemEvent,
+  CortexProposal,
+} from './cortex';
+export { CORTEX_TIER_PRESETS } from './cortex';

@@ -6,6 +6,7 @@ import { SettingsPanel } from './components/SettingsPanel';
 import { CronPanel } from './components/CronPanel';
 import { DashboardPanel } from './components/DashboardPanel';
 import { ProactiveNotification } from './components/ProactiveNotification';
+import { ActionApproval } from './components/ActionApproval';
 import { CoachingOverlay } from './components/CoachingOverlay';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { useNavigationStore, useConfigStore, useAgentStore, useStoreInit } from './stores';
@@ -49,6 +50,9 @@ export default function App() {
   return (
     <ErrorBoundary label="App">
       <div className={`app-container${view === 'widget' ? ' app-container--transparent' : ''}`}>
+        {/* Action approval dialog — highest z-index modal */}
+        <ActionApproval />
+
         {/* Proactive notifications — hide during active meeting (compact bar mode) */}
         {!meetingActive &&
           proactiveMessages.map((msg) => (

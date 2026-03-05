@@ -56,14 +56,36 @@ export class EmbeddingService {
   async initialize(): Promise<void> {
     if (this.initialized) return;
 
+    // Migrate legacy JSON cache to SQLite (one-time operation)
+    await this.migrateLegacyCache();
+
+    // Initialize OpenAI client + model from config
+    await this.initOpenAIClient();
+
+    this.initialized = true;
+    log.info(
+      `Initialized (model: ${this.embeddingModel}, openai: ${!!this.openaiClient}, cache: ${this.dbService.getEmbeddingCacheSize()} entries)`,
+    );
+  }
+
+  /**
+   * Re-initialize after API key or model change (called from IPC handler).
+   * Re-reads config + API keys without the `initialized` guard.
+   */
+  async reinitialize(): Promise<void> {
+    await this.initOpenAIClient();
+    log.info(`Reinitialized (model: ${this.embeddingModel}, openai: ${!!this.openaiClient})`);
+  }
+
+  /**
+   * Internal: read config model + try to create OpenAI client from stored keys.
+   */
+  private async initOpenAIClient(): Promise<void> {
     // Read embedding model from config
     const cfgModel = this.config.get('embeddingModel') as string | undefined;
     if (cfgModel) {
       this.embeddingModel = cfgModel;
     }
-
-    // Migrate legacy JSON cache to SQLite (one-time operation)
-    await this.migrateLegacyCache();
 
     // Try to initialize OpenAI client for embeddings
     // Priority: dedicated 'openai-embeddings' key > main 'openai' key
@@ -75,13 +97,11 @@ export class EmbeddingService {
         this.openaiClient = new OpenAI({ apiKey: embeddingKey });
       } catch (err) {
         log.warn('Failed to init OpenAI client:', err);
+        this.openaiClient = null;
       }
+    } else {
+      this.openaiClient = null;
     }
-
-    this.initialized = true;
-    log.info(
-      `Initialized (model: ${this.embeddingModel}, openai: ${!!this.openaiClient}, cache: ${this.dbService.getEmbeddingCacheSize()} entries)`,
-    );
   }
 
   /**
@@ -133,9 +153,9 @@ export class EmbeddingService {
         embedding = await this.embedViaOpenAI(text);
       } catch (err: any) {
         log.warn('OpenAI embedding failed, falling back to TF-IDF:', err?.message || err);
-        // Permanently disable OpenAI on quota/auth errors to avoid repeated failures
-        if (err?.code === 'insufficient_quota' || err?.status === 401 || err?.status === 429) {
-          log.warn('Disabling OpenAI embeddings due to quota/auth error. Using TF-IDF fallback.');
+        // Disable OpenAI on permanent auth errors (NOT rate limit — 429 is temporary)
+        if (err?.code === 'insufficient_quota' || err?.status === 401) {
+          log.warn('Disabling OpenAI embeddings due to auth/quota error. Restart or re-set API key to retry.');
           this.openaiClient = null;
         }
         embedding = this.tfidfEmbed(text);
@@ -211,8 +231,8 @@ export class EmbeddingService {
           }
         } catch (err: any) {
           log.error('Batch embedding failed:', err?.message || err);
-          if (err?.code === 'insufficient_quota' || err?.status === 401 || err?.status === 429) {
-            log.warn('Disabling OpenAI embeddings due to quota/auth error. Using TF-IDF fallback.');
+          if (err?.code === 'insufficient_quota' || err?.status === 401) {
+            log.warn('Disabling OpenAI embeddings due to auth/quota error. Restart or re-set API key to retry.');
             this.openaiClient = null;
           }
           // Fallback to TF-IDF for failed batch

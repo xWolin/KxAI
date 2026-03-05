@@ -12,6 +12,49 @@ import type { ConversationMessage } from '../../shared/types/ai';
 
 const log = createLogger('MemoryService');
 
+// ─── Secret Detection ───
+
+/**
+ * Regex patterns matching common API key/secret formats.
+ * Used to detect and redact secrets before they are stored in conversation
+ * history or displayed in the UI.
+ */
+const SECRET_PATTERNS = [
+  /sk-[a-zA-Z0-9]{20,}/g, // OpenAI API keys
+  /sk-proj-[a-zA-Z0-9_-]{40,}/g, // OpenAI project keys
+  /sk-ant-[a-zA-Z0-9_-]{40,}/g, // Anthropic keys
+  /AIza[a-zA-Z0-9_-]{30,}/g, // Google API keys
+  /ghp_[a-zA-Z0-9]{36}/g, // GitHub personal access tokens
+  /gho_[a-zA-Z0-9]{36}/g, // GitHub OAuth tokens
+  /github_pat_[a-zA-Z0-9_]{50,}/g, // GitHub fine-grained PATs
+  /xoxb-[a-zA-Z0-9-]+/g, // Slack bot tokens
+  /xoxp-[a-zA-Z0-9-]+/g, // Slack user tokens
+  /AKIA[A-Z0-9]{16}/g, // AWS access key IDs
+  /eyJ[a-zA-Z0-9_-]{50,}\.[a-zA-Z0-9_-]{50,}/g, // JWTs (header.payload)
+];
+
+/**
+ * Detect whether text contains API keys or secrets.
+ */
+function containsSecrets(text: string): boolean {
+  return SECRET_PATTERNS.some((pattern) => {
+    pattern.lastIndex = 0; // reset regex state
+    return pattern.test(text);
+  });
+}
+
+/**
+ * Redact secrets in text by replacing them with [REDACTED_KEY].
+ */
+function redactSecrets(text: string): string {
+  let result = text;
+  for (const pattern of SECRET_PATTERNS) {
+    pattern.lastIndex = 0;
+    result = result.replace(pattern, '[REDACTED_KEY]');
+  }
+  return result;
+}
+
 export class MemoryService {
   private workspacePath: string;
   private conversationHistory: ConversationMessage[] = [];
@@ -158,6 +201,17 @@ export class MemoryService {
   // ─── Conversation History ───
 
   addMessage(message: ConversationMessage): void {
+    // Redact secrets before storing — API keys, tokens, etc. must never
+    // be persisted in conversation history or pushed to the UI.
+    if (containsSecrets(message.content)) {
+      log.warn('Secret detected in message — redacting before storage. Please rotate the exposed key.');
+      message = {
+        ...message,
+        content: redactSecrets(message.content),
+        metadata: { ...message.metadata, secretsRedacted: true },
+      };
+    }
+
     this.conversationHistory.push(message);
 
     // Persist to SQLite (primary) or JSON (fallback)
@@ -172,8 +226,13 @@ export class MemoryService {
       this.conversationHistory = this.conversationHistory.slice(-200);
     }
 
-    // Notify renderer about new message (push-based refresh)
-    this.onMessageAdded?.(message);
+    // Notify renderer about new message (push-based refresh).
+    // Skip internal messages (cron, heartbeat, system-internal) — they should not
+    // appear in the chat UI as regular conversation messages.
+    const isInternal = message.type === 'cron' || message.type === 'heartbeat' || message.type === 'system-internal';
+    if (!isInternal) {
+      this.onMessageAdded?.(message);
+    }
   }
 
   getConversationHistory(): ConversationMessage[] {
@@ -213,7 +272,12 @@ export class MemoryService {
   }
 
   getRecentContext(maxMessages: number = 20): ConversationMessage[] {
-    return this.conversationHistory.slice(-maxMessages);
+    // Filter out cron/heartbeat/system-internal messages from conversation context.
+    // These are internal events that should not be visible to the AI as user chat.
+    const chatMessages = this.conversationHistory.filter(
+      (m) => !m.type || m.type === 'chat' || m.type === 'proactive' || m.type === 'analysis',
+    );
+    return chatMessages.slice(-maxMessages);
   }
 
   // ─── Session Persistence ───

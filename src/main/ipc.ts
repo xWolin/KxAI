@@ -32,6 +32,7 @@ import { ClipboardService } from './services/clipboard-service';
 import { KnowledgeGraphService } from './services/knowledge-graph-service';
 import { ProactiveEngine } from './services/proactive-engine';
 import { WorkflowAutomator } from './services/workflow-automator';
+import { CortexEngine } from './services/cortex-engine';
 
 const log = createLogger('IPC');
 
@@ -64,6 +65,8 @@ interface Services {
   proactiveEngine: ProactiveEngine;
   workflowAutomator: WorkflowAutomator;
   reflectionEngine: import('./services/reflection-engine').ReflectionEngine;
+  embeddingService: import('./services/embedding-service').EmbeddingService;
+  cortexEngine: CortexEngine;
 }
 
 export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
@@ -313,6 +316,10 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
 
   validatedHandle(Ch.CONFIG_SET_BATCH, async (_event, updates: Record<string, any>) => {
     configService.setBatch(updates);
+    // Re-init embedding service when embedding model changes
+    if ('embeddingModel' in updates) {
+      await services.embeddingService.reinitialize();
+    }
     return { success: true };
   });
 
@@ -331,6 +338,10 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   validatedHandle(Ch.SECURITY_SET_API_KEY, async (_event, provider: string, key: string) => {
     await securityService.setApiKey(provider, key);
     await aiService.reinitialize();
+    // Re-init embedding service when OpenAI key changes (it uses 'openai' as fallback)
+    if (provider === 'openai' || provider === 'openai-embeddings') {
+      await services.embeddingService.reinitialize();
+    }
     return { success: true };
   });
 
@@ -652,6 +663,115 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
   ipcMain.handle(Ch.REFLECTION_SET_INTERVAL, (_event, ms: number) => {
     services.reflectionEngine.setIntervalMs(ms);
     return { success: true };
+  });
+
+  // ──────────────── Cortex Engine (unified autonomous brain) ────────────────
+  validatedHandle(Ch.CORTEX_SET_ENABLED, async (_event, enabled: boolean) => {
+    const { cortexEngine } = services;
+    configService.set('cortexEnabled', enabled);
+
+    if (enabled) {
+      // Wire message callback before starting
+      cortexEngine.setMessageCallback((msg) => {
+        memoryService.addMessage({
+          id: `cortex-${Date.now()}`,
+          role: 'assistant',
+          content: `🧠 **KxAI (${msg.source}):**\n${msg.message}`,
+          timestamp: Date.now(),
+          type: 'proactive',
+        });
+        safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+        safeSend(Ev.CORTEX_MESSAGE, msg);
+      });
+
+      // Set processing check — prevents think() during active chat
+      cortexEngine.setProcessingCheck(() => agentLoop.isCurrentlyProcessing());
+
+      // Wire screen T2 callback — AI vision analysis
+      cortexEngine.setScreenAnalysisCallback(async (screenshots) => {
+        try {
+          const screenshotData = screenshots
+            .filter((s: any) => s.base64 && s.base64.length >= 100)
+            .map((s: any, i: number) => ({
+              base64: `data:image/png;base64,${s.base64}`,
+              width: 1024,
+              height: 768,
+              displayId: i,
+              displayLabel: s.label || `Monitor ${i + 1}`,
+              timestamp: Date.now(),
+            }));
+
+          if (screenshotData.length === 0) return;
+
+          const analysis = await aiService.analyzeScreens(screenshotData);
+          if (analysis && analysis.hasInsight) {
+            agentLoop.logScreenActivity(analysis.context, analysis.message);
+          }
+        } catch (err) {
+          log.error('Cortex vision analysis error:', err);
+        }
+      });
+
+      // Wire AFK callback
+      cortexEngine.setAfkCallback((isAfk) => {
+        agentLoop.setAfkState(isAfk);
+        safeSend(Ev.AGENT_COMPANION_STATE, { isAfk });
+      });
+
+      cortexEngine.start();
+    } else {
+      cortexEngine.stop();
+    }
+    return { success: true };
+  });
+
+  ipcMain.handle(Ch.CORTEX_GET_STATUS, () => {
+    return services.cortexEngine.getStatus();
+  });
+
+  validatedHandle(Ch.CORTEX_SET_INTENSITY, async (_event, intensity: string) => {
+    services.cortexEngine.setIntensity(intensity as any);
+    configService.set('cortexIntensity', intensity as any);
+    return { success: true };
+  });
+
+  validatedHandle(Ch.CORTEX_SET_SCREEN_MODE, async (_event, mode: string) => {
+    services.cortexEngine.setScreenMode(mode as any);
+    return { success: true };
+  });
+
+  validatedHandle(
+    Ch.CORTEX_FEEDBACK,
+    async (_event, data: { ruleId: string; action: 'accepted' | 'dismissed' | 'replied' }) => {
+      services.cortexEngine.recordFeedback({
+        ruleId: data.ruleId,
+        action: data.action,
+        timestamp: Date.now(),
+      });
+      return { success: true };
+    },
+  );
+
+  ipcMain.handle(Ch.CORTEX_TRIGGER_REFLECTION, async (_event, type?: string) => {
+    try {
+      await services.cortexEngine.triggerReflection((type as any) || 'manual');
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  validatedHandle(Ch.CORTEX_ACTION_RESPOND, async (_event, response: any) => {
+    try {
+      services.cortexEngine.handleActionResponse(response);
+      return { success: true };
+    } catch (error: any) {
+      return { success: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle(Ch.CORTEX_GET_PENDING_ACTIONS, async () => {
+    return services.cortexEngine.getPendingActions();
   });
 
   // ──────────────── Cron Jobs ────────────────

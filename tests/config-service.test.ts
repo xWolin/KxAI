@@ -101,8 +101,9 @@ describe('ConfigService v2', () => {
       const svc = createService();
       expect(svc.get('aiProvider')).toBe('openai');
       expect(svc.get('aiModel')).toBe('gpt-5');
-      expect(svc.get('proactiveMode')).toBe(false);
-      expect(svc.get('proactiveIntervalMs')).toBe(60000);
+      // proactiveMode is optional since Cortex migration (v1→v2)
+      expect(svc.get('cortexEnabled')).toBe(true);
+      expect(svc.get('cortexIntensity')).toBe('balanced');
       expect(svc.get('theme')).toBe('dark');
       expect(svc.get('onboarded')).toBe(false);
       expect(svc.get('agentName')).toBe('KxAI');
@@ -140,7 +141,7 @@ describe('ConfigService v2', () => {
       expect(svc.get('aiModel')).toBe('claude-4-opus');
       expect(svc.get('userName')).toBe('Jan');
       // Defaults still applied for unset fields
-      expect(svc.get('proactiveMode')).toBe(false);
+      expect(svc.get('cortexEnabled')).toBe(true);
       expect(svc.get('agentName')).toBe('KxAI');
     });
 

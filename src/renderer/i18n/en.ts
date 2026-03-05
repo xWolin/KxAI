@@ -26,6 +26,8 @@ export const en: TranslationDict = {
   'chat.status.subAgent': 'sub-agent',
   'chat.proactive.disable': 'Disable proactive mode',
   'chat.proactive.enable': 'Enable proactive mode',
+  'chat.cortex.disable': 'Disable Cortex (autonomous brain)',
+  'chat.cortex.enable': 'Enable Cortex (autonomous brain)',
   'chat.screenshot.title': 'Take screenshot and analyze',
   'chat.dashboard.title': 'Open Dashboard',
   'chat.settings.title': 'Settings',
@@ -113,6 +115,16 @@ export const en: TranslationDict = {
   'settings.general.proactiveToggle': 'Proactive mode',
   'settings.general.proactiveEnabledHint': 'Enabled: agent can send proactive suggestions and heartbeat updates.',
   'settings.general.proactiveDisabledHint': 'Disabled: agent works reactively, without proactive notifications.',
+  'settings.general.cortexSection': 'Cortex — autonomous brain',
+  'settings.general.cortexToggle': 'Cortex Engine',
+  'settings.general.cortexEnabledHint': 'Enabled: agent autonomously thinks, observes, learns and proactively reacts.',
+  'settings.general.cortexDisabledHint': 'Disabled: agent works reactively only — responds only to messages.',
+  'settings.general.cortexIntensity': 'Intensity',
+  'settings.general.cortexEco': '🌿 Eco — minimal API costs',
+  'settings.general.cortexBalanced': '⚖️ Balanced — moderate cycles',
+  'settings.general.cortexPerformance': '🚀 Performance — maximum autonomy',
+  'settings.general.cortexIntensityHint':
+    'Eco = less frequent AI cycles, lower costs. Performance = frequent cycles, full autonomy.',
   'settings.general.nativeFc': 'Native Function Calling',
   'settings.general.nativeFcHint': 'Enabled = more stable and faster AI tool calls.',
   'settings.general.aiProvider': 'AI Provider',
@@ -478,4 +490,14 @@ export const en: TranslationDict = {
   'settings.general.updateInstall': '🚀 Install and restart',
   'settings.general.updateReleaseNotes': 'Release notes',
   'settings.general.updateError': 'Error checking for updates.',
+
+  // ═══════════════════════════════════════
+  // ActionApproval
+  // ═══════════════════════════════════════
+  'action.dangerousTitle': 'Cortex requires approval',
+  'action.moderateTitle': 'Cortex wants to perform an action',
+  'action.safeTitle': 'Cortex action',
+  'action.approve': 'Approve',
+  'action.deny': 'Deny',
+  'action.timeout': 'Auto-deny in {seconds}s',
 };

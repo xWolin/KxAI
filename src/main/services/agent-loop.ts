@@ -1045,7 +1045,8 @@ export class AgentLoop {
     const prompt = `[CRON JOB: ${job.name}]\n\nZadanie: ${job.action}\n\n${timeCtx}\n\nWykonaj to zadanie. Jeśli potrzebujesz użyć narzędzi, użyj ich.`;
 
     try {
-      const result = await this.processWithTools(prompt);
+      // skipHistory: true — cron prompts must NOT appear in conversation history
+      const result = await this.processWithTools(prompt, undefined, { skipHistory: true });
       return result;
     } catch (error: any) {
       return `Błąd wykonania cron job: ${error.message}`;
@@ -1228,7 +1229,8 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       }
 
       return cleanResponse || null;
-    } catch {
+    } catch (err) {
+      log.error('[Heartbeat] Error during heartbeat execution:', err);
       this.emitStatus({ state: 'idle' });
       return null;
     }
@@ -1564,20 +1566,51 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
 
   /**
    * Parse tool call from AI response.
-   * Looks for ```tool\n{...}\n``` blocks.
+   * Looks for ```tool\n{...}\n``` blocks, with fallback for ```json blocks
+   * and bare JSON tool calls that modern models sometimes generate.
    */
   private parseToolCall(response: string): { tool: string; params: any } | null {
+    // Primary: ```tool\n{...}\n``` blocks (canonical format)
     const toolMatch = response.match(/```tool\s*\n([\s\S]*?)\n```/);
-    if (!toolMatch) return null;
-
-    try {
-      const parsed = JSON.parse(toolMatch[1]);
-      if (parsed.tool && typeof parsed.tool === 'string') {
-        return { tool: parsed.tool, params: parsed.params || {} };
+    if (toolMatch) {
+      try {
+        const parsed = JSON.parse(toolMatch[1]);
+        if (parsed.tool && typeof parsed.tool === 'string') {
+          return { tool: parsed.tool, params: parsed.params || {} };
+        }
+      } catch (err) {
+        log.warn('parseToolCall: Failed to parse ```tool block JSON:', err, 'Raw:', toolMatch[1].slice(0, 200));
       }
-    } catch {
-      /* invalid JSON */
     }
+
+    // Fallback: ```json\n{"tool":"...", ...}\n``` blocks (model sometimes uses wrong fence)
+    const jsonMatch = response.match(/```(?:json)?\s*\n(\{[\s\S]*?"tool"\s*:[\s\S]*?\})\n```/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[1]);
+        if (parsed.tool && typeof parsed.tool === 'string') {
+          log.info('parseToolCall: Recovered tool call from ```json block (model used wrong fence)');
+          return { tool: parsed.tool, params: parsed.params || {} };
+        }
+      } catch {
+        /* not valid tool JSON */
+      }
+    }
+
+    // Last resort: bare {"tool":"...", "params":{...}} in response text (no fences)
+    const bareMatch = response.match(/\{"tool"\s*:\s*"([^"]+)"\s*,\s*"params"\s*:\s*(\{[^}]*\})\s*\}/);
+    if (bareMatch) {
+      try {
+        const full = JSON.parse(bareMatch[0]);
+        if (full.tool && typeof full.tool === 'string') {
+          log.info('parseToolCall: Recovered bare JSON tool call from response text');
+          return { tool: full.tool, params: full.params || {} };
+        }
+      } catch {
+        /* not valid JSON */
+      }
+    }
+
     return null;
   }
 

@@ -26,6 +26,8 @@ export const pl: TranslationDict = {
   'chat.status.subAgent': 'sub-agent',
   'chat.proactive.disable': 'Wyłącz tryb proaktywny',
   'chat.proactive.enable': 'Włącz tryb proaktywny',
+  'chat.cortex.disable': 'Wyłącz Cortex (autonomiczny mózg)',
+  'chat.cortex.enable': 'Włącz Cortex (autonomiczny mózg)',
   'chat.screenshot.title': 'Zrób screenshot i analizuj',
   'chat.dashboard.title': 'Otwórz Dashboard',
   'chat.settings.title': 'Ustawienia',
@@ -113,6 +115,17 @@ export const pl: TranslationDict = {
   'settings.general.proactiveToggle': 'Tryb proaktywny',
   'settings.general.proactiveEnabledHint': 'Włączone: agent może wysyłać proaktywne sugestie i heartbeat.',
   'settings.general.proactiveDisabledHint': 'Wyłączone: agent działa reaktywnie, bez proaktywnych wiadomości.',
+  'settings.general.cortexSection': 'Cortex — autonomiczny mózg',
+  'settings.general.cortexToggle': 'Cortex Engine',
+  'settings.general.cortexEnabledHint':
+    'Włączone: agent autonomicznie myśli, obserwuje, uczy się i proaktywnie reaguje.',
+  'settings.general.cortexDisabledHint': 'Wyłączone: agent działa tylko reaktywnie — odpowiada tylko na wiadomości.',
+  'settings.general.cortexIntensity': 'Intensywność',
+  'settings.general.cortexEco': '🌿 Eco — minimalne koszty API',
+  'settings.general.cortexBalanced': '⚖️ Balanced — umiarkowane cykle',
+  'settings.general.cortexPerformance': '🚀 Performance — maksymalna autonomia',
+  'settings.general.cortexIntensityHint':
+    'Eco = rzadsze cykle AI, niższe koszty. Performance = częste cykle, pełna autonomia.',
   'settings.general.nativeFc': 'Native Function Calling',
   'settings.general.nativeFcHint': 'Włączone = stabilniejsze i szybsze wywołania narzędzi AI.',
   'settings.general.aiProvider': 'AI Provider',
@@ -481,4 +494,14 @@ export const pl: TranslationDict = {
   'settings.general.updateInstall': '🚀 Zainstaluj i uruchom ponownie',
   'settings.general.updateReleaseNotes': 'Notatki do wydania',
   'settings.general.updateError': 'Błąd podczas sprawdzania aktualizacji.',
+
+  // ═══════════════════════════════════════
+  // ActionApproval
+  // ═══════════════════════════════════════
+  'action.dangerousTitle': 'Cortex wymaga zatwierdzenia',
+  'action.moderateTitle': 'Cortex chce wykonać akcję',
+  'action.safeTitle': 'Akcja Cortex',
+  'action.approve': 'Zatwierdź',
+  'action.deny': 'Odrzuć',
+  'action.timeout': 'Automatyczne odrzucenie za {seconds}s',
 };

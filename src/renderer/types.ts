@@ -53,7 +53,7 @@ export interface KxAIBridge {
   organizeFiles: (directory: string, rules?: any) => Promise<{ success: boolean; data?: any }>;
   listFiles: (directory: string) => Promise<any[]>;
 
-  // Proactive
+  // Proactive (legacy — backward compat)
   setProactiveMode: (enabled: boolean) => Promise<{ success: boolean }>;
   getProactiveMode: () => Promise<boolean>;
   sendProactiveFeedback: (
@@ -61,6 +61,22 @@ export interface KxAIBridge {
     action: 'accepted' | 'dismissed' | 'replied',
   ) => Promise<{ success: boolean }>;
   getProactiveStats: () => Promise<any>;
+
+  // Cortex Engine — unified autonomous brain
+  cortexSetEnabled: (enabled: boolean) => Promise<{ success: boolean }>;
+  cortexGetStatus: () => Promise<any>;
+  cortexSetIntensity: (intensity: string) => Promise<{ success: boolean }>;
+  cortexSetScreenMode: (mode: string) => Promise<{ success: boolean }>;
+  cortexFeedback: (ruleId: string, action: 'accepted' | 'dismissed' | 'replied') => Promise<{ success: boolean }>;
+  cortexTriggerReflection: (type?: string) => Promise<{ success: boolean; error?: string }>;
+  cortexActionRespond: (response: {
+    requestId: string;
+    approved: boolean;
+    modifiedParams?: Record<string, unknown>;
+  }) => Promise<{ success: boolean }>;
+  cortexGetPendingActions: () => Promise<any[]>;
+  onCortexMessage: (callback: (data: any) => void) => () => void;
+  onCortexActionRequest: (callback: (data: any) => void) => () => void;
 
   // Cron jobs
   getCronJobs: () => Promise<CronJob[]>;
@@ -337,6 +353,11 @@ export interface KxAIConfig {
   aiModel?: string;
   proactiveMode?: boolean;
   proactiveIntervalMs?: number;
+  // Cortex Engine
+  cortexEnabled?: boolean;
+  cortexIntensity?: 'eco' | 'balanced' | 'performance';
+  cortexActiveHoursStart?: string;
+  cortexActiveHoursEnd?: string;
   theme?: 'dark' | 'light';
   onboarded?: boolean;
   agentName?: string;
@@ -482,6 +503,17 @@ export interface SecurityStats {
   blockedActions: number;
   rateLimitedActions: number;
   last24h: { total: number; blocked: number };
+}
+
+export type ActionRisk = 'safe' | 'moderate' | 'dangerous';
+
+export interface ActionApprovalRequest {
+  requestId: string;
+  toolName: string;
+  params: Record<string, unknown>;
+  risk: ActionRisk;
+  reason: string;
+  timestamp: number;
 }
 
 // ──────────────── System Monitor ────────────────

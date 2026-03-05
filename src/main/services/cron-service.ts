@@ -14,6 +14,7 @@ export class CronService {
   private jobs: CronJob[] = [];
   private timers: Map<string, NodeJS.Timeout> = new Map();
   private onExecute?: (job: CronJob) => Promise<string>;
+  private jobExecutedCallback?: (jobName: string, success: boolean) => void;
 
   constructor() {
     const userDataPath = app.getPath('userData');
@@ -28,6 +29,11 @@ export class CronService {
 
   setExecutor(executor: (job: CronJob) => Promise<string>): void {
     this.onExecute = executor;
+  }
+
+  /** Register callback to be notified when a job finishes executing. */
+  onJobExecuted(cb: (jobName: string, success: boolean) => void): void {
+    this.jobExecutedCallback = cb;
   }
 
   private loadJobs(): void {
@@ -203,6 +209,7 @@ export class CronService {
         result: result.slice(0, 1000),
         success: true,
       });
+      this.jobExecutedCallback?.(job.name || job.id, true);
     } catch (error: any) {
       job.lastRun = Date.now();
       job.lastResult = `Error: ${error.message}`;
@@ -220,6 +227,7 @@ export class CronService {
         result: `Error: ${error.message}`,
         success: false,
       });
+      this.jobExecutedCallback?.(job.name || job.id, false);
     }
   }
 

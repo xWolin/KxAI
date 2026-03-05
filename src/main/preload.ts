@@ -93,17 +93,43 @@ contextBridge.exposeInMainWorld('kxai', {
   organizeFiles: (directory: string, rules?: any) => ipcRenderer.invoke(Ch.FILES_ORGANIZE, directory, rules),
   listFiles: (directory: string) => ipcRenderer.invoke(Ch.FILES_LIST, directory),
 
-  // Proactive engine
+  // Proactive engine (legacy — kept for backward compat)
   setProactiveMode: (enabled: boolean) => ipcRenderer.invoke(Ch.PROACTIVE_SET_MODE, enabled),
   getProactiveMode: () => ipcRenderer.invoke(Ch.PROACTIVE_GET_MODE),
   sendProactiveFeedback: (ruleId: string, action: 'accepted' | 'dismissed' | 'replied') =>
     ipcRenderer.invoke(Ch.PROACTIVE_FEEDBACK, { ruleId, action }),
   getProactiveStats: () => ipcRenderer.invoke(Ch.PROACTIVE_GET_STATS),
 
-  // Reflection engine
+  // Reflection engine (legacy — kept for backward compat)
   reflectionTrigger: (type?: string) => ipcRenderer.invoke(Ch.REFLECTION_TRIGGER, type || 'manual'),
   reflectionGetStatus: () => ipcRenderer.invoke(Ch.REFLECTION_GET_STATUS),
   reflectionSetInterval: (ms: number) => ipcRenderer.invoke(Ch.REFLECTION_SET_INTERVAL, ms),
+
+  // Cortex Engine — unified autonomous brain
+  cortexSetEnabled: (enabled: boolean) => ipcRenderer.invoke(Ch.CORTEX_SET_ENABLED, enabled),
+  cortexGetStatus: () => ipcRenderer.invoke(Ch.CORTEX_GET_STATUS),
+  cortexSetIntensity: (intensity: string) => ipcRenderer.invoke(Ch.CORTEX_SET_INTENSITY, intensity),
+  cortexSetScreenMode: (mode: string) => ipcRenderer.invoke(Ch.CORTEX_SET_SCREEN_MODE, mode),
+  cortexFeedback: (ruleId: string, action: 'accepted' | 'dismissed' | 'replied') =>
+    ipcRenderer.invoke(Ch.CORTEX_FEEDBACK, { ruleId, action }),
+  cortexTriggerReflection: (type?: string) => ipcRenderer.invoke(Ch.CORTEX_TRIGGER_REFLECTION, type || 'manual'),
+  cortexActionRespond: (response: { requestId: string; approved: boolean; modifiedParams?: Record<string, unknown> }) =>
+    ipcRenderer.invoke(Ch.CORTEX_ACTION_RESPOND, response),
+  cortexGetPendingActions: () => ipcRenderer.invoke(Ch.CORTEX_GET_PENDING_ACTIONS),
+  onCortexMessage: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(Ev.CORTEX_MESSAGE, handler);
+    return () => {
+      ipcRenderer.removeListener(Ev.CORTEX_MESSAGE, handler);
+    };
+  },
+  onCortexActionRequest: (callback: (data: any) => void) => {
+    const handler = (_event: any, data: any) => callback(data);
+    ipcRenderer.on(Ev.CORTEX_ACTION_REQUEST, handler);
+    return () => {
+      ipcRenderer.removeListener(Ev.CORTEX_ACTION_REQUEST, handler);
+    };
+  },
 
   // Cron jobs
   getCronJobs: () => ipcRenderer.invoke(Ch.CRON_GET_JOBS),

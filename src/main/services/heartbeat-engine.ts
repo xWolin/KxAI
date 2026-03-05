@@ -270,7 +270,8 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       }
 
       return cleanResponse || null;
-    } catch {
+    } catch (err) {
+      log.error('[HeartbeatEngine] Error during heartbeat execution:', err);
       this.emitStatus({ state: 'idle' });
       return null;
     } finally {
@@ -556,17 +557,33 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
    * Parse ```tool block from AI response (duplicated from ToolExecutor for self-contained heartbeat).
    */
   private parseToolCall(response: string): { tool: string; params: Record<string, any> } | null {
+    // Primary: ```tool blocks
     const match = response.match(/```tool\s*\n([\s\S]*?)\n```/);
-    if (!match) return null;
-
-    try {
-      const parsed = JSON.parse(match[1]);
-      if (parsed.tool && typeof parsed.tool === 'string') {
-        return { tool: parsed.tool, params: parsed.params || {} };
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        if (parsed.tool && typeof parsed.tool === 'string') {
+          return { tool: parsed.tool, params: parsed.params || {} };
+        }
+      } catch (err) {
+        log.warn('parseToolCall: Failed to parse ```tool block JSON:', err);
       }
-    } catch {
-      /* invalid JSON */
     }
+
+    // Fallback: ```json blocks with tool key
+    const jsonMatch = response.match(/```(?:json)?\s*\n(\{[\s\S]*?"tool"\s*:[\s\S]*?\})\n```/);
+    if (jsonMatch) {
+      try {
+        const parsed = JSON.parse(jsonMatch[1]);
+        if (parsed.tool && typeof parsed.tool === 'string') {
+          log.info('parseToolCall: Recovered tool call from ```json block');
+          return { tool: parsed.tool, params: parsed.params || {} };
+        }
+      } catch {
+        /* not valid tool JSON */
+      }
+    }
+
     return null;
   }
 

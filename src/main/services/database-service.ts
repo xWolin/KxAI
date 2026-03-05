@@ -16,6 +16,7 @@ import { app } from 'electron';
 import { createLogger } from './logger';
 import type { ConversationMessage } from '../../shared/types/ai';
 import type { RAGChunk } from '../../shared/types/rag';
+import type { ActivityEntry, ActivityStats } from '../../shared/types/workflow';
 
 const log = createLogger('DatabaseService');
 
@@ -139,14 +140,40 @@ export class DatabaseService {
     this.db.pragma('foreign_keys = ON');
     this.db.pragma('temp_store = MEMORY');
 
-    // Load sqlite-vec extension for vector search
+    // Load sqlite-vec extension for vector search.
+    // In packaged Electron apps, native modules are inside app.asar which
+    // dlopen() cannot read (ENOTDIR on macOS). asarUnpack extracts them to
+    // app.asar.unpacked/, but sqliteVec.load() resolves the path via __dirname
+    // which still points inside app.asar. We must correct the path manually.
     try {
+      // Try the standard load first (works in dev mode / unpacked)
       sqliteVec.load(this.db);
       this.vec0Loaded = true;
-      log.info('sqlite-vec extension loaded');
-    } catch (err) {
-      log.error('Failed to load sqlite-vec extension:', err);
-      this.vec0Loaded = false;
+      log.info('sqlite-vec extension loaded (standard path)');
+    } catch (err: any) {
+      // ENOTDIR (errno=20) means dlopen tried to open app.asar as a directory.
+      // Fix: replace app.asar with app.asar.unpacked in the extension path.
+      if (err.message?.includes('ENOTDIR') || err.message?.includes('dlopen') || err.message?.includes('not a valid')) {
+        try {
+          const vecPath = (sqliteVec as any).getLoadablePath?.();
+          if (vecPath) {
+            const fixedPath = vecPath.replace(/app\.asar(?!\.unpacked)/, 'app.asar.unpacked');
+            log.info(`sqlite-vec: retrying with ASAR-fixed path: ${fixedPath} (arch=${process.arch})`);
+            this.db.loadExtension(fixedPath);
+            this.vec0Loaded = true;
+            log.info('sqlite-vec extension loaded (ASAR-unpacked path)');
+          } else {
+            log.error('sqlite-vec: getLoadablePath() not available, cannot fix ASAR path');
+            this.vec0Loaded = false;
+          }
+        } catch (retryErr) {
+          log.error('Failed to load sqlite-vec extension (ASAR retry):', retryErr);
+          this.vec0Loaded = false;
+        }
+      } else {
+        log.error('Failed to load sqlite-vec extension:', err);
+        this.vec0Loaded = false;
+      }
     }
 
     this.runMigrations();
@@ -233,6 +260,7 @@ export class DatabaseService {
 
     // Future migrations go here:
     if (version < 3) this.migrateV3();
+    if (version < 4) this.migrateV4();
 
     // ─── Post-migration: ensure vec0 table has correct embedding dimension ───
     // The vec0 table may have been created with a default dimension (1536)
@@ -284,6 +312,54 @@ export class DatabaseService {
     `);
     this.db.exec(`INSERT INTO schema_version (version) VALUES (3);`);
     log.info('Migration v3 complete');
+  }
+
+  private migrateV4(): void {
+    if (!this.db) return;
+    log.info('Running migration v4: activity_log table');
+
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS activity_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp INTEGER NOT NULL,
+        hour INTEGER NOT NULL,
+        day_of_week INTEGER NOT NULL,
+        process_name TEXT NOT NULL DEFAULT '',
+        window_title TEXT NOT NULL DEFAULT '',
+        category TEXT NOT NULL DEFAULT 'general',
+        action TEXT NOT NULL DEFAULT '',
+        context TEXT NOT NULL DEFAULT '',
+        duration_ms INTEGER DEFAULT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_activity_timestamp ON activity_log(timestamp);
+      CREATE INDEX IF NOT EXISTS idx_activity_category ON activity_log(category);
+      CREATE INDEX IF NOT EXISTS idx_activity_process ON activity_log(process_name);
+
+      -- FTS5 for full-text search on window titles and context
+      CREATE VIRTUAL TABLE IF NOT EXISTS activity_log_fts USING fts5(
+        window_title,
+        context,
+        content='activity_log',
+        content_rowid='id',
+        tokenize='unicode61 remove_diacritics 2'
+      );
+
+      -- Auto-sync FTS5 with activity_log
+      CREATE TRIGGER IF NOT EXISTS activity_log_ai AFTER INSERT ON activity_log BEGIN
+        INSERT INTO activity_log_fts(rowid, window_title, context) VALUES (new.id, new.window_title, new.context);
+      END;
+      CREATE TRIGGER IF NOT EXISTS activity_log_ad AFTER DELETE ON activity_log BEGIN
+        INSERT INTO activity_log_fts(activity_log_fts, rowid, window_title, context) VALUES('delete', old.id, old.window_title, old.context);
+      END;
+      CREATE TRIGGER IF NOT EXISTS activity_log_au AFTER UPDATE ON activity_log BEGIN
+        INSERT INTO activity_log_fts(activity_log_fts, rowid, window_title, context) VALUES('delete', old.id, old.window_title, old.context);
+        INSERT INTO activity_log_fts(rowid, window_title, context) VALUES (new.id, new.window_title, new.context);
+      END;
+    `);
+
+    this.db.exec(`INSERT INTO schema_version (version) VALUES (4);`);
+    log.info('Migration v4 complete');
   }
 
   private migrateV1(): void {
@@ -1339,7 +1415,10 @@ export class DatabaseService {
   }
 
   /**
-   * Clear ALL RAG data (chunks + embeddings + folders).
+   * Clear ALL RAG data (chunks + embeddings + folders + embedding cache).
+   * The embedding cache MUST be cleared on model change to prevent
+   * dimension mismatch errors when cached vectors have a different
+   * dimension than the new model expects.
    */
   clearRAGData(): void {
     if (!this.db) return;
@@ -1349,6 +1428,14 @@ export class DatabaseService {
         this.db.exec('DELETE FROM rag_embeddings');
       }
       this.db.exec('DELETE FROM rag_folders');
+      // Also clear embedding cache — stale cached embeddings with wrong dimensions
+      // would cause vec0 INSERT failures after model change
+      try {
+        this.db.exec('DELETE FROM embedding_cache');
+        log.info('Embedding cache cleared (model change)');
+      } catch {
+        /* embedding_cache may not exist in older DBs */
+      }
       log.info('All RAG data cleared');
     } catch (err) {
       log.error('Failed to clear RAG data:', err);
@@ -1495,6 +1582,8 @@ export class DatabaseService {
 
   /**
    * Get a cached embedding by content hash.
+   * Validates that the cached dimension matches the currently expected dimension
+   * to prevent dimension mismatch errors after model changes.
    */
   getCachedEmbedding(contentHash: string): number[] | null {
     if (!this.db) return null;
@@ -1508,6 +1597,16 @@ export class DatabaseService {
         .get(contentHash) as { embedding: Buffer; dimension: number } | undefined;
 
       if (!row) return null;
+
+      // Dimension mismatch guard — reject cached embeddings from a different model
+      if (row.dimension !== this.embeddingDim) {
+        log.warn(
+          `Embedding cache dimension mismatch for ${contentHash}: cached=${row.dimension}, expected=${this.embeddingDim}. Discarding stale entry.`,
+        );
+        // Delete the stale entry to prevent repeated mismatches
+        this.db.prepare('DELETE FROM embedding_cache WHERE content_hash = ?').run(contentHash);
+        return null;
+      }
 
       // Update last_used timestamp (fire-and-forget)
       this.db.prepare('UPDATE embedding_cache SET last_used = unixepoch() WHERE content_hash = ?').run(contentHash);
@@ -1670,6 +1769,238 @@ export class DatabaseService {
       return imported;
     } catch (err) {
       log.error('Failed to import embedding cache:', err);
+      return 0;
+    }
+  }
+
+  // ═══════════════════════════════════════════════════════
+  // ─── Activity Log Operations ───
+  // ═══════════════════════════════════════════════════════
+
+  /**
+   * Insert a single activity log entry.
+   * Automatically calculates duration_ms for the PREVIOUS entry (as diff of timestamps).
+   */
+  insertActivity(entry: ActivityEntry): void {
+    if (!this.db) return;
+    try {
+      // Update duration of previous entry (same day) to be diff from its timestamp to now
+      this.db
+        .prepare(
+          `UPDATE activity_log SET duration_ms = ? - timestamp
+           WHERE id = (SELECT id FROM activity_log ORDER BY timestamp DESC LIMIT 1)
+             AND duration_ms IS NULL`,
+        )
+        .run(entry.timestamp);
+
+      this.db
+        .prepare(
+          `INSERT INTO activity_log (timestamp, hour, day_of_week, process_name, window_title, category, action, context)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .run(
+          entry.timestamp,
+          entry.hour,
+          entry.dayOfWeek,
+          entry.processName ?? '',
+          entry.windowTitle ?? '',
+          entry.category,
+          entry.action,
+          entry.context,
+        );
+    } catch (err) {
+      log.error('Failed to insert activity:', err);
+    }
+  }
+
+  /**
+   * Insert multiple activity entries in a transaction.
+   */
+  insertActivitiesBatch(entries: ActivityEntry[]): void {
+    if (!this.db || entries.length === 0) return;
+    const insert = this.db.prepare(
+      `INSERT INTO activity_log (timestamp, hour, day_of_week, process_name, window_title, category, action, context, duration_ms)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const tx = this.db.transaction((items: ActivityEntry[]) => {
+      for (const e of items) {
+        insert.run(
+          e.timestamp,
+          e.hour,
+          e.dayOfWeek,
+          e.processName ?? '',
+          e.windowTitle ?? '',
+          e.category,
+          e.action,
+          e.context,
+          e.durationMs ?? null,
+        );
+      }
+    });
+    try {
+      tx(entries);
+    } catch (err) {
+      log.error('Failed to insert activity batch:', err);
+    }
+  }
+
+  /**
+   * Get activities since a given timestamp, ordered by time ascending.
+   */
+  getActivities(sinceMs: number, limit = 500): ActivityEntry[] {
+    if (!this.db) return [];
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT timestamp, hour, day_of_week, process_name, window_title, category, action, context, duration_ms
+           FROM activity_log WHERE timestamp >= ? ORDER BY timestamp ASC LIMIT ?`,
+        )
+        .all(sinceMs, limit) as Array<{
+        timestamp: number;
+        hour: number;
+        day_of_week: number;
+        process_name: string;
+        window_title: string;
+        category: string;
+        action: string;
+        context: string;
+        duration_ms: number | null;
+      }>;
+      return rows.map((r) => ({
+        timestamp: r.timestamp,
+        hour: r.hour,
+        dayOfWeek: r.day_of_week,
+        action: r.action,
+        context: r.context,
+        category: r.category,
+        processName: r.process_name,
+        windowTitle: r.window_title,
+        durationMs: r.duration_ms ?? undefined,
+      }));
+    } catch (err) {
+      log.error('Failed to get activities:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Get aggregated activity statistics for a given time window.
+   */
+  getActivityStats(sinceMs: number): ActivityStats {
+    const empty: ActivityStats = {
+      topApps: [],
+      topCategories: [],
+      totalSwitches: 0,
+      totalTrackedMs: 0,
+      since: sinceMs,
+    };
+    if (!this.db) return empty;
+    try {
+      // Top apps by total duration
+      const topApps = this.db
+        .prepare(
+          `SELECT process_name, COALESCE(SUM(duration_ms), 0) as total_ms, COUNT(*) as switches
+           FROM activity_log WHERE timestamp >= ? AND process_name != ''
+           GROUP BY process_name ORDER BY total_ms DESC LIMIT 10`,
+        )
+        .all(sinceMs) as Array<{ process_name: string; total_ms: number; switches: number }>;
+
+      // Top categories by total duration
+      const topCategories = this.db
+        .prepare(
+          `SELECT category, COALESCE(SUM(duration_ms), 0) as total_ms
+           FROM activity_log WHERE timestamp >= ?
+           GROUP BY category ORDER BY total_ms DESC LIMIT 10`,
+        )
+        .all(sinceMs) as Array<{ category: string; total_ms: number }>;
+
+      // Total switches (count of entries)
+      const countRow = this.db
+        .prepare(
+          `SELECT COUNT(*) as cnt, COALESCE(SUM(duration_ms), 0) as total FROM activity_log WHERE timestamp >= ?`,
+        )
+        .get(sinceMs) as { cnt: number; total: number };
+
+      return {
+        topApps: topApps.map((a) => ({ processName: a.process_name, totalMs: a.total_ms, switches: a.switches })),
+        topCategories: topCategories.map((c) => ({ category: c.category, totalMs: c.total_ms })),
+        totalSwitches: countRow.cnt,
+        totalTrackedMs: countRow.total,
+        since: sinceMs,
+      };
+    } catch (err) {
+      log.error('Failed to get activity stats:', err);
+      return empty;
+    }
+  }
+
+  /**
+   * Full-text search activities.
+   */
+  searchActivities(query: string, limit = 50): ActivityEntry[] {
+    if (!this.db || !query.trim()) return [];
+    try {
+      const rows = this.db
+        .prepare(
+          `SELECT a.timestamp, a.hour, a.day_of_week, a.process_name, a.window_title,
+                  a.category, a.action, a.context, a.duration_ms
+           FROM activity_log_fts fts
+           JOIN activity_log a ON a.id = fts.rowid
+           WHERE activity_log_fts MATCH ?
+           ORDER BY a.timestamp DESC LIMIT ?`,
+        )
+        .all(query, limit) as Array<{
+        timestamp: number;
+        hour: number;
+        day_of_week: number;
+        process_name: string;
+        window_title: string;
+        category: string;
+        action: string;
+        context: string;
+        duration_ms: number | null;
+      }>;
+      return rows.map((r) => ({
+        timestamp: r.timestamp,
+        hour: r.hour,
+        dayOfWeek: r.day_of_week,
+        action: r.action,
+        context: r.context,
+        category: r.category,
+        processName: r.process_name,
+        windowTitle: r.window_title,
+        durationMs: r.duration_ms ?? undefined,
+      }));
+    } catch (err) {
+      log.error('Failed to search activities:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Delete activities older than a given timestamp (retention policy).
+   */
+  pruneActivities(olderThanMs: number): number {
+    if (!this.db) return 0;
+    try {
+      const result = this.db.prepare(`DELETE FROM activity_log WHERE timestamp < ?`).run(olderThanMs);
+      if (result.changes > 0) log.info(`Pruned ${result.changes} old activity entries`);
+      return result.changes;
+    } catch (err) {
+      log.error('Failed to prune activities:', err);
+      return 0;
+    }
+  }
+
+  /**
+   * Count total activity entries.
+   */
+  getActivityCount(): number {
+    if (!this.db) return 0;
+    try {
+      const row = this.db.prepare(`SELECT COUNT(*) as cnt FROM activity_log`).get() as { cnt: number };
+      return row.cnt;
+    } catch (err) {
       return 0;
     }
   }

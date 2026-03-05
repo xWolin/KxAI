@@ -59,131 +59,95 @@ if (!gotLock) {
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
 
 /**
- * Start the smart companion monitor with all tiered callbacks.
- * Reused for both auto-start and manual proactive:set-mode toggle.
+ * Start the Cortex Engine — unified autonomous brain.
+ * Replaces the old startCompanionMonitor with HeartbeatEngine + ProactiveEngine + ReflectionEngine.
+ * CortexEngine handles all autonomous operations: rule checks, think cycles, reflection, screen monitoring.
  */
-function startCompanionMonitor(win: BrowserWindow): void {
+function startCortexEngine(win: BrowserWindow): void {
   const safeSend = (channel: string, data?: any) => {
     if (win && !win.isDestroyed()) {
       win.webContents.send(channel, data);
     }
   };
 
-  const screenMonitorService = container.get('screenMonitor');
-  const aiService = container.get('ai');
+  const cortexEngine = container.get('cortexEngine');
   const agentLoop = container.get('agentLoop');
+  const aiService = container.get('ai');
   const memoryService = container.get('memory');
-  const proactiveEngine = container.get('proactiveEngine');
-  const reflectionEngine = container.get('reflectionEngine');
 
-  screenMonitorService.start(
-    // T0: Window change
-    (_info) => {
-      // Just track — T1/T2 will pick up the actual content
-    },
-    // T1: Content change (OCR detected significant text change)
-    (ctx) => {
-      if (ctx.contentChanged && ctx.ocrText.length > 50) {
-        safeSend(Ev.AGENT_COMPANION_STATE, { wantsToSpeak: true });
-      }
-    },
-    // T2: Vision needed — full AI analysis
-    async (ctx, screenshots) => {
-      try {
-        log.info('T2 callback triggered — starting AI analysis...');
-        const screenshotData = screenshots.map((s) => ({
-          base64: s.base64.startsWith('data:') ? s.base64 : `data:image/png;base64,${s.base64}`,
+  // Wire message callback — route Cortex messages to renderer
+  cortexEngine.setMessageCallback((msg) => {
+    memoryService.addMessage({
+      id: `cortex-${Date.now()}`,
+      role: 'assistant',
+      content: `🧠 **KxAI (${msg.source}):**\n${msg.message}`,
+      timestamp: Date.now(),
+      type: 'proactive',
+    });
+    safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
+    safeSend(Ev.CORTEX_MESSAGE, msg);
+  });
+
+  // Set processing check — prevents think() during active chat
+  cortexEngine.setProcessingCheck(() => agentLoop.isCurrentlyProcessing());
+
+  // Wire action request callback — route approval requests to renderer
+  cortexEngine.setActionRequestCallback((request) => {
+    safeSend(Ev.CORTEX_ACTION_REQUEST, request);
+  });
+
+  // Wire screen T2 callback — AI vision analysis
+  cortexEngine.setScreenAnalysisCallback(async (screenshots) => {
+    try {
+      const screenshotData = screenshots
+        .filter((s: any) => s.base64 && s.base64.length >= 100)
+        .map((s: any, i: number) => ({
+          base64: `data:image/png;base64,${s.base64}`,
           width: 1024,
           height: 768,
-          displayId: 0,
-          displayLabel: s.label || 'monitor',
+          displayId: i,
+          displayLabel: s.label || `Monitor ${i + 1}`,
           timestamp: Date.now(),
         }));
-        const analysis = await aiService.analyzeScreens(screenshotData);
-        log.info('AI analysis result:', analysis ? `hasInsight=${analysis.hasInsight}` : 'null');
-        if (analysis && analysis.hasInsight) {
-          agentLoop.logScreenActivity(analysis.context, analysis.message);
 
-          // Screen observations are routed to the dashboard and used as context
-          // by the heartbeat/autonomous engine — they do NOT go into chat history.
-          // The autonomous agent will proactively comment when relevant.
-          safeSend(Ev.AI_PROACTIVE, {
-            type: 'screen-analysis',
-            message: analysis.message,
-            context: analysis.context,
-          });
-        }
-      } catch (err) {
-        log.error('Vision analysis error:', err);
+      if (screenshotData.length === 0) return;
+
+      const analysis = await aiService.analyzeScreens(screenshotData);
+      if (analysis && analysis.hasInsight) {
+        agentLoop.logScreenActivity(analysis.context, analysis.message);
       }
-    },
-    // Idle start — user went AFK
-    () => {
+    } catch (err) {
+      log.error('Cortex vision analysis error:', err);
+    }
+  });
+
+  // Wire AFK callback
+  cortexEngine.setAfkCallback((isAfk) => {
+    if (isAfk) {
       log.info('User is now AFK');
       agentLoop.setAfkState(true);
       safeSend(Ev.AGENT_COMPANION_STATE, { isAfk: true });
-    },
-    // Idle end — user is back
-    () => {
+    } else {
       log.info('User is back from AFK');
       agentLoop.setAfkState(false);
       safeSend(Ev.AGENT_COMPANION_STATE, { isAfk: false });
-    },
-  );
-
-  // Set heartbeat callback to deliver results to UI
-  agentLoop.setHeartbeatCallback((message) => {
-    memoryService.addMessage({
-      id: `heartbeat-${Date.now()}`,
-      role: 'assistant',
-      content: `🤖 **KxAI (autonomiczny):**\n${message}`,
-      timestamp: Date.now(),
-      type: 'proactive',
-    });
-    safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
-    safeSend(Ev.AI_PROACTIVE, {
-      type: 'heartbeat',
-      message,
-    });
+    }
   });
 
-  // Start Proactive Intelligence Engine — rule-based notifications
-  proactiveEngine.setResultCallback((notification) => {
-    memoryService.addMessage({
-      id: `proactive-rule-${Date.now()}`,
-      role: 'assistant',
-      content: `🔔 **KxAI (proaktywny):**\n${notification.message}${notification.context ? `\n\n📋 ${notification.context}` : ''}`,
-      timestamp: Date.now(),
-      type: 'proactive',
-    });
-    safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
-    safeSend(Ev.AI_PROACTIVE, {
-      type: notification.type,
-      message: notification.message,
-      context: notification.context,
-      ruleId: notification.ruleId,
-    });
-  });
-  proactiveEngine.start();
+  // ── Event-driven triggers — pipe external events to CortexEngine ──
 
-  // Start Reflection Engine — AI-driven periodic reflection and learning
-  reflectionEngine.setProcessingCheck(() => agentLoop.isCurrentlyProcessing?.() ?? false);
-  reflectionEngine.setResultCallback((message) => {
-    memoryService.addMessage({
-      id: `reflection-${Date.now()}`,
-      role: 'assistant',
-      content: `🪞 **KxAI (refleksja):**\n${message}`,
-      timestamp: Date.now(),
-      type: 'proactive',
-    });
-    safeSend(Ev.AGENT_COMPANION_STATE, { hasSuggestion: true });
-    safeSend(Ev.AI_PROACTIVE, {
-      type: 'reflection',
-      message,
-    });
+  // Cron execution events
+  const cronService = container.get('cron');
+  cronService.onJobExecuted((jobName: string, success: boolean) => {
+    cortexEngine.pushEvent(
+      'cron',
+      `Cron "${jobName}" ${success ? 'executed OK' : 'FAILED'}`,
+      success ? 'normal' : 'critical',
+    );
   });
-  reflectionEngine.onAgentStatus = (status) => safeSend(Ev.AGENT_STATUS, status);
-  reflectionEngine.start();
+
+  cortexEngine.start();
+  log.info('CortexEngine started');
 }
 
 function createMainWindow(): BrowserWindow {
@@ -435,12 +399,11 @@ if (gotLock) {
         log.error('Deferred service initialization failed:', err);
       });
 
-      // Auto-restore proactive mode (smart companion) if it was enabled before restart
-      const proactiveSaved = container.get('config').get('proactiveMode');
-      if (proactiveSaved) {
-        log.info('Proactive mode was enabled — auto-starting screen monitor...');
-        startCompanionMonitor(mainWindow);
-        container.get('agentLoop').startHeartbeat(5 * 60 * 1000); // 5 min
+      // Auto-start Cortex Engine if enabled (default: true)
+      const cortexEnabled = container.get('config').get('cortexEnabled');
+      if (cortexEnabled !== false) {
+        log.info('CortexEngine enabled — auto-starting...');
+        startCortexEngine(mainWindow);
       }
 
       // Global shortcut to toggle window
@@ -597,9 +560,9 @@ Bądź pomocny, krótki i konkretny. Mów po polsku.`;
       setupIPC(mainWindow, container.getIPCServices());
       container.get('updater').initialize(mainWindow);
       container.get('mcpClient').setDependencies({ mainWindow });
-      // Re-start companion monitor if proactive mode was active
-      if (container.get('config').get('proactiveMode')) {
-        startCompanionMonitor(mainWindow);
+      // Re-start Cortex Engine if it was enabled
+      if (container.get('config').get('cortexEnabled') !== false) {
+        startCortexEngine(mainWindow);
       }
     }
   });

@@ -400,10 +400,12 @@ export class DiagnosticService {
     const t0 = Date.now();
     try {
       // Send minimal test message — measures actual API round-trip
+      // skipHistory: true — diagnostic messages must NOT appear in conversation
       const response = await this.ai.sendMessage(
         'Odpowiedz jednym słowem: OK',
         undefined,
         'Jesteś systemem diagnostycznym. Odpowiadaj jednym słowem.',
+        { skipHistory: true },
       );
       const latency = Date.now() - t0;
       const gotResponse = response && response.trim().length > 0;

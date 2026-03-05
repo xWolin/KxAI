@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { AgentStatus, IndexProgress } from '../types';
+import type { AgentStatus, IndexProgress, ActionApprovalRequest } from '../types';
 
 interface AgentState {
   /** Current agent processing status */
@@ -14,6 +14,8 @@ interface AgentState {
   ragProgress: IndexProgress | null;
   /** Whether meeting coach is active */
   meetingActive: boolean;
+  /** Pending action approval requests from CortexEngine */
+  pendingActionRequests: ActionApprovalRequest[];
 
   setAgentStatus: (status: AgentStatus) => void;
   setControlActive: (active: boolean) => void;
@@ -21,6 +23,8 @@ interface AgentState {
   setWantsToSpeak: (wants: boolean) => void;
   setRagProgress: (progress: IndexProgress | null) => void;
   setMeetingActive: (active: boolean) => void;
+  addActionRequest: (request: ActionApprovalRequest) => void;
+  removeActionRequest: (requestId: string) => void;
 
   /** Clear companion states (called when user opens chat) */
   clearCompanionStates: () => void;
@@ -33,6 +37,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   wantsToSpeak: false,
   ragProgress: null,
   meetingActive: false,
+  pendingActionRequests: [],
 
   setAgentStatus: (agentStatus) => set({ agentStatus }),
   setControlActive: (controlActive) => set({ controlActive }),
@@ -40,6 +45,11 @@ export const useAgentStore = create<AgentState>((set) => ({
   setWantsToSpeak: (wantsToSpeak) => set({ wantsToSpeak }),
   setRagProgress: (ragProgress) => set({ ragProgress }),
   setMeetingActive: (meetingActive) => set({ meetingActive }),
+  addActionRequest: (request) => set((state) => ({ pendingActionRequests: [...state.pendingActionRequests, request] })),
+  removeActionRequest: (requestId) =>
+    set((state) => ({
+      pendingActionRequests: state.pendingActionRequests.filter((r) => r.requestId !== requestId),
+    })),
 
   clearCompanionStates: () => set({ hasSuggestion: false, wantsToSpeak: false }),
 }));

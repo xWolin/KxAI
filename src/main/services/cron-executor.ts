@@ -38,7 +38,10 @@ export class CronExecutor {
     log.info(`Executing cron job: ${job.name}`);
 
     try {
-      const result = await this.processWithTools(prompt);
+      // skipHistory: true — cron prompts must NOT pollute conversation history.
+      // The AI response is returned to CronService for logging, but never shown
+      // as a user message in chat. Notifications go through send_notification tool.
+      const result = await this.processWithTools(prompt, undefined, { skipHistory: true });
       return result;
     } catch (error: any) {
       log.error(`Cron job "${job.name}" failed:`, error);

@@ -209,6 +209,8 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
   const [ttsOpenaiVoice, setTtsOpenaiVoice] = useState('onyx');
   const [ttsOpenaiModel, setTtsOpenaiModel] = useState('tts-1-hd');
   const [proactiveMode, setProactiveMode] = useState(Boolean(config.proactiveMode));
+  const [cortexEnabled, setCortexEnabled] = useState(config.cortexEnabled !== false);
+  const [cortexIntensity, setCortexIntensity] = useState(config.cortexIntensity || 'balanced');
   const [embeddingModel, setEmbeddingModel] = useState(config.embeddingModel || 'text-embedding-3-small');
   const [useNativeFunctionCalling, setUseNativeFunctionCalling] = useState(config.useNativeFunctionCalling ?? true);
   const [indexedExtensionsInput, setIndexedExtensionsInput] = useState(
@@ -375,8 +377,10 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
     setHasKey(has);
     const hasEl = await window.kxai.hasApiKey('deepgram');
     setHasDeepgramKey(hasEl);
+    // Check dedicated embedding key OR main OpenAI key (EmbeddingService uses it as fallback)
     const hasEmb = await window.kxai.hasApiKey('openai-embeddings');
-    setHasEmbeddingKey(hasEmb);
+    const hasMainOpenAI = await window.kxai.hasApiKey('openai');
+    setHasEmbeddingKey(hasEmb || hasMainOpenAI);
     const hasEL = await window.kxai.hasApiKey('elevenlabs');
     setHasElevenLabsKey(hasEL);
     try {
@@ -418,11 +422,20 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
         agentEmoji,
         proactiveMode,
         proactiveIntervalMs: normalizedInterval * 1000,
+        cortexEnabled,
+        cortexIntensity,
         embeddingModel,
         useNativeFunctionCalling,
         indexedExtensions: parseIndexedExtensions(indexedExtensionsInput),
       });
 
+      // Apply Cortex Engine state
+      await window.kxai.cortexSetEnabled(cortexEnabled);
+      if (cortexEnabled) {
+        await window.kxai.cortexSetIntensity(cortexIntensity);
+      }
+
+      // Legacy proactive mode (for backward compat)
       await window.kxai.setProactiveMode(proactiveMode);
 
       // Save API key if provided
@@ -1018,37 +1031,40 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
               </div>
             </div>
 
-            {/* Engine */}
+            {/* Cortex Engine */}
             <div className={s.section}>
-              <h3 className={s.sectionTitle}>{t('settings.general.engineSection')}</h3>
+              <h3 className={s.sectionTitle}>{t('settings.general.cortexSection')}</h3>
 
               <div className={s.toggleRow}>
                 <div className={s.toggleMeta}>
-                  <div className={s.toggleTitle}>{t('settings.general.proactiveToggle')}</div>
+                  <div className={s.toggleTitle}>{t('settings.general.cortexToggle')}</div>
                   <p className={s.hint}>
-                    {proactiveMode
-                      ? t('settings.general.proactiveEnabledHint')
-                      : t('settings.general.proactiveDisabledHint')}
+                    {cortexEnabled ? t('settings.general.cortexEnabledHint') : t('settings.general.cortexDisabledHint')}
                   </p>
                 </div>
                 <Toggle
-                  checked={proactiveMode}
-                  onChange={setProactiveMode}
-                  aria-label={t('settings.general.proactiveToggle')}
+                  checked={cortexEnabled}
+                  onChange={setCortexEnabled}
+                  aria-label={t('settings.general.cortexToggle')}
                 />
               </div>
 
-              <label className={s.label}>{t('settings.general.proactiveInterval')}</label>
-              <input
-                type="number"
-                className={s.input}
-                value={proactiveInterval}
-                onChange={(e) => setProactiveInterval(Number(e.target.value))}
-                title={t('settings.general.proactiveInterval')}
-                min={5}
-                max={300}
-              />
-              <p className={s.hint}>{t('settings.general.proactiveHint')}</p>
+              {cortexEnabled && (
+                <>
+                  <label className={s.label}>{t('settings.general.cortexIntensity')}</label>
+                  <select
+                    className={s.select}
+                    value={cortexIntensity}
+                    onChange={(e) => setCortexIntensity(e.target.value as any)}
+                    title={t('settings.general.cortexIntensity')}
+                  >
+                    <option value="eco">{t('settings.general.cortexEco')}</option>
+                    <option value="balanced">{t('settings.general.cortexBalanced')}</option>
+                    <option value="performance">{t('settings.general.cortexPerformance')}</option>
+                  </select>
+                  <p className={s.hint}>{t('settings.general.cortexIntensityHint')}</p>
+                </>
+              )}
 
               <div className={s.toggleRow}>
                 <div className={s.toggleMeta}>
@@ -1514,7 +1530,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     <div className={s.statCardLabel}>{t('settings.knowledge.chunksLabel')}</div>
                   </div>
                   <div className={s.statCard}>
-                    <div className={s.statCardValue}>{ragStats.embeddingType}</div>
+                    <div className={s.statCardValue}>{ragStats.embeddingType === 'openai' ? 'OpenAI' : 'TF-IDF'}</div>
                     <div className={s.statCardLabel}>{t('settings.knowledge.embeddingsLabel')}</div>
                   </div>
                 </div>
@@ -1991,13 +2007,13 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                           {entry.requiresSetup && (
                             <span className={s.mcpRequiresSetup}>
                               {entry.setupType === 'oauth-google'
-                                ? 'OAuth Google'
+                                ? t('settings.mcp.setup.oauthGoogle')
                                 : entry.setupType === 'oauth-microsoft'
-                                  ? 'OAuth Microsoft'
+                                  ? t('settings.mcp.setup.oauthMicrosoft')
                                   : entry.setupType === 'manual'
-                                    ? 'Konfiguracja manualna'
+                                    ? t('settings.mcp.setup.manual')
                                     : entry.setupType === 'env'
-                                      ? 'Wymaga klucza API'
+                                      ? t('settings.mcp.setup.apiKeyRequired')
                                       : t('settings.mcp.requiresSetup')}
                             </span>
                           )}

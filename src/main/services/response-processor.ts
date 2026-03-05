@@ -188,18 +188,22 @@ export class ResponseProcessor {
 
   /**
    * Clean AI response for conversation history.
-   * Strips tool blocks, tool outputs, and progress indicators.
+   * Strips tool blocks, tool outputs, bare JSON tool calls, and progress indicators.
    */
   cleanForHistory(response: string): string {
-    return response
-      .replace(/```tool\s*\n[\s\S]*?```/g, '')
-      .replace(/```cron\s*\n[\s\S]*?```/g, '')
-      .replace(/```take_control\s*\n[\s\S]*?```/g, '')
-      .replace(/```update_memory\s*\n[\s\S]*?```/g, '')
-      .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
-      .replace(/⚙️ Wykonuję:.*?\n/g, '')
-      .replace(/[✅❌] [^:]+:.*?\n/g, '')
-      .trim();
+    return (
+      response
+        .replace(/```tool\s*\n[\s\S]*?```/g, '')
+        .replace(/```cron\s*\n[\s\S]*?```/g, '')
+        .replace(/```take_control\s*\n[\s\S]*?```/g, '')
+        .replace(/```update_memory\s*\n[\s\S]*?```/g, '')
+        .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
+        .replace(/⚙️ Wykonuję:.*?\n/g, '')
+        .replace(/[✅❌] [^:]+:.*?\n/g, '')
+        // Strip bare JSON tool calls that model sometimes generates without fences
+        .replace(/\{"tool"\s*:\s*"[^"]+"\s*,\s*"params"\s*:\s*\{[^}]*\}\s*\}/g, '')
+        .trim()
+    );
   }
 
   /**

@@ -16,6 +16,7 @@
 import { randomUUID } from 'crypto';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import * as os from 'os';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
@@ -1081,10 +1082,15 @@ export class McpClientService {
     } catch (err: any) {
       log.error(`MCP tool call failed: ${conn.config.name}/${toolName}: ${err.message}`);
 
-      // If connection lost, mark as error
+      // If connection lost, mark as error and unregister tools to prevent
+      // repeated -32000 errors from the agent trying to use dead tools
       if (err.message?.includes('closed') || err.message?.includes('ECONNREFUSED')) {
         conn.status = 'error';
         conn.error = 'Connection lost';
+        if (this.toolsService) {
+          this.toolsService.unregisterByPrefix(`mcp_${conn.config.name.toLowerCase().replace(/[^a-z0-9]/g, '_')}_`);
+          log.info(`[MCP:${conn.config.name}] Unregistered tools after connection loss`);
+        }
         this.pushStatus();
       }
 
@@ -1443,15 +1449,24 @@ export class McpClientService {
       //    that cannot be spawned directly by child_process.spawn()
       // 2. env: merge process.env with server-specific env vars
       //    (without ...process.env the child gets NO env → can't find node/npm)
-      // 3. cwd: use app's home directory to avoid path issues with spaces
+      // 3. cwd: user's home directory — CRITICAL: in packaged Electron apps,
+      //    the default cwd is inside app.asar (read-only). npx needs a writable
+      //    directory to cache downloaded packages.
       const isWindows = process.platform === 'win32';
       const mergedEnv = { ...process.env, ...config.env } as Record<string, string>;
 
-      // On Windows, ensure npx resolves correctly by using shell mode
+      // Use user's home directory as cwd to avoid ASAR/read-only filesystem issues
+      const safeCwd = os.homedir();
+
       const spawnOpts: Record<string, unknown> = {
         env: mergedEnv,
         shell: isWindows,
+        cwd: safeCwd,
       };
+
+      log.info(
+        `[MCP:${config.name}] Spawning: ${config.command} ${(config.args || []).join(' ')} (cwd=${safeCwd}, shell=${isWindows})`,
+      );
 
       const transport = new StdioClientTransport({
         command: config.command,
@@ -1464,23 +1479,52 @@ export class McpClientService {
         log.error(`[MCP:${config.name}] Transport error:`, err.message || err);
       };
 
+      // Capture stderr from child process for better diagnostics
+      // StdioClientTransport exposes the child process after start()
+      const origStart = transport.start.bind(transport);
+      transport.start = async function (...args: Parameters<typeof transport.start>) {
+        const result = await origStart(...args);
+        // Access the internal child process stderr if available
+        const proc = (transport as any)._process;
+        if (proc?.stderr) {
+          proc.stderr.on('data', (data: Buffer) => {
+            const text = data.toString().trim();
+            if (text) {
+              log.warn(`[MCP:${config.name}] stderr: ${text.slice(0, 500)}`);
+            }
+          });
+        }
+        return result;
+      };
+
       // Log when the stdio transport closes (child process exit)
       transport.onclose = () => {
         log.warn(`[MCP:${config.name}] Transport closed (child process exited)`);
-        // Update connection status
         const conn = this.connections.get(config.id);
         if (conn && conn.status === 'connected') {
           conn.status = 'error';
           conn.error = 'Process exited unexpectedly';
           this.pushStatus();
+
+          // Auto-reconnect after 5 seconds (one attempt only)
+          setTimeout(async () => {
+            log.info(`[MCP:${config.name}] Attempting auto-reconnect...`);
+            try {
+              await this.reconnect(config.id);
+              log.info(`[MCP:${config.name}] Auto-reconnect succeeded`);
+            } catch (err: any) {
+              log.error(`[MCP:${config.name}] Auto-reconnect failed:`, err.message);
+            }
+          }, 5000);
         }
       };
 
       // Race connect against a timeout — stdio has no built-in timeout
       // and npx may hang downloading packages or waiting for auth
       const connectPromise = client.connect(transport);
-      const timeoutPromise = new Promise<never>((_, reject) =>
-        setTimeout(
+      let timeoutId: ReturnType<typeof setTimeout>;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(
           () =>
             reject(
               new Error(
@@ -1488,12 +1532,14 @@ export class McpClientService {
               ),
             ),
           stdioTimeout,
-        ),
-      );
+        );
+      });
 
       try {
         await Promise.race([connectPromise, timeoutPromise]);
+        clearTimeout(timeoutId!);
       } catch (err) {
+        clearTimeout(timeoutId!);
         // Clean up the transport on timeout
         try {
           await transport.close();

@@ -48,6 +48,7 @@ import { WorkflowAutomator } from './workflow-automator';
 import { ReflectionEngine } from './reflection-engine';
 import { PromptService } from './prompt-service';
 import { ResponseProcessor } from './response-processor';
+import { CortexEngine } from './cortex-engine';
 
 const log = createLogger('Container');
 
@@ -87,6 +88,7 @@ export interface ServiceMap {
   proactiveEngine: ProactiveEngine;
   workflowAutomator: WorkflowAutomator;
   reflectionEngine: ReflectionEngine;
+  cortexEngine: CortexEngine;
 }
 
 export type ServiceKey = keyof ServiceMap;
@@ -124,6 +126,8 @@ export interface IPCServices {
   proactiveEngine: ProactiveEngine;
   workflowAutomator: WorkflowAutomator;
   reflectionEngine: ReflectionEngine;
+  embeddingService: EmbeddingService;
+  cortexEngine: CortexEngine;
 }
 
 export class ServiceContainer {
@@ -256,6 +260,9 @@ export class ServiceContainer {
     p = phase('Phase 5 — Wiring');
     ai.setMemoryService(memory);
 
+    // Workflow → SQLite backend
+    workflow.setDatabase(database);
+
     tools.setServices({
       automation,
       browser,
@@ -308,6 +315,27 @@ export class ServiceContainer {
     reflectionEngine.setCalendarService(calendar);
     reflectionEngine.setKnowledgeGraphService(knowledgeGraph);
     this.set('reflectionEngine', reflectionEngine);
+
+    // CortexEngine — unified autonomous brain (rules + think + reflection)
+    const promptService2 = promptService; // reuse same instance
+    const responseProcessor2 = responseProcessor;
+    const cortexEngine = new CortexEngine({
+      ai,
+      memory,
+      workflow,
+      cron,
+      tools,
+      promptService: promptService2,
+      responseProcessor: responseProcessor2,
+      config,
+      securityGuard,
+    });
+    cortexEngine.setCalendarService(calendar);
+    cortexEngine.setSystemMonitor(systemMonitor);
+    cortexEngine.setKnowledgeGraphService(knowledgeGraph);
+    cortexEngine.setMcpClient(mcpClient);
+    cortexEngine.setScreenMonitor(screenMonitor);
+    this.set('cortexEngine', cortexEngine);
 
     // Agent loop — central orchestrator
     const agentLoop = new AgentLoop(ai, tools, cron, workflow, memory, config);
@@ -476,6 +504,7 @@ export class ServiceContainer {
     this.trySync('knowledgeGraph', (s) => s.shutdown());
     this.trySync('proactiveEngine', (s) => s.stop());
     this.trySync('reflectionEngine', (s) => s.stop());
+    this.trySync('cortexEngine', (s) => s.stop());
 
     // ── Phase 2: Close network connections ──
     await this.tryAsync('calendar', (s) => s.shutdown());
@@ -540,6 +569,8 @@ export class ServiceContainer {
       proactiveEngine: this.get('proactiveEngine'),
       workflowAutomator: this.get('workflowAutomator'),
       reflectionEngine: this.get('reflectionEngine'),
+      embeddingService: this.get('embedding'),
+      cortexEngine: this.get('cortexEngine'),
     };
   }
 
