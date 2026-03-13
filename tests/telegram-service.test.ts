@@ -104,6 +104,46 @@ describe('TelegramService', () => {
       await service.initialize();
       expect(startSpy).toHaveBeenCalled();
     });
+
+    it('should retry auto-start if it fails and cancel on stop', async () => {
+      vi.useFakeTimers();
+      deps.config.get.mockImplementation((key) => {
+        if (key === 'telegramAutoStart') return true;
+        return null;
+      });
+      
+      // Force start() to fail initially
+      vi.spyOn(service, 'start').mockResolvedValueOnce({ success: false, error: 'Network error' });
+      
+      await service.initialize();
+      
+      // Timer should be set
+      expect((service as any).retryTimer).not.toBeNull();
+      
+      // Cancel by stopping
+      await service.stop();
+      expect((service as any).retryTimer).toBeNull();
+      
+      vi.useRealTimers();
+    });
+
+    it('should cancel retry timer on shutdown', async () => {
+      vi.useFakeTimers();
+      deps.config.get.mockImplementation((key) => {
+        if (key === 'telegramAutoStart') return true;
+        return null;
+      });
+      
+      vi.spyOn(service, 'start').mockResolvedValueOnce({ success: false, error: 'Network error' });
+      
+      await service.initialize();
+      expect((service as any).retryTimer).not.toBeNull();
+      
+      service.shutdown();
+      expect((service as any).retryTimer).toBeNull();
+      
+      vi.useRealTimers();
+    });
   });
 
   describe('authorization', () => {
