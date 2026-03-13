@@ -202,10 +202,10 @@ export class AgentLoop {
     const startStr = this.config.get('cortexActiveHoursStart') as string;
     const endStr = this.config.get('cortexActiveHoursEnd') as string;
     if (startStr && endStr) {
-      const startH = parseInt(startStr.split(':')[0], 10);
-      const endH = parseInt(endStr.split(':')[0], 10);
+      const [startH, startM] = startStr.split(':').map(Number);
+      const [endH, endM] = endStr.split(':').map(Number);
       if (!isNaN(startH) && !isNaN(endH)) {
-        this.setActiveHours(startH, endH);
+        this.setActiveHours(startH * 60 + (startM || 0), endH * 60 + (endM || 0));
       }
     } else {
       this.setActiveHours(null, null);
@@ -362,13 +362,14 @@ export class AgentLoop {
    */
   private isWithinActiveHours(): boolean {
     if (!this.activeHours) return true;
-    const hour = new Date().getHours();
+    const now = new Date();
+    const current = now.getHours() * 60 + now.getMinutes();
     const { start, end } = this.activeHours;
     if (start <= end) {
-      return hour >= start && hour < end;
+      return current >= start && current < end;
     }
     // Wraps midnight (e.g., 22:00-06:00)
-    return hour >= start || hour < end;
+    return current >= start || current < end;
   }
 
   /**
@@ -487,7 +488,7 @@ export class AgentLoop {
     const detector = new ToolLoopDetector();
 
     // Hard iteration cap to prevent runaway loops (safety net)
-    const MAX_ITERATIONS = 100;
+    const MAX_ITERATIONS = 50;
     let iterations = 0;
 
     // Multi-step tool loop with intelligent loop detection
@@ -923,7 +924,7 @@ export class AgentLoop {
 
     // Tool loop — execute tools and continue conversation
     const detector = new ToolLoopDetector();
-    const MAX_ITERATIONS = 100;
+    const MAX_ITERATIONS = 50;
     let iterations = 0;
     let loopDetected = false;
 

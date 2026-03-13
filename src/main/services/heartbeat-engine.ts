@@ -161,12 +161,13 @@ export class HeartbeatEngine {
 
   isWithinActiveHours(): boolean {
     if (!this.activeHours) return true;
-    const hour = new Date().getHours();
+    const now = new Date();
+    const current = now.getHours() * 60 + now.getMinutes();
     const { start, end } = this.activeHours;
     if (start <= end) {
-      return hour >= start && hour < end;
+      return current >= start && current < end;
     }
-    return hour >= start || hour < end;
+    return current >= start || current < end;
   }
 
   // ─── Main Heartbeat ───

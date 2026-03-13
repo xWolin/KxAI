@@ -573,8 +573,14 @@ ${conversationText.slice(0, 40000)}`;
 
     // Active hours info
     if (modules.loadActiveHours && this.activeHours) {
+      const formatTime = (m: number) =>
+        `${Math.floor(m / 60)
+          .toString()
+          .padStart(2, '0')}:${(m % 60).toString().padStart(2, '0')}`;
       parts.push(
-        `\n## ⏰ Godziny aktywności\nHeartbeat aktywny: ${this.activeHours.start}:00-${this.activeHours.end}:00\n`,
+        `\n## ⏰ Godziny aktywności\nHeartbeat aktywny: ${formatTime(this.activeHours.start)}-${formatTime(
+          this.activeHours.end,
+        )}\n`,
       );
     }
 
