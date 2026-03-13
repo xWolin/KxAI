@@ -1993,6 +1993,24 @@ Zapisz to podsumowanie do pamięci używając:
       .sort((a, b) => b.count - a.count);
   }
 
+  private parseProposals(response: string): CortexProposal[] {
+    const matches = response.matchAll(/```proposal\s*\n([\s\S]*?)\n```/g);
+    const proposals: CortexProposal[] = [];
+    for (const match of matches) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        // Ensure id exists
+        if (!parsed.id) {
+          parsed.id = `prop_${Date.now()}_${proposals.length}`;
+        }
+        proposals.push(parsed);
+      } catch {
+        log.warn('Failed to parse proposal block from response');
+      }
+    }
+    return proposals;
+  }
+
   private parseInsights(response: string): string[] {
     const insights: string[] = [];
     const lines = response.split('\n');
@@ -2137,12 +2155,12 @@ function createBuiltinRules(): ProactiveRule[] {
 
       shouldFire(ctx: ProactiveContext): boolean {
         if (!ctx.systemSnapshot) return false;
-        return ctx.systemSnapshot.cpu.load > 90 || ctx.systemSnapshot.memory.percent > 90;
+        return ctx.systemSnapshot.cpu.usagePercent > 90 || ctx.systemSnapshot.memory.usagePercent > 90;
       },
 
       generate(ctx: ProactiveContext) {
-        const cpu = ctx.systemSnapshot?.cpu.load || 0;
-        const mem = ctx.systemSnapshot?.memory.percent || 0;
+        const cpu = ctx.systemSnapshot?.cpu.usagePercent || 0;
+        const mem = ctx.systemSnapshot?.memory.usagePercent || 0;
         const reason = cpu > 90 ? `CPU (${cpu.toFixed(0)}%)` : `pamięci (${mem.toFixed(0)}%)`;
         return {
           type: 'alert',
