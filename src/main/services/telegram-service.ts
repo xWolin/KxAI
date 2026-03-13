@@ -75,11 +75,25 @@ export class TelegramService {
     if (this.autoStart) {
       const hasToken = await this.deps.security.hasApiKey(TOKEN_KEY);
       if (hasToken) {
-        log.info('Auto-starting polling...');
-        const result = await this.start();
-        if (!result.success) {
-          log.warn(`Auto-start failed: ${result.error}`);
-        }
+        log.info('Auto-starting polling in background...');
+        // Run with retry logic so it doesn't fail permanently on boot (e.g. no network)
+        this.autoStartWithRetry();
+      }
+    }
+  }
+
+  private async autoStartWithRetry(attempts = 0): Promise<void> {
+    if (!this.autoStart) return; // cancelled
+
+    const result = await this.start();
+    if (!result.success) {
+      log.warn(`Auto-start attempt ${attempts + 1} failed: ${result.error}`);
+      if (attempts < 5) {
+        const delayMs = Math.min(5000 * Math.pow(2, attempts), 60000); // 5s, 10s, 20s, 40s, 60s
+        log.info(`Retrying auto-start in ${delayMs / 1000}s...`);
+        setTimeout(() => this.autoStartWithRetry(attempts + 1), delayMs);
+      } else {
+        log.error('Auto-start failed after 5 retries. Network might be down or token is invalid.');
       }
     }
   }
@@ -133,6 +147,11 @@ export class TelegramService {
       this.botUsername = me.username;
       await this.deps.security.setApiKey(TOKEN_KEY, token);
       log.info(`Bot token saved: @${me.username}`);
+      // Auto-enable auto-start on first successful token setup so the bot
+      // reconnects automatically after every app restart without user action.
+      if (!this.autoStart) {
+        this.setAutoStart(true);
+      }
       this.emitStatus();
       return { success: true, botUsername: me.username };
     } catch (err: any) {
