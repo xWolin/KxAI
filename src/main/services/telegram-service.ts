@@ -45,6 +45,7 @@ export class TelegramService {
   private allowedUsernames: string[] = [];
   private denyByDefault = true;
   private autoStart = false;
+  private retryTimer: NodeJS.Timeout | null = null;
   private processingChats = new Set<number>();
 
   // Callback to push events to renderer
@@ -91,7 +92,10 @@ export class TelegramService {
       if (attempts < 5) {
         const delayMs = Math.min(5000 * Math.pow(2, attempts), 60000); // 5s, 10s, 20s, 40s, 60s
         log.info(`Retrying auto-start in ${delayMs / 1000}s...`);
-        setTimeout(() => this.autoStartWithRetry(attempts + 1), delayMs);
+        this.retryTimer = setTimeout(() => {
+          this.retryTimer = null;
+          this.autoStartWithRetry(attempts + 1);
+        }, delayMs);
       } else {
         log.error('Auto-start failed after 5 retries. Network might be down or token is invalid.');
       }
@@ -252,6 +256,11 @@ export class TelegramService {
    * Stop long polling.
    */
   async stop(): Promise<void> {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+      log.info('Auto-start retry timer cancelled');
+    }
     if (!this.polling) return;
     this.polling = false;
     this.pollAbort?.abort();
@@ -293,6 +302,10 @@ export class TelegramService {
   }
 
   shutdown(): void {
+    if (this.retryTimer) {
+      clearTimeout(this.retryTimer);
+      this.retryTimer = null;
+    }
     this.polling = false;
     this.pollAbort?.abort();
     this.pollAbort = null;
