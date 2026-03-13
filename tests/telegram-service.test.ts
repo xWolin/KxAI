@@ -261,6 +261,56 @@ describe('TelegramService', () => {
       expect(result.botUsername).toBe('my_bot');
       expect(deps.security.setApiKey).toHaveBeenCalledWith('telegram-bot-token', expect.any(String));
     });
+
+    it('should auto-enable autoStart on first successful token setup', async () => {
+      mockTelegramApi([{ ok: true, result: { username: 'my_bot' } }]);
+      const result = await service.setToken('123456:ABC-DEF1234ghIkl-zyx57W2v1u123456789');
+      expect(result.success).toBe(true);
+      expect(deps.config.set).toHaveBeenCalledWith('telegramAutoStart', true);
+      expect(service.getStatus().autoStart).toBe(true);
+    });
+
+    it('should not change autoStart if it is already enabled', async () => {
+      (service as any).autoStart = true;
+      mockTelegramApi([{ ok: true, result: { username: 'my_bot' } }]);
+      await service.setToken('123456:ABC-DEF1234ghIkl-zyx57W2v1u123456789');
+      const autoStartCalls = (deps.config.set as any).mock.calls.filter(
+        (c: [string, unknown]) => c[0] === 'telegramAutoStart',
+      );
+      expect(autoStartCalls).toHaveLength(0);
+    });
+  });
+
+  describe('retry timer cleanup', () => {
+    it('should cancel pending retry timer when stop() is called', async () => {
+      vi.useFakeTimers();
+      (service as any).autoStart = true;
+      vi.spyOn(service, 'start').mockResolvedValue({ success: false, error: 'Network error' });
+
+      await (service as any).autoStartWithRetry();
+
+      expect((service as any).retryTimer).not.toBeNull();
+
+      await service.stop();
+      expect((service as any).retryTimer).toBeNull();
+
+      vi.useRealTimers();
+    });
+
+    it('should cancel pending retry timer when shutdown() is called', async () => {
+      vi.useFakeTimers();
+      (service as any).autoStart = true;
+      vi.spyOn(service, 'start').mockResolvedValue({ success: false, error: 'Network error' });
+
+      await (service as any).autoStartWithRetry();
+
+      expect((service as any).retryTimer).not.toBeNull();
+
+      service.shutdown();
+      expect((service as any).retryTimer).toBeNull();
+
+      vi.useRealTimers();
+    });
   });
 
   describe('concurrent processing', () => {
