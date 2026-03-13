@@ -149,11 +149,14 @@ describe('TelegramService', () => {
       (https.request as any).mockReturnValue(mockReq);
 
       const promise = (service as any).apiCall('token', 'getMe');
-      mockReq.emit('timeout');
+      // @ts-ignore
+      const timeoutHandler = vi.getTimerByFunctionName('setTimeout');
+      vi.runAllTimers();
       await expect(promise).rejects.toThrow('Telegram API timeout');
     });
 
     it('should handle invalid JSON from API', async () => {
+      vi.useRealTimers();
       (https.request as any).mockImplementation((url: string, options: any, callback: any) => {
         const mockReq = new EventEmitter() as any;
         mockReq.write = vi.fn();
@@ -170,6 +173,65 @@ describe('TelegramService', () => {
 
       const promise = (service as any).apiCall('token', 'getMe');
       await expect(promise).rejects.toThrow('Invalid JSON response');
+    });
+
+    it('should retry sendMessage without Markdown if it fails', async () => {
+      vi.useRealTimers();
+      let attempt = 0;
+      (https.request as any).mockImplementation((url: string, options: any, callback: any) => {
+        const mockReq = new EventEmitter() as any;
+        mockReq.write = vi.fn();
+        mockReq.end = vi.fn();
+        
+        setImmediate(() => {
+          const mockRes = new EventEmitter() as any;
+          if (callback) callback(mockRes);
+          
+          if (attempt === 0) {
+            attempt++;
+            mockRes.emit('data', JSON.stringify({ ok: false, description: 'Markdown error' }));
+          } else {
+            mockRes.emit('data', JSON.stringify({ ok: true, result: {} }));
+          }
+          mockRes.emit('end');
+        });
+        return mockReq;
+      });
+
+      const success = await service.sendMessage(123, 'test');
+      expect(success).toBe(true);
+      expect(attempt).toBe(1);
+    });
+  });
+
+  describe('setToken', () => {
+    it('should validate token format', async () => {
+      const result = await service.setToken('invalid');
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('Invalid bot token format');
+    });
+
+    it('should save token and username on success', async () => {
+      mockTelegramApi([{ ok: true, result: { username: 'my_bot' } }]);
+      const result = await service.setToken('123456:ABC-DEF1234ghIkl-zyx57W2v1u123456789');
+      expect(result.success).toBe(true);
+      expect(result.botUsername).toBe('my_bot');
+      expect(deps.security.setApiKey).toHaveBeenCalledWith('telegram-bot-token', expect.any(String));
+    });
+  });
+
+  describe('concurrent processing', () => {
+    it('should skip message if chat is already processing', async () => {
+      (service as any).processingChats.add(123);
+      mockTelegramApi([{ ok: true, result: {} }]); // "wait" message
+
+      await (service as any).handleMessage('token', {
+        chat: { id: 123 },
+        text: 'hello',
+        from: { first_name: 'User' }
+      });
+
+      expect(deps.agentLoop.processWithTools).not.toHaveBeenCalled();
     });
   });
 });

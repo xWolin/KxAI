@@ -96,7 +96,7 @@ export class TelegramService {
     return {
       status: this.status,
       botUsername: this.botUsername,
-      hasToken: false, // will be updated async
+      hasToken: !!(this as any).cachedHasToken, // use cached value if available
       allowedChatIds: [...this.allowedChatIds],
       allowedUsernames: [...this.allowedUsernames],
       denyByDefault: this.denyByDefault,
@@ -109,6 +109,7 @@ export class TelegramService {
 
   async getStatusAsync(): Promise<TelegramStatus> {
     const hasToken = this.deps ? await this.deps.security.hasApiKey(TOKEN_KEY) : false;
+    (this as any).cachedHasToken = hasToken;
     return {
       ...this.getStatus(),
       hasToken,
@@ -157,7 +158,7 @@ export class TelegramService {
   setAllowedChatIds(chatIds: number[]): void {
     this.allowedChatIds = chatIds;
     if (this.deps) {
-      void this.deps.config.set('telegramAllowedChatIds', chatIds.length > 0 ? chatIds : undefined);
+      void this.deps.config.set('telegramAllowedChatIds', chatIds);
     }
     this.emitStatus();
   }
@@ -168,10 +169,7 @@ export class TelegramService {
   setAllowedUsernames(usernames: string[]): void {
     this.allowedUsernames = usernames.map((u) => u.replace(/^@/, '').toLowerCase());
     if (this.deps) {
-      void this.deps.config.set(
-        'telegramAllowedUsernames',
-        this.allowedUsernames.length > 0 ? this.allowedUsernames : undefined,
-      );
+      void this.deps.config.set('telegramAllowedUsernames', this.allowedUsernames);
     }
     this.emitStatus();
   }
@@ -491,6 +489,11 @@ export class TelegramService {
       const postData = body ? JSON.stringify(body) : undefined;
       const url = `${BOT_API}/bot${token}/${method}`;
 
+      const timeout = setTimeout(() => {
+        req.destroy();
+        reject(new Error(`Telegram API timeout: ${method}`));
+      }, timeoutMs);
+
       const req = https.request(
         url,
         {
@@ -499,13 +502,13 @@ export class TelegramService {
             'Content-Type': 'application/json',
             ...(postData ? { 'Content-Length': Buffer.byteLength(postData) } : {}),
           },
-          timeout: timeoutMs,
           signal: this.pollAbort?.signal,
         },
         (res) => {
           let data = '';
           res.on('data', (chunk) => (data += chunk));
           res.on('end', () => {
+            clearTimeout(timeout);
             try {
               const parsed = JSON.parse(data);
               if (parsed.ok) {
@@ -521,16 +524,12 @@ export class TelegramService {
       );
 
       req.on('error', (err: any) => {
+        clearTimeout(timeout);
         if (err.name === 'AbortError' || err.code === 'ABORT_ERR') {
           reject(new Error('Request aborted'));
         } else {
           reject(err);
         }
-      });
-
-      req.on('timeout', () => {
-        req.destroy();
-        reject(new Error(`Telegram API timeout: ${method}`));
       });
 
       if (postData) {
