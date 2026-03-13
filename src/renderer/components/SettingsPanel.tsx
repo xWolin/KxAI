@@ -232,10 +232,10 @@ function TelegramTab() {
         setToken('');
         await loadStatus();
       } else {
-        setMessage(`❌ ${result.error}`);
+        setMessage(t('settings.common.error', { message: result.error || 'Unknown error' }));
       }
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     } finally {
       setLoading(false);
     }
@@ -248,7 +248,7 @@ function TelegramTab() {
       setMessage(t('settings.telegram.tokenRemoved'));
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     } finally {
       setLoading(false);
     }
@@ -262,11 +262,11 @@ function TelegramTab() {
       if (result.success) {
         setMessage(`✅ ${t('settings.telegram.pollingStarted')}`);
       } else {
-        setMessage(`❌ ${result.error}`);
+        setMessage(t('settings.common.error', { message: result.error || 'Unknown error' }));
       }
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     } finally {
       setLoading(false);
     }
@@ -279,7 +279,7 @@ function TelegramTab() {
       setMessage(t('settings.telegram.pollingStopped'));
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     } finally {
       setLoading(false);
     }
@@ -297,7 +297,7 @@ function TelegramTab() {
       setMessage(`✅ ${t('settings.telegram.chatsSaved')}`);
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     }
   }
 
@@ -311,7 +311,7 @@ function TelegramTab() {
       setMessage(`✅ ${t('settings.telegram.usernamesSaved')}`);
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     }
   }
 
@@ -321,17 +321,17 @@ function TelegramTab() {
       await window.kxai.telegramSetDenyByDefault(newVal);
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     }
   }
 
   async function handleSaveAutoStart() {
     try {
       await window.kxai.telegramSetAutoStart(autoStartLocal);
-      setMessage(`✅ Zapisano`);
+      setMessage(t('settings.common.saved'));
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     }
   }
 
