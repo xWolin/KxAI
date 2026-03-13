@@ -217,7 +217,7 @@ function createMainWindow(): BrowserWindow {
         'Content-Security-Policy': [
           isDev
             ? "default-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws://localhost:* http://localhost:* https://*.openai.com https://*.anthropic.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:;"
-            : "default-src 'self' 'unsafe-inline'; connect-src 'self' https://*.openai.com https://*.anthropic.com wss://*.deepgram.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:;",
+            : "default-src 'self' 'unsafe-inline'; connect-src 'self' https://*.openai.com https://*.anthropic.com wss://*.deepgram.com; img-src 'self' data: blob:; media-src 'self' blob: mediastream:; worker-src blob: 'self'; script-src 'self' 'unsafe-inline' blob:;",
         ],
       },
     });
