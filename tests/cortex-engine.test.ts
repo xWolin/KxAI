@@ -406,7 +406,7 @@ describe('getStatus', () => {
     engine.start();
 
     const status = engine.getStatus();
-    expect(status.activeHours).toEqual({ start: '9:00', end: '18:00' });
+    expect(status.activeHours).toEqual({ start: '09:00', end: '18:00' });
     engine.stop();
     vi.useRealTimers();
   });

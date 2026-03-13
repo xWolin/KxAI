@@ -601,12 +601,17 @@ export class CortexEngine {
    * Get full status for IPC/UI.
    */
   getStatus(): CortexStatus {
+    const formatTime = (m: number) =>
+      `${Math.floor(m / 60)
+        .toString()
+        .padStart(2, '0')}:${(m % 60).toString().padStart(2, '0')}`;
+
     return {
       enabled: this.enabled,
       intensity: this.intensity,
       screenMode: this.screenMode,
       activeHours: this.activeHours
-        ? { start: `${this.activeHours.start}:00`, end: `${this.activeHours.end}:00` }
+        ? { start: formatTime(this.activeHours.start), end: formatTime(this.activeHours.end) }
         : null,
       isAfk: this.isAfk,
       lastThinkAt: this.lastThinkAt,
