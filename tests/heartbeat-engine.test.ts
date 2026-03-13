@@ -90,13 +90,13 @@ describe('HeartbeatEngine', () => {
     });
 
     it('setActiveHours should set active hours range', () => {
-      engine.setActiveHours(9, 17);
+      engine.setActiveHours(9 * 60, 17 * 60);
       // During business hours: isWithinActiveHours depends on current time
       expect(engine.isWithinActiveHours).toBeDefined();
     });
 
     it('setActiveHours with nulls should clear restriction', () => {
-      engine.setActiveHours(9, 17);
+      engine.setActiveHours(9 * 60, 17 * 60);
       engine.setActiveHours(null, null);
       expect(engine.isWithinActiveHours()).toBe(true); // No restriction
     });
@@ -188,17 +188,19 @@ describe('HeartbeatEngine', () => {
     });
 
     it('should check normal range (e.g. 9-17)', () => {
-      engine.setActiveHours(9, 17);
-      const hour = new Date().getHours();
-      const expected = hour >= 9 && hour < 17;
+      engine.setActiveHours(9 * 60, 17 * 60);
+      const now = new Date();
+      const current = now.getHours() * 60 + now.getMinutes();
+      const expected = current >= 9 * 60 && current < 17 * 60;
       expect(engine.isWithinActiveHours()).toBe(expected);
     });
 
     it('should handle wrap-around range (e.g. 22-6)', () => {
-      engine.setActiveHours(22, 6);
-      const hour = new Date().getHours();
-      // For wrap-around: hour >= 22 OR hour < 6
-      const expected = hour >= 22 || hour < 6;
+      engine.setActiveHours(22 * 60, 6 * 60);
+      const now = new Date();
+      const current = now.getHours() * 60 + now.getMinutes();
+      // For wrap-around: current >= 22*60 OR current < 6*60
+      const expected = current >= 22 * 60 || current < 6 * 60;
       expect(engine.isWithinActiveHours()).toBe(expected);
     });
   });

@@ -213,8 +213,8 @@ describe('setActiveHours', () => {
   it('evaluate returns null outside active hours', async () => {
     const engine = createEngine();
     // Set active hours to 1:00–2:00 — current time is unlikely to be in range
-    engine.setActiveHours(1, 2);
-    // Only null if current hour not in 1-2 range
+    engine.setActiveHours(1 * 60, 2 * 60);
+    // Only null if current time not in 1-2 range
     const result = await engine.evaluate();
     // We can't predict the current time, so just verify it doesn't throw
     expect(result === null || result !== null).toBe(true);
@@ -222,7 +222,7 @@ describe('setActiveHours', () => {
 
   it('clears active hours with nulls', () => {
     const engine = createEngine();
-    engine.setActiveHours(9, 17);
+    engine.setActiveHours(9 * 60, 17 * 60);
     engine.setActiveHours(null, null);
     // Should not restrict — evaluate runs fine
     expect(() => engine.setActiveHours(null, null)).not.toThrow();

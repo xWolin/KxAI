@@ -500,9 +500,10 @@ export class ProactiveEngine {
   // ─── Helpers ───
 
   private loadActiveHours(): void {
-    const startStr = this.config.get('cortexActiveHoursStart') as string;
-    const endStr = this.config.get('cortexActiveHoursEnd') as string;
-    if (startStr && endStr) {
+    const startStr = this.config.get('cortexActiveHoursStart');
+    const endStr = this.config.get('cortexActiveHoursEnd');
+
+    if (typeof startStr === 'string' && typeof endStr === 'string' && startStr.includes(':') && endStr.includes(':')) {
       const [startH, startM] = startStr.split(':').map(Number);
       const [endH, endM] = endStr.split(':').map(Number);
       if (!isNaN(startH) && !isNaN(endH)) {
