@@ -142,6 +142,7 @@ describe('TelegramService', () => {
 
   describe('stability & error handling', () => {
     it('should handle API timeout', async () => {
+      vi.useFakeTimers();
       const mockReq = new EventEmitter() as any;
       mockReq.write = vi.fn();
       mockReq.end = vi.fn();
@@ -149,10 +150,12 @@ describe('TelegramService', () => {
       (https.request as any).mockReturnValue(mockReq);
 
       const promise = (service as any).apiCall('token', 'getMe');
-      // @ts-ignore
-      const timeoutHandler = vi.getTimerByFunctionName('setTimeout');
-      vi.runAllTimers();
+      
+      // Advance timers to trigger the timeout
+      vi.advanceTimersByTime(16000);
+      
       await expect(promise).rejects.toThrow('Telegram API timeout');
+      vi.useRealTimers();
     });
 
     it('should handle invalid JSON from API', async () => {
