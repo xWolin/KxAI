@@ -46,6 +46,7 @@ export class TelegramService {
   private denyByDefault = true;
   private autoStart = false;
   private retryTimer: NodeJS.Timeout | null = null;
+  private retryGeneration = 0;
   private processingChats = new Set<number>();
 
   // Callback to push events to renderer
@@ -74,31 +75,44 @@ export class TelegramService {
     );
 
     if (this.autoStart) {
-      const hasToken = await this.deps.security.hasApiKey(TOKEN_KEY);
-      if (hasToken) {
+      const token = await this.deps.security.getApiKey(TOKEN_KEY);
+      if (token) {
         log.info('Auto-starting polling in background...');
-        // Run with retry logic so it doesn't fail permanently on boot (e.g. no network)
-        this.autoStartWithRetry();
+        const generation = ++this.retryGeneration;
+        void this.autoStartWithRetry(0, generation);
       }
     }
   }
 
-  private async autoStartWithRetry(attempts = 0): Promise<void> {
-    if (!this.autoStart) return; // cancelled
+  private async autoStartWithRetry(attempts = 0, generation = this.retryGeneration): Promise<void> {
+    if (!this.autoStart || generation !== this.retryGeneration) return;
 
-    const result = await this.start();
-    if (!result.success) {
-      log.warn(`Auto-start attempt ${attempts + 1} failed: ${result.error}`);
-      if (attempts < 5) {
-        const delayMs = Math.min(5000 * Math.pow(2, attempts), 60000); // 5s, 10s, 20s, 40s, 60s
-        log.info(`Retrying auto-start in ${delayMs / 1000}s...`);
-        this.retryTimer = setTimeout(() => {
-          this.retryTimer = null;
-          this.autoStartWithRetry(attempts + 1);
-        }, delayMs);
-      } else {
-        log.error('Auto-start failed after 5 retries. Network might be down or token is invalid.');
+    try {
+      const result = await this.start();
+
+      // Check again after await — stop()/shutdown() may have been called while start() was in-flight
+      if (!this.autoStart || generation !== this.retryGeneration) {
+        if (this.polling) await this.stop();
+        return;
       }
+
+      if (!result.success) {
+        log.warn(`Auto-start attempt ${attempts + 1} failed: ${result.error}`);
+        if (attempts < 5) {
+          const delayMs = Math.min(5000 * Math.pow(2, attempts), 60000); // 5s, 10s, 20s, 40s, 60s
+          log.info(`Retrying auto-start in ${delayMs / 1000}s...`);
+          const t = setTimeout(() => {
+            this.retryTimer = null;
+            void this.autoStartWithRetry(attempts + 1, generation);
+          }, delayMs);
+          t.unref(); // don't prevent clean process exit
+          this.retryTimer = t;
+        } else {
+          log.error('Auto-start failed after 5 retries. Network might be down or token is invalid.');
+        }
+      }
+    } catch (err: any) {
+      log.error('Auto-start retry threw an error:', err);
     }
   }
 
@@ -145,15 +159,17 @@ export class TelegramService {
       return { success: false, error: 'Invalid bot token format' };
     }
 
+    const previousToken = await this.deps.security.getApiKey(TOKEN_KEY);
+
     // Test token by calling getMe
     try {
       const me = await this.apiCall<{ id: number; first_name: string; username: string }>(token, 'getMe');
       this.botUsername = me.username;
       await this.deps.security.setApiKey(TOKEN_KEY, token);
       log.info(`Bot token saved: @${me.username}`);
-      // Auto-enable auto-start on first successful token setup so the bot
-      // reconnects automatically after every app restart without user action.
-      if (!this.autoStart) {
+      // Auto-enable auto-start only if it's the very first time a token is configured.
+      // This respects user preferences if they explicitly disabled auto-start later.
+      if (!previousToken && !this.autoStart) {
         this.setAutoStart(true);
       }
       this.emitStatus();
@@ -214,6 +230,13 @@ export class TelegramService {
    */
   setAutoStart(enabled: boolean): void {
     this.autoStart = enabled;
+    if (!enabled) {
+      this.retryGeneration++;
+      if (this.retryTimer) {
+        clearTimeout(this.retryTimer);
+        this.retryTimer = null;
+      }
+    }
     if (this.deps) {
       void this.deps.config.set('telegramAutoStart', enabled);
     }
@@ -256,6 +279,7 @@ export class TelegramService {
    * Stop long polling.
    */
   async stop(): Promise<void> {
+    this.retryGeneration++;
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
@@ -302,6 +326,7 @@ export class TelegramService {
   }
 
   shutdown(): void {
+    this.retryGeneration++;
     if (this.retryTimer) {
       clearTimeout(this.retryTimer);
       this.retryTimer = null;
