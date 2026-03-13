@@ -409,6 +409,9 @@ export class CortexEngine {
     this.tierConfig = CORTEX_TIER_PRESETS[this.intensity];
     this.screenMode = this.tierConfig.screenMode;
 
+    // Parse active hours
+    this.loadActiveHours();
+
     log.info(
       `Starting CortexEngine [${this.intensity}] — think: ${this.tierConfig.thinkIntervalMs / 1000}s, rules: ${this.tierConfig.ruleCheckIntervalMs / 1000}s, reflection: ${this.tierConfig.reflectionIntervalMs / 60000}min`,
     );
@@ -451,21 +454,6 @@ export class CortexEngine {
         },
         15 * 60 * 1000,
       );
-    }
-  }
-
-  private loadActiveHours(): void {
-    const startStr = this.config.get('cortexActiveHoursStart') as string;
-    const endStr = this.config.get('cortexActiveHoursEnd') as string;
-    if (startStr && endStr) {
-      const startH = parseInt(startStr.split(':')[0], 10);
-      const endH = parseInt(endStr.split(':')[0], 10);
-      if (!isNaN(startH) && !isNaN(endH)) {
-        this.activeHours = { start: startH, end: endH };
-        log.info(`Active Hours: ${startStr} - ${endStr}`);
-      }
-    } else {
-      this.activeHours = null;
     }
   }
 
@@ -1666,14 +1654,35 @@ KRYTYCZNA ZASADA ANTY-POWTÓRZEŃ:
   // ░░░ HELPERS ░░░
   // ═══════════════════════════════════════════════════════════════
 
+  private loadActiveHours(): void {
+    const startStr = this.config.get('cortexActiveHoursStart') as string;
+    const endStr = this.config.get('cortexActiveHoursEnd') as string;
+    if (startStr && endStr) {
+      const [startH, startM] = startStr.split(':').map(Number);
+      const [endH, endM] = endStr.split(':').map(Number);
+      if (!isNaN(startH) && !isNaN(endH)) {
+        this.activeHours = {
+          start: startH * 60 + (startM || 0),
+          end: endH * 60 + (endM || 0),
+        };
+        log.info(`Active Hours: ${startStr} - ${endStr} (${this.activeHours.start}m - ${this.activeHours.end}m)`);
+      }
+    } else {
+      this.activeHours = null;
+    }
+  }
+
   private isWithinActiveHours(): boolean {
     if (!this.activeHours) return true;
-    const hour = new Date().getHours();
+    const now = new Date();
+    const current = now.getHours() * 60 + now.getMinutes();
     const { start, end } = this.activeHours;
+
     if (start <= end) {
-      return hour >= start && hour < end;
+      return current >= start && current < end;
     }
-    return hour >= start || hour < end;
+    // Wraps midnight (e.g., 22:00 – 06:00)
+    return current >= start || current < end;
   }
 
   /**
@@ -1973,93 +1982,41 @@ Zapisz to podsumowanie do pamięci używając:
     return clean;
   }
 
-  private cleanReflectionResponse(response: string): string {
-    return response
-      .replace(/```tool\s*\n[\s\S]*?```/g, '')
-      .replace(/```cron\s*\n[\s\S]*?```/g, '')
-      .replace(/```update_memory\s*\n[\s\S]*?```/g, '')
-      .replace(/\[TOOL OUTPUT[^\]]*\][\s\S]*?\[END TOOL OUTPUT\]/g, '')
-      .replace(/REFLECTION_OK/g, '')
-      .replace(/CORTEX_OK/g, '')
-      .trim();
-  }
-
-  // ─── App Usage Analysis ───
-
-  private analyzeAppUsage(activityLog: any[]): Array<{ category: string; count: number }> {
-    const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-    const recent = activityLog.filter((a) => a.timestamp >= weekAgo);
-    const counts: Record<string, number> = {};
-    for (const entry of recent) {
+  private analyzeAppUsage(log: any[]): Array<{ category: string; count: number }> {
+    const categories = new Map<string, number>();
+    for (const entry of log) {
       const cat = entry.category || 'general';
-      counts[cat] = (counts[cat] || 0) + 1;
+      categories.set(cat, (categories.get(cat) || 0) + 1);
     }
-    return Object.entries(counts)
-      .sort(([, a], [, b]) => b - a)
-      .slice(0, 8)
-      .map(([category, count]) => ({ category, count }));
+    return Array.from(categories.entries())
+      .map(([category, count]) => ({ category, count }))
+      .sort((a, b) => b.count - a.count);
   }
 
   private parseInsights(response: string): string[] {
     const insights: string[] = [];
-    const bulletRegex = /^[-•*]\s+(.+)$/gm;
-    let match: RegExpExecArray | null;
-    while ((match = bulletRegex.exec(response)) !== null) {
-      const text = match[1].trim();
-      if (text.length > 20 && text.length < 200) insights.push(text);
-    }
-    return insights.slice(0, 10);
-  }
-
-  /**
-   * Parse ```proposal blocks from AI response into structured CortexProposals.
-   */
-  private parseProposals(response: string): CortexProposal[] {
-    const proposalRegex = /```proposal\s*\n([\s\S]*?)```/g;
-    const proposals: CortexProposal[] = [];
-    let match: RegExpExecArray | null;
-
-    while ((match = proposalRegex.exec(response)) !== null) {
-      try {
-        const raw = JSON.parse(match[1].trim());
-        if (!raw.title || !raw.description) continue;
-
-        proposals.push({
-          id: `prop_${Date.now()}_${proposals.length}`,
-          type: raw.type || 'optimization',
-          title: raw.title,
-          description: raw.description,
-          risk: raw.risk || 'safe',
-          toolCalls: Array.isArray(raw.toolCalls) ? raw.toolCalls : undefined,
-          expiresAt: Date.now() + 10 * 60_000, // 10 min
-        });
-      } catch {
-        log.warn('Failed to parse proposal block');
+    const lines = response.split('\n');
+    for (const line of lines) {
+      if (line.includes('INSIGHT:') || line.includes('WNIOSKI:')) {
+        insights.push(line.split(':')[1].trim());
       }
     }
-
-    if (proposals.length > 0) {
-      log.info(`Parsed ${proposals.length} proposal(s) from think response`);
-    }
-    return proposals;
+    return insights;
   }
 
-  /**
-   * Parse ```pattern blocks from reflection AI response and save as WorkflowPatterns.
-   * Expected JSON: { description, timeRange: {startHour, endHour}, daysOfWeek: [0-6], frequency, suggestedCron? }
-   */
+  private cleanReflectionResponse(response: string): string | null {
+    return this.cleanResponse(response);
+  }
+
   private parseAndSavePatterns(response: string): void {
-    const patternRegex = /```pattern\s*\n([\s\S]*?)```/g;
-    let match: RegExpExecArray | null;
+    const matches = response.matchAll(/```pattern\s*\n([\s\S]*?)\n```/g);
     let saved = 0;
 
-    while ((match = patternRegex.exec(response)) !== null) {
+    for (const match of matches) {
       try {
-        const raw = JSON.parse(match[1].trim());
-        if (!raw.description || !raw.timeRange || !Array.isArray(raw.daysOfWeek)) continue;
-
-        const pattern: import('../../shared/types/workflow').WorkflowPattern = {
-          id: `ai-${Date.now()}-${saved}`,
+        const raw = JSON.parse(match[1]);
+        const pattern = {
+          id: `pat_${Date.now()}_${saved}`,
           description: raw.description,
           timeRange: {
             startHour: Number(raw.timeRange.startHour) || 0,
@@ -2163,241 +2120,175 @@ function createBuiltinRules(): ProactiveRule[] {
       },
 
       generate(ctx: ProactiveContext) {
-        const pct = ctx.systemSnapshot!.battery!.percent;
-        const remaining = ctx.systemSnapshot!.battery!.timeRemaining;
-        const timeStr = remaining && remaining !== 'unknown' ? ` (~${remaining})` : '';
         return {
-          type: 'proactive',
-          message: `🔋 Bateria na ${pct}%${timeStr}. Podłącz ładowarkę!`,
-          context: `battery:${pct}`,
+          type: 'alert',
+          message: `🪫 Niski poziom baterii: **${ctx.systemSnapshot?.battery?.percent}%**. Podłącz zasilacz.`,
+          context: 'system-battery',
         };
       },
     },
 
-    // ── 3. Disk Space ──
+    // ── 3. High CPU / Memory ──
     {
-      id: 'disk-full',
-      name: 'Mało miejsca na dysku',
-      priority: 8,
-      cooldownMs: 60 * 60_000,
-
-      shouldFire(ctx: ProactiveContext): boolean {
-        if (!ctx.systemSnapshot?.disk) return false;
-        return ctx.systemSnapshot.disk.some((d) => d.usagePercent > 90);
-      },
-
-      generate(ctx: ProactiveContext) {
-        const critical = ctx.systemSnapshot!.disk.filter((d) => d.usagePercent > 90);
-        const diskList = critical
-          .map((d) => `${d.mount}: ${d.freeGB.toFixed(1)} GB wolne (${Math.round(d.usagePercent)}% zajęte)`)
-          .join(', ');
-        return {
-          type: 'proactive',
-          message: `💾 Mało miejsca na dysku! ${diskList}. Czy mam pomóc posprzątać pliki tymczasowe?`,
-          context: `disk:${critical.map((d) => d.mount).join(',')}`,
-        };
-      },
-    },
-
-    // ── 4. High CPU ──
-    {
-      id: 'high-cpu',
-      name: 'Wysokie obciążenie CPU',
-      priority: 7,
-      cooldownMs: 30 * 60_000,
-
-      shouldFire(ctx: ProactiveContext): boolean {
-        if (!ctx.systemSnapshot?.cpu) return false;
-        return ctx.systemSnapshot.cpu.usagePercent > 90;
-      },
-
-      generate(ctx: ProactiveContext) {
-        const cpu = ctx.systemSnapshot!.cpu;
-        const topProcs = ctx
-          .systemSnapshot!.topProcesses.filter((p) => p.cpuPercent > 20)
-          .slice(0, 3)
-          .map((p) => `${p.name} (${Math.round(p.cpuPercent)}%)`)
-          .join(', ');
-        return {
-          type: 'proactive',
-          message: `⚡ CPU obciążony na ${Math.round(cpu.usagePercent)}%.${topProcs ? ` Najcięższe procesy: ${topProcs}` : ''}`,
-          context: `cpu:${Math.round(cpu.usagePercent)}`,
-        };
-      },
-    },
-
-    // ── 5. Network Disconnected ──
-    {
-      id: 'no-network',
-      name: 'Brak połączenia sieciowego',
+      id: 'system-pressure',
+      name: 'Wysokie obciążenie systemu',
       priority: 7,
       cooldownMs: 15 * 60_000,
 
       shouldFire(ctx: ProactiveContext): boolean {
-        return ctx.systemSnapshot?.network?.connected === false;
+        if (!ctx.systemSnapshot) return false;
+        return ctx.systemSnapshot.cpu.load > 90 || ctx.systemSnapshot.memory.percent > 90;
       },
 
-      generate() {
+      generate(ctx: ProactiveContext) {
+        const cpu = ctx.systemSnapshot?.cpu.load || 0;
+        const mem = ctx.systemSnapshot?.memory.percent || 0;
+        const reason = cpu > 90 ? `CPU (${cpu.toFixed(0)}%)` : `pamięci (${mem.toFixed(0)}%)`;
         return {
-          type: 'proactive',
-          message: '🌐 Brak połączenia z internetem. Niektóre funkcje mogą nie działać.',
-          context: 'network:disconnected',
+          type: 'alert',
+          message: `⚠️ Wykryłem wysokie zużycie ${reason}. System może działać wolniej.`,
+          context: 'system-pressure',
         };
       },
     },
 
-    // ── 6. Focus Break ──
+    // ── 4. Workflow Pattern: Long Session ──
     {
-      id: 'focus-break',
-      name: 'Sugestia przerwy',
+      id: 'long-session',
+      name: 'Długa sesja pracy',
       priority: 5,
-      cooldownMs: 90 * 60_000,
+      cooldownMs: 60 * 60_000,
 
       shouldFire(ctx: ProactiveContext): boolean {
-        return ctx.currentSessionMinutes >= 90 && !ctx.isAfk;
+        return ctx.currentSessionMinutes >= 120 && ctx.currentSessionMinutes % 60 < 5;
       },
 
       generate(ctx: ProactiveContext) {
         const hours = Math.floor(ctx.currentSessionMinutes / 60);
-        const mins = ctx.currentSessionMinutes % 60;
-        const duration = hours > 0 ? `${hours}h ${mins}min` : `${mins} min`;
         return {
-          type: 'proactive',
-          message: `☕ Pracujesz już ${duration} bez przerwy. Może czas na kawę?`,
-          context: `focus:${ctx.currentSessionMinutes}`,
+          type: 'health',
+          message: `🕒 Pracujesz już od ${hours} godzin. Może czas na krótką przerwę? ☕`,
+          context: 'health-break',
         };
       },
     },
 
-    // ── 7. Morning Briefing (AI-powered) ──
+    // ── 5. End of Day Reflection ──
     {
-      id: 'daily-briefing',
-      name: 'Poranny briefing',
+      id: 'end-of-day',
+      name: 'Podsumowanie dnia',
       priority: 6,
-      cooldownMs: 22 * 60 * 60_000,
+      cooldownMs: 12 * 60 * 60_000,
 
       shouldFire(ctx: ProactiveContext): boolean {
-        return ctx.hourOfDay >= 7 && ctx.hourOfDay <= 10 && ctx.timeOfDay === 'morning';
-      },
-
-      async generate(ctx: ProactiveContext, engine: CortexEngine) {
-        // Build context for AI
-        const contextParts: string[] = [];
-        if (ctx.todayEvents.length > 0) {
-          const eventList = ctx.todayEvents
-            .slice(0, 8)
-            .map((e) => {
-              const time = new Date(e.start).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' });
-              return `${time} — ${e.summary}`;
-            })
-            .join('\n');
-          contextParts.push(`Spotkania dzisiaj (${ctx.todayEvents.length}):\n${eventList}`);
-        }
-        if (ctx.kgSummary) contextParts.push(`Wiedza o użytkowniku:\n${ctx.kgSummary}`);
-        if (ctx.systemWarnings.length > 0) contextParts.push(`Ostrzeżenia: ${ctx.systemWarnings.join(', ')}`);
-
-        const prompt =
-          `Jesteś osobistym asystentem AI. Wygeneruj krótki poranny briefing (3-5 zdań) dla użytkownika.\n` +
-          `Dzień: ${ctx.dayOfWeek}, godzina ${ctx.hourOfDay}:00.\n\n` +
-          (contextParts.length > 0 ? contextParts.join('\n\n') + '\n\n' : '') +
-          `Bądź zwięzły, konkretny i pomocny. Zacznij od powitania. Użyj emoji. ` +
-          `Napisz po polsku. Nie dodawaj cudzysłowów ani markdown headers.`;
-
-        const aiResponse = await engine.generateAIText(prompt);
-        if (aiResponse) {
-          return { type: 'proactive', message: aiResponse, context: 'briefing:morning' };
-        }
-
-        // Fallback: static template
-        const parts = ['🌅 Dzień dobry!'];
-        if (ctx.todayEvents.length > 0) {
-          parts.push(`📅 Masz ${ctx.todayEvents.length} spotkań dzisiaj.`);
-        }
-        return { type: 'proactive', message: parts.join(' '), context: 'briefing:morning' };
-      },
-    },
-
-    // ── 8. Evening Summary (AI-powered) ──
-    {
-      id: 'evening-summary',
-      name: 'Wieczorne podsumowanie',
-      priority: 4,
-      cooldownMs: 22 * 60 * 60_000,
-
-      shouldFire(ctx: ProactiveContext): boolean {
-        return ctx.hourOfDay >= 17 && ctx.hourOfDay <= 19 && ctx.timeOfDay === 'evening';
-      },
-
-      async generate(ctx: ProactiveContext, engine: CortexEngine) {
-        const contextParts: string[] = [];
-        if (ctx.currentSessionMinutes > 10) {
-          const hours = Math.floor(ctx.currentSessionMinutes / 60);
-          const mins = ctx.currentSessionMinutes % 60;
-          contextParts.push(`Sesja trwa: ${hours}h ${mins}min`);
-        }
-        if (ctx.kgSummary) contextParts.push(`Wiedza o użytkowniku:\n${ctx.kgSummary}`);
-        if (ctx.systemWarnings.length > 0) contextParts.push(`Ostrzeżenia: ${ctx.systemWarnings.join(', ')}`);
-
-        const prompt =
-          `Jesteś osobistym asystentem AI. Wygeneruj krótkie wieczorne podsumowanie (2-4 zdania).\n` +
-          `Godzina: ${ctx.hourOfDay}:00, ${ctx.dayOfWeek}.\n\n` +
-          (contextParts.length > 0 ? contextParts.join('\n\n') + '\n\n' : '') +
-          `Bądź ciepły i motywujący. Wspomnij o statystykach sesji jeśli są. Zasugeruj odpoczynek. ` +
-          `Użyj emoji. Napisz po polsku. Nie dodawaj cudzysłowów ani markdown headers.`;
-
-        const aiResponse = await engine.generateAIText(prompt);
-        if (aiResponse) {
-          return { type: 'proactive', message: aiResponse, context: 'summary:evening' };
-        }
-
-        // Fallback: static template
-        return { type: 'proactive', message: '🌆 Dobry wieczór! Czas odpocząć. 😊', context: 'summary:evening' };
-      },
-    },
-
-    // ── 9. High Memory Usage ──
-    {
-      id: 'high-memory',
-      name: 'Wysokie zużycie pamięci',
-      priority: 6,
-      cooldownMs: 45 * 60_000,
-
-      shouldFire(ctx: ProactiveContext): boolean {
-        if (!ctx.systemSnapshot?.memory) return false;
-        return ctx.systemSnapshot.memory.usagePercent > 85;
-      },
-
-      generate(ctx: ProactiveContext) {
-        const mem = ctx.systemSnapshot!.memory;
-        const topMemProcs = ctx
-          .systemSnapshot!.topProcesses.filter((p) => p.memoryMB > 500)
-          .slice(0, 3)
-          .map((p) => `${p.name} (${Math.round(p.memoryMB)} MB)`)
-          .join(', ');
-        return {
-          type: 'proactive',
-          message: `🧠 RAM na ${Math.round(mem.usagePercent)}% (${mem.freeGB.toFixed(1)} GB wolne).${topMemProcs ? ` Najcięższe: ${topMemProcs}` : ''} Może zamknij niepotrzebne aplikacje?`,
-          context: `memory:${Math.round(mem.usagePercent)}`,
-        };
-      },
-    },
-
-    // ── 10. Weekend Reminder ──
-    {
-      id: 'weekend-chill',
-      name: 'Weekend — odpoczywaj',
-      priority: 2,
-      cooldownMs: 4 * 60 * 60_000,
-
-      shouldFire(ctx: ProactiveContext): boolean {
-        return (ctx.dayOfWeek === 0 || ctx.dayOfWeek === 6) && ctx.hourOfDay >= 18 && ctx.currentSessionMinutes >= 120;
+        return ctx.hourOfDay >= 18 && ctx.hourOfDay <= 20;
       },
 
       generate() {
         return {
-          type: 'proactive',
-          message: '🎮 Weekend wieczór, a Ty wciąż przy komputerze! Może czas na odpoczynek? 😉',
-          context: 'wellness:weekend',
+          type: 'reflection',
+          message: '🌙 Kończysz już dzień? Chcesz abym przygotował krótkie podsumowanie Twoich dzisiejszych dokonań?',
+          context: 'reflection-trigger',
+        };
+      },
+    },
+
+    // ── 6. Tool Loop Anomaly ──
+    {
+      id: 'loop-anomaly',
+      name: 'Anomalia pętli narzędzi',
+      priority: 8,
+      cooldownMs: 10 * 60_000,
+
+      shouldFire(ctx: ProactiveContext): boolean {
+        return ctx.systemWarnings.some((w) => w.includes('loop') || w.includes('iteration'));
+      },
+
+      generate() {
+        return {
+          type: 'alert',
+          message: '🔄 Wykryłem zapętlenie w moich procesach autonomicznych. Zrestartowałem pętlę narzędzi.',
+          context: 'engine-loop-fix',
+        };
+      },
+    },
+
+    // ── 7. Knowledge Gap ──
+    {
+      id: 'knowledge-gap',
+      name: 'Brak wiedzy o projekcie',
+      priority: 4,
+      cooldownMs: 24 * 60 * 60_000,
+
+      shouldFire(ctx: ProactiveContext): boolean {
+        return ctx.kgSummary.length < 50 && ctx.currentSessionMinutes > 30;
+      },
+
+      generate() {
+        return {
+          type: 'memory',
+          message: '🧠 Moja baza wiedzy o Twoich projektach jest pusta. Chcesz abym zaindeksował Twój folder roboczy?',
+          context: 'onboarding-kg',
+        };
+      },
+    },
+
+    // ── 8. Morning Briefing ──
+    {
+      id: 'morning-brief',
+      name: 'Poranny briefing',
+      priority: 6,
+      cooldownMs: 12 * 60 * 60_000,
+
+      shouldFire(ctx: ProactiveContext): boolean {
+        return ctx.hourOfDay >= 8 && ctx.hourOfDay <= 10;
+      },
+
+      generate() {
+        return {
+          type: 'briefing',
+          message: '☀️ Dzień dobry! Masz chwilę na szybki przegląd dzisiejszego kalendarza i zadań?',
+          context: 'briefing-trigger',
+        };
+      },
+    },
+
+    // ── 9. Context Pressure ──
+    {
+      id: 'context-pressure',
+      name: 'Przepełnienie kontekstu',
+      priority: 7,
+      cooldownMs: 30 * 60_000,
+
+      shouldFire(ctx: ProactiveContext): boolean {
+        return ctx.systemWarnings.some((w) => w.includes('context') && w.includes('limit'));
+      },
+
+      generate() {
+        return {
+          type: 'alert',
+          message: '💾 Nasza rozmowa stała się bardzo długa. Chcesz abym skompresował historię, by zachować płynność?',
+          context: 'context-compaction-trigger',
+        };
+      },
+    },
+
+    // ── 10. Night Mode ──
+    {
+      id: 'night-mode',
+      name: 'Tryb nocny',
+      priority: 3,
+      cooldownMs: 8 * 60 * 60_000,
+
+      shouldFire(ctx: ProactiveContext): boolean {
+        return ctx.hourOfDay >= 23 || ctx.hourOfDay < 5;
+      },
+
+      generate() {
+        return {
+          type: 'health',
+          message: '🌙 Jest już późno. Może warto odpocząć? Przełączam się w tryb energooszczędny.',
+          context: 'health-night',
         };
       },
     },

@@ -230,6 +230,9 @@ export class ProactiveEngine {
     // Clear stale event notifications on start
     this.notifiedEventUids.clear();
 
+    // Load active hours from config
+    this.loadActiveHours();
+
     log.info(`Started proactive engine (interval: ${Math.round(interval / 1000)}s)`);
 
     // First check after a short delay (let services warm up)
@@ -496,16 +499,35 @@ export class ProactiveEngine {
 
   // ─── Helpers ───
 
+  private loadActiveHours(): void {
+    const startStr = this.config.get('cortexActiveHoursStart') as string;
+    const endStr = this.config.get('cortexActiveHoursEnd') as string;
+    if (startStr && endStr) {
+      const [startH, startM] = startStr.split(':').map(Number);
+      const [endH, endM] = endStr.split(':').map(Number);
+      if (!isNaN(startH) && !isNaN(endH)) {
+        this.activeHours = {
+          start: startH * 60 + (startM || 0),
+          end: endH * 60 + (endM || 0),
+        };
+        log.info(`Active Hours: ${startStr} - ${endStr} (${this.activeHours.start}m - ${this.activeHours.end}m)`);
+      }
+    } else {
+      this.activeHours = null;
+    }
+  }
+
   private isWithinActiveHours(): boolean {
     if (!this.activeHours) return true; // no restriction
-    const hour = new Date().getHours();
+    const now = new Date();
+    const current = now.getHours() * 60 + now.getMinutes();
     const { start, end } = this.activeHours;
 
     if (start <= end) {
-      return hour >= start && hour < end;
+      return current >= start && current < end;
     }
     // Wraps midnight (e.g., 22:00 – 06:00)
-    return hour >= start || hour < end;
+    return current >= start || current < end;
   }
 
   /** Mark an event UID as already notified (prevents duplicate meeting reminders) */
