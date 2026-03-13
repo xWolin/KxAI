@@ -53,6 +53,7 @@ describe('TelegramService', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     service.shutdown();
   });
 
@@ -263,6 +264,7 @@ describe('TelegramService', () => {
     });
 
     it('should auto-enable autoStart on first successful token setup', async () => {
+      deps.security.getApiKey.mockResolvedValue(null);
       mockTelegramApi([{ ok: true, result: { username: 'my_bot' } }]);
       const result = await service.setToken('123456:ABC-DEF1234ghIkl-zyx57W2v1u123456789');
       expect(result.success).toBe(true);
