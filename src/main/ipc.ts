@@ -624,6 +624,12 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
           ruleId: notification.ruleId,
         });
       });
+
+      if (cortexActive) {
+        log.info('[ipc] CortexEngine active — skipping legacy ProactiveEngine start');
+        return { success: true };
+      }
+
       proactiveEngine.start();
     } else {
       screenMonitorService.stop();
@@ -726,9 +732,20 @@ export function setupIPC(mainWindow: BrowserWindow, services: Services): void {
         safeSend(Ev.AGENT_COMPANION_STATE, { isAfk });
       });
 
+      // Deduplicate: Stop legacy engines when Cortex is enabled
+      log.info('[ipc] Enabling CortexEngine — stopping legacy autonomous engines');
+      agentLoop.stopHeartbeat();
+      services.proactiveEngine.stop();
+
       cortexEngine.start();
     } else {
       cortexEngine.stop();
+      // Optional: if proactiveMode is still true, restart legacy engines
+      if (configService.get('proactiveMode')) {
+        log.info('[ipc] CortexEngine disabled — restarting legacy HeartbeatEngine');
+        agentLoop.startHeartbeat(5 * 60 * 1000);
+        services.proactiveEngine.start();
+      }
     }
     return { success: true };
   });
