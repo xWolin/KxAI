@@ -509,7 +509,8 @@ export const en: TranslationDict = {
   'settings.telegram.tokenStored': 'Token stored',
   'settings.telegram.removeToken': 'Remove token',
   'settings.telegram.tokenRemoved': 'Token removed.',
-  'settings.telegram.saveToken': 'Save',
+  'settings.telegram.saveToken': 'Save token',
+  'settings.telegram.save': 'Save',
   'settings.telegram.connected': 'Connected to',
   'settings.telegram.polling': 'Long Polling',
   'settings.telegram.pollingHint':

@@ -195,12 +195,17 @@ function TelegramTab() {
   const [token, setToken] = useState('');
   const [allowedChats, setAllowedChats] = useState('');
   const [allowedUsernames, setAllowedUsernames] = useState('');
+  const [autoStartLocal, setAutoStartLocal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     loadStatus();
-    const unsub = window.kxai.onTelegramStatus((s) => setStatus(s));
+    const unsub = window.kxai.onTelegramStatus((s) => {
+      setStatus(s);
+      // Only update local state if it hasn't been modified by user yet
+      // This is a simple approximation; robust way would involve tracking 'dirty' state
+    });
     return unsub;
   }, []);
 
@@ -210,6 +215,7 @@ function TelegramTab() {
       setStatus(s);
       setAllowedChats(s.allowedChatIds.length > 0 ? s.allowedChatIds.join(', ') : '');
       setAllowedUsernames(s.allowedUsernames.length > 0 ? s.allowedUsernames.join(', ') : '');
+      setAutoStartLocal(s.autoStart);
     } catch {
       /* ignore */
     }
@@ -319,10 +325,10 @@ function TelegramTab() {
     }
   }
 
-  async function handleToggleAutoStart() {
-    const newVal = !(status?.autoStart ?? false);
+  async function handleSaveAutoStart() {
     try {
-      await window.kxai.telegramSetAutoStart(newVal);
+      await window.kxai.telegramSetAutoStart(autoStartLocal);
+      setMessage(`✅ Zapisano`);
       await loadStatus();
     } catch (err: any) {
       setMessage(`❌ ${err.message}`);
@@ -422,9 +428,16 @@ function TelegramTab() {
                   cursor: 'pointer',
                 }}
               >
-                <input type="checkbox" checked={status?.autoStart ?? false} onChange={handleToggleAutoStart} />
+                <input type="checkbox" checked={autoStartLocal} onChange={(e) => setAutoStartLocal(e.target.checked)} />
                 {t('settings.telegram.autoStart')}
               </label>
+              <button
+                className={s.mcpBtnSmallAccent}
+                onClick={handleSaveAutoStart}
+                disabled={loading || autoStartLocal === status?.autoStart}
+              >
+                {t('settings.telegram.save')}
+              </button>
             </div>
           </div>
         )}
@@ -442,13 +455,8 @@ function TelegramTab() {
                 placeholder={t('settings.telegram.allowedChatsPlaceholder')}
                 style={{ flex: 1 }}
               />
-              <button
-                className={s.mcpBtnSmall}
-                onClick={handleSaveAllowedChats}
-                disabled={loading}
-                aria-label={t('settings.telegram.saveAllowedChats')}
-              >
-                💾
+              <button className={s.mcpBtnSmallAccent} onClick={handleSaveAllowedChats} disabled={loading}>
+                {t('settings.telegram.save')}
               </button>
             </div>
           </div>
@@ -467,13 +475,8 @@ function TelegramTab() {
                 placeholder={t('settings.telegram.allowedUsernamesPlaceholder')}
                 style={{ flex: 1 }}
               />
-              <button
-                className={s.mcpBtnSmall}
-                onClick={handleSaveAllowedUsernames}
-                disabled={loading}
-                aria-label={t('settings.telegram.saveAllowedUsernames')}
-              >
-                💾
+              <button className={s.mcpBtnSmallAccent} onClick={handleSaveAllowedUsernames} disabled={loading}>
+                {t('settings.telegram.save')}
               </button>
             </div>
           </div>
