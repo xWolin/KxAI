@@ -303,6 +303,50 @@ public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, i
     });
   }
 
+  async keyTap(key: string): Promise<AutomationResult> {
+    return this.keyboardPress(key);
+  }
+
+  async mouseDrag(x: number, y: number): Promise<AutomationResult> {
+    const check = this.validateCoords(x, y);
+    if (!check.valid) return { success: false, error: check.error! };
+    const sx = Math.round(x);
+    const sy = Math.round(y);
+
+    return this.executeAction('mouse_drag', { x: sx, y: sy }, async () => {
+      if (this.platform === 'win32') {
+        return this.runPowerShell(
+          `Add-Type -AssemblyName System.Windows.Forms; ` +
+            `$signature = @"
+[DllImport("user32.dll")]
+public static extern void mouse_event(int dwFlags, int dx, int dy, int dwData, int dwExtraInfo);
+"@; ` +
+            `$mouse = Add-Type -MemberDefinition $signature -Name "Win32MouseDrag" -Namespace "Win32" -PassThru; ` +
+            `$mouse::mouse_event(0x0002, 0, 0, 0, 0); ` + // Left down
+            `[System.Windows.Forms.Cursor]::Position = New-Object System.Drawing.Point(${sx}, ${sy}); ` +
+            `$mouse::mouse_event(0x0004, 0, 0, 0, 0)`, // Left up
+        );
+      } else if (this.platform === 'darwin') {
+        const jxa = [
+          `ObjC.import('CoreGraphics')`,
+          `var p = $.CGEventGetLocation($.CGEventCreate(null))`,
+          `var down = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDown, p, $.kCGMouseButtonLeft)`,
+          `$.CGEventPost($.kCGHIDEventTap, down)`,
+          `delay(0.1)`,
+          `var target = {x: ${sx}, y: ${sy}}`,
+          `var drag = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseDragged, target, $.kCGMouseButtonLeft)`,
+          `$.CGEventPost($.kCGHIDEventTap, drag)`,
+          `delay(0.1)`,
+          `var up = $.CGEventCreateMouseEvent(null, $.kCGEventLeftMouseUp, target, $.kCGMouseButtonLeft)`,
+          `$.CGEventPost($.kCGHIDEventTap, up)`,
+        ].join('; ');
+        return this.runOsascriptViaStdin(jxa);
+      } else {
+        return this.runCommand(`xdotool mousedown 1 mousemove ${sx} ${sy} mouseup 1`);
+      }
+    });
+  }
+
   // ─── Window Info ───
 
   async getActiveWindowTitle(): Promise<string> {

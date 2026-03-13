@@ -1342,7 +1342,7 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
     };
 
     const typeInstructions: Record<ReflectionCycleType, string> = {
-      deep: `Przeanalizuj wzorce aktywności z ostatnich dni. Oceń czy obecne cron joby są optymalne.
+      deep: `Przeanalizuj wzorce aktywności z ostatnich dni. Oceń czy obecne cron joby are optymalne.
 Zaproponuj automatyzacje które zwiększą produktywność użytkownika.
 Sprawdź czy używane aplikacje mają odpowiednie integracje MCP.`,
       evening: `Podsumuj dzień. Czego użytkownik dziś dokonał? Jakie wzorce zauważasz?
@@ -1938,6 +1938,24 @@ Zapisz to podsumowanie do pamięci używając:
 
   // ─── Tool Call Parsing ───
 
+  private parseProposals(response: string): CortexProposal[] {
+    const matches = response.matchAll(/```proposal\s*\n([\s\S]*?)\n```/g);
+    const proposals: CortexProposal[] = [];
+    for (const match of matches) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        // Ensure id exists
+        if (!parsed.id) {
+          parsed.id = `prop_${Date.now()}_${proposals.length}`;
+        }
+        proposals.push(parsed);
+      } catch {
+        log.warn('Failed to parse proposal block from response');
+      }
+    }
+    return proposals;
+  }
+
   private parseToolCall(response: string): { tool: string; params: Record<string, any> } | null {
     const match = response.match(/```tool\s*\n([\s\S]*?)\n```/);
     if (match) {
@@ -1997,24 +2015,6 @@ Zapisz to podsumowanie do pamięci używając:
     return Array.from(categories.entries())
       .map(([category, count]) => ({ category, count }))
       .sort((a, b) => b.count - a.count);
-  }
-
-  private parseProposals(response: string): CortexProposal[] {
-    const matches = response.matchAll(/```proposal\s*\n([\s\S]*?)\n```/g);
-    const proposals: CortexProposal[] = [];
-    for (const match of matches) {
-      try {
-        const parsed = JSON.parse(match[1]);
-        // Ensure id exists
-        if (!parsed.id) {
-          parsed.id = `prop_${Date.now()}_${proposals.length}`;
-        }
-        proposals.push(parsed);
-      } catch {
-        log.warn('Failed to parse proposal block from response');
-      }
-    }
-    return proposals;
   }
 
   private parseInsights(response: string): string[] {
@@ -2111,23 +2111,23 @@ function createBuiltinRules(): ProactiveRule[] {
 
       generate(ctx: ProactiveContext, engine: CortexEngine) {
         const now = Date.now();
-        const event = ctx.upcomingEvents.find((e) => {
+        const calEvent = ctx.upcomingEvents.find((e) => {
           const minutesUntil = (new Date(e.start).getTime() - now) / 60_000;
           return minutesUntil > 0 && minutesUntil <= 15 && !engine.isEventNotified(e.uid);
         })!;
 
-        const minutesUntil = Math.round((new Date(event.start).getTime() - now) / 60_000);
-        engine.markEventNotified(event.uid);
+        const minutesUntil = Math.round((new Date(calEvent.start).getTime() - now) / 60_000);
+        engine.markEventNotified(calEvent.uid);
 
-        const parts = [`📅 Za ${minutesUntil} min masz spotkanie: **${event.summary}**`];
-        if (event.location) parts.push(`📍 ${event.location}`);
-        if (event.attendees && event.attendees.length > 0) {
-          const names = event.attendees.slice(0, 3).join(', ');
-          const more = event.attendees.length > 3 ? ` (+${event.attendees.length - 3})` : '';
+        const parts = [`📅 Za ${minutesUntil} min masz spotkanie: **${calEvent.summary}**`];
+        if (calEvent.location) parts.push(`📍 ${calEvent.location}`);
+        if (calEvent.attendees && calEvent.attendees.length > 0) {
+          const names = calEvent.attendees.slice(0, 3).join(', ');
+          const more = calEvent.attendees.length > 3 ? ` (+${calEvent.attendees.length - 3})` : '';
           parts.push(`👥 ${names}${more}`);
         }
 
-        return { type: 'proactive', message: parts.join('\n'), context: `meeting-reminder:${event.uid}` };
+        return { type: 'proactive', message: parts.join('\n'), context: `meeting-reminder:${calEvent.uid}` };
       },
     },
 
@@ -2208,10 +2208,17 @@ function createBuiltinRules(): ProactiveRule[] {
         return ctx.hourOfDay >= 18 && ctx.hourOfDay <= 20;
       },
 
-      generate() {
+      async generate(ctx: ProactiveContext, engine: CortexEngine) {
+        const prompt = `Podsumuj krótko dzisiejszy dzień dla użytkownika.
+Statystyki: ${ctx.timeContext}
+Zdarzenia: ${ctx.todayEvents.map((e) => e.summary).join(', ') || 'brak spotkań'}
+Wnioski z KG: ${ctx.kgSummary.slice(0, 200)}
+Odpowiedz w 1-2 zdaniach, przyjacielsko i zwięźle.`;
+        const text = await engine.generateAIText(prompt);
         return {
           type: 'reflection',
-          message: '🌙 Kończysz już dzień? Chcesz abym przygotował krótkie podsumowanie Twoich dzisiejszych dokonań?',
+          message:
+            text || '🌙 Kończysz już dzień? Chcesz abym przygotował krótkie podsumowanie Twoich dzisiejszych dokonań?',
           context: 'reflection-trigger',
         };
       },
@@ -2268,10 +2275,15 @@ function createBuiltinRules(): ProactiveRule[] {
         return ctx.hourOfDay >= 8 && ctx.hourOfDay <= 10;
       },
 
-      generate() {
+      async generate(ctx: ProactiveContext, engine: CortexEngine) {
+        const prompt = `Przygotuj bardzo krótki (1-2 zdania) poranny briefing.
+Dziś w kalendarzu: ${ctx.todayEvents.map((e) => e.summary).join(', ') || 'brak zaplanowanych spotkań'}
+Czas: ${ctx.timeContext}
+Bądź motywujący i konkretny.`;
+        const text = await engine.generateAIText(prompt);
         return {
           type: 'briefing',
-          message: '☀️ Dzień dobry! Masz chwilę na szybki przegląd dzisiejszego kalendarza i zadań?',
+          message: text || '☀️ Dzień dobry! Masz chwilę na szybki przegląd dzisiejszego kalendarza i zadań?',
           context: 'briefing-trigger',
         };
       },

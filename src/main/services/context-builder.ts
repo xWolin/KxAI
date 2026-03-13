@@ -29,6 +29,7 @@ import { PromptService } from './prompt-service';
 import { SubAgentManager } from './sub-agent';
 import { ContextManager } from './context-manager';
 import { KnowledgeGraphService } from './knowledge-graph-service';
+import { CalendarService } from './calendar-service';
 import { createLogger } from './logger';
 import type { IntentType } from './intent-detector';
 
@@ -103,6 +104,7 @@ export class ContextBuilder {
   private promptService: PromptService;
   private subAgentManager: SubAgentManager;
   private rag?: RAGService;
+  private calendarService?: CalendarService;
   private automationEnabled = false;
   private screenMonitor?: ContextBuildDeps['screenMonitor'];
 
@@ -152,6 +154,10 @@ export class ContextBuilder {
 
   setRAGService(rag: RAGService): void {
     this.rag = rag;
+  }
+
+  setCalendarService(cal: CalendarService): void {
+    this.calendarService = cal;
   }
 
   setAutomationEnabled(enabled: boolean): void {
@@ -532,6 +538,22 @@ ${conversationText.slice(0, 40000)}`;
     if (modules.loadCronContext) {
       const cronCtx = this.buildCronContext();
       if (cronCtx) parts.push(cronCtx);
+    }
+
+    // Calendar context
+    if (this.calendarService && this.calendarService.isConnected()) {
+      try {
+        const events = this.calendarService.getUpcomingEvents(1440); // next 24h
+        if (events.length > 0) {
+          const lines = events.map(
+            (e: any) =>
+              `- ${e.summary} (${new Date(e.start).toLocaleTimeString('pl-PL', { hour: '2-digit', minute: '2-digit' })})`,
+          );
+          parts.push(`\n## 📅 Kalendarz (24h)\n${lines.join('\n')}\n`);
+        }
+      } catch {
+        /* ignore */
+      }
     }
 
     // RAG stats

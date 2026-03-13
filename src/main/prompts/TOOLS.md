@@ -37,6 +37,8 @@ Wyjątek: możesz generować wiele bloków tool jeśli są od siebie NIEZALEŻNE
 | Przypomnienia, alarmy | `set_reminder` → `list_reminders` / `cancel_reminder` | Ręczne tworzenie cron jobów (set_reminder obsługuje naturalny język) |
 | Historia schowka | `clipboard_history`, `clipboard_search` | — |
 | Analiza bieżącego schowka | `clipboard_analyze` | `clipboard_history` (analyze = bieżący, history = przeszłe) |
+| Screenshot pulpitu / ekranu | `screenshot` lub `screenshot_analyze` | `browser_screenshot` (wymaga uruchomionej przeglądarki CDP) |
+| Screenshot aktywnej karty przeglądarki | `browser_screenshot` | `screenshot` (nie widzi contentu przeglądarki z bliska) |
 
 ## 🌐 Internet i przeglądarka
 

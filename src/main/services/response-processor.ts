@@ -24,14 +24,14 @@ export type CronSuggestion = Omit<CronJob, 'id' | 'createdAt' | 'runCount'>;
 export interface PostProcessResult {
   /** Parsed cron suggestion, if any */
   cronSuggestion: CronSuggestion | null;
+  /** The auto-approved cron job, if any */
+  autoApprovedCron: CronJob | null;
   /** Parsed take_control task, if any */
   takeControlTask: string | null;
   /** Whether bootstrap completion was detected */
   bootstrapComplete: boolean;
   /** Number of memory updates applied */
   memoryUpdatesApplied: number;
-  /** Auto-approved cron job (if auto-approve was enabled and category was safe) */
-  autoApprovedCron: CronJob | null;
 }
 
 /** Categories that are safe to auto-approve without user confirmation */
@@ -71,10 +71,10 @@ export class ResponseProcessor {
   ): Promise<PostProcessResult> {
     const result: PostProcessResult = {
       cronSuggestion: null,
+      autoApprovedCron: null,
       takeControlTask: null,
       bootstrapComplete: false,
       memoryUpdatesApplied: 0,
-      autoApprovedCron: null,
     };
 
     // 1. Cron suggestions
@@ -82,8 +82,7 @@ export class ResponseProcessor {
     if (result.cronSuggestion) {
       // Auto-approve safe categories from autonomous/heartbeat mode
       if (options?.autoApproveCrons && this.isSafeCronCategory(result.cronSuggestion.category)) {
-        const job = this.cron.addJob(result.cronSuggestion);
-        result.autoApprovedCron = job;
+        result.autoApprovedCron = this.cron.addJob(result.cronSuggestion);
         log.info(
           `Auto-approved cron job "${result.cronSuggestion.name}" (category: ${result.cronSuggestion.category})`,
         );

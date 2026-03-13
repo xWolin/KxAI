@@ -167,8 +167,9 @@ export class AgentLoop {
     this.takeControlEngine = new TakeControlEngine(ai, tools, memory, this.promptService, this.intentDetector);
     this.takeControlEngine.onAgentStatus = (status) => this.emitStatus(status);
 
-    this.cronExecutor = new CronExecutor(workflow, (msg, extra, opts) => this.processWithTools(msg, extra, opts));
-    this.cronExecutor.setMemoryService(memory);
+    this.cronExecutor = new CronExecutor(workflow, memory, (msg, extra, opts) =>
+      this.processWithTools(msg, extra, opts),
+    );
 
     // Sub-agent completion → notify UI
     this.subAgentManager.setCompletionCallback((result) => {
@@ -305,11 +306,11 @@ export class AgentLoop {
 
   setKnowledgeGraphService(kg: import('./knowledge-graph-service').KnowledgeGraphService): void {
     this.contextBuilder.setKnowledgeGraphService(kg);
-    this.cronExecutor.setKnowledgeGraphService(kg);
   }
 
-  setCalendarService(calendar: import('./calendar-service').CalendarService): void {
-    this.cronExecutor.setCalendarService(calendar);
+  setCalendarService(cal: import('./calendar-service').CalendarService): void {
+    this.contextBuilder.setCalendarService(cal);
+    this.cronExecutor.setCalendarService(cal);
   }
 
   setProactiveEngine(engine: import('./proactive-engine').ProactiveEngine): void {
@@ -341,6 +342,14 @@ export class AgentLoop {
    */
   getSubAgentManager(): SubAgentManager {
     return this.subAgentManager;
+  }
+
+  isTakeControlActive(): boolean {
+    return this.takeControlEngine.isTakeControlActive();
+  }
+
+  stopTakeControl(): void {
+    this.takeControlEngine.stopTakeControl();
   }
 
   /**
@@ -440,7 +449,7 @@ export class AgentLoop {
   async processWithTools(
     userMessage: string,
     extraContext?: string,
-    options?: { skipHistory?: boolean; signal?: AbortSignal },
+    options?: { skipHistory?: boolean; signal?: AbortSignal; mode?: 'chat' | 'heartbeat' | 'cron' },
   ): Promise<string> {
     // Ensure we have an AbortController for cancellation.
     // If called from streamWithTools, we already have one.
@@ -454,6 +463,7 @@ export class AgentLoop {
     try {
       return await this._processWithToolsInner(userMessage, extraContext, {
         skipHistory: options?.skipHistory,
+        mode: options?.mode,
         signal,
       });
     } finally {
@@ -466,12 +476,13 @@ export class AgentLoop {
   private async _processWithToolsInner(
     userMessage: string,
     extraContext?: string,
-    options?: { skipHistory?: boolean; signal?: AbortSignal },
+    options?: { skipHistory?: boolean; signal?: AbortSignal; mode?: 'chat' | 'heartbeat' | 'cron' },
   ): Promise<string> {
     const signal = options?.signal;
 
     // Build enhanced system context (delegated to ContextBuilder)
-    const enhancedCtx = await this.contextBuilder.buildEnhancedContext({ mode: 'chat', userMessage });
+    const mode = options?.mode ?? (options?.skipHistory ? 'heartbeat' : 'chat');
+    const enhancedCtx = await this.contextBuilder.buildEnhancedContext({ mode, userMessage });
 
     // Inject RAG context if available (gracefully degrade on failure)
     let ragContext = '';
@@ -1564,7 +1575,7 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
       try {
         log.info(`[BackgroundExec ${taskId}] Starting: ${task.slice(0, 100)}`);
         const result = await this.processWithTools(
-          `[BACKGROUND TASK]\n\n${task}\n\nWykonaj to zadanie w tle. Bądź zwięzły w wyniku.`,
+          `[BACKGROUND TASK]\n\n${task}\n\nWykonaj to zadanie w tle. Bądź zwięźle w wyniku.`,
           undefined,
           { skipHistory: true },
         );
@@ -1988,227 +1999,89 @@ Zapisz to podsumowanie do pamięci jako notatka dnia, używając \`\`\`update_me
         break;
       }
 
+      case 'key': {
+        if (!action.text) throw new Error('key requires text (key name)');
+        await this.automation.keyTap(action.text);
+        break;
+      }
+
       case 'type': {
         if (!action.text) throw new Error('type requires text');
         await this.automation.keyboardType(action.text);
         break;
       }
 
-      case 'key': {
-        if (!action.text) throw new Error('key requires text (key combo)');
-        // Anthropic sends key combos like "ctrl+a", "Return", "space"
-        const parts = action.text.split('+').map((k) => k.trim().toLowerCase());
-        if (parts.length > 1) {
-          await this.automation.keyboardShortcut(parts);
-        } else {
-          await this.automation.keyboardPress(parts[0]);
-        }
-        break;
-      }
-
-      case 'scroll': {
-        // Scroll is done via mouse at position, then scroll
-        // For now, use keyboard shortcuts as fallback
-        const dir = action.scroll_direction || 'down';
-        const amount = action.scroll_amount || 3;
-        if (action.coordinate) {
-          const [x, y] = scaleCoord(action.coordinate);
-          await this.automation.mouseMove(x, y);
-          await new Promise((r) => setTimeout(r, 100));
-        }
-        // Simulate scroll with arrow keys or page down/up
-        for (let i = 0; i < Math.min(amount, 10); i++) {
-          const key = dir === 'down' ? 'down' : dir === 'up' ? 'up' : dir === 'left' ? 'left' : 'right';
-          await this.automation.keyboardPress(key);
-          await new Promise((r) => setTimeout(r, 50));
-        }
-        break;
-      }
-
-      case 'cursor_position':
-        // Just report position — no action needed
-        break;
-
-      case 'wait': {
-        const duration = Math.min(action.duration || 1, 10);
-        await new Promise((r) => setTimeout(r, duration * 1000));
+      case 'left_click_drag': {
+        if (!action.coordinate) throw new Error('left_click_drag requires coordinate');
+        const [x, y] = scaleCoord(action.coordinate);
+        await this.automation.mouseDrag(x, y);
         break;
       }
 
       default:
-        log.warn(`Unknown Computer Use action: ${action.action}`);
+        throw new Error(`Unsupported action: ${action.action}`);
     }
   }
 
   /**
-   * Optimized vision-based fallback for OpenAI (non-native Computer Use).
-   * Uses XGA coordinate scaling, retry logic, and image history limiting.
+   * Fallback vision loop for providers without native Computer Use API.
+   * Manually takes screenshots and interprets coordinates.
    */
   private async takeControlVisionFallback(
     task: string,
     onStatus?: (status: string) => void,
     onChunk?: (chunk: string) => void,
   ): Promise<string> {
-    const maxActions = 20;
-    const maxTextRetries = 3; // Allow up to 3 text-only responses before giving up
-    let totalActions = 0;
-    let textRetries = 0;
+    const maxTurns = 15;
+    let turn = 0;
     const log: string[] = [];
 
-    const takeControlSystemCtx = [
-      await this.memory.buildSystemContext(),
-      '',
-      await this.promptService.render('TAKE_CONTROL.md', { maxSteps: String(maxActions) }),
-      '',
-      `Zadanie: ${task}`,
-    ].join('\n');
+    onStatus?.('🤖 Przejmuje sterowanie (Vision Fallback)...');
 
-    onStatus?.('🤖 Przejmuje sterowanie (Vision mode)...');
+    while (!this.isCancelled && turn < maxTurns) {
+      turn++;
+      onStatus?.(`Krok ${turn}/${maxTurns}...`);
 
-    while (!this.isCancelled && totalActions < maxActions) {
-      // Capture XGA-scaled screenshot with coordinate mapping
       const capture = await this.screenCapture!.captureForComputerUse();
-      if (!capture) {
-        log.push(`[${totalActions}] Screenshot failed`);
-        onChunk?.('\n❌ Screenshot capture failed\n');
-        break;
-      }
+      if (!capture) break;
 
-      // Build step prompt — more forceful after text-only retries
-      const recentLog = log.slice(-5).join('\n') || '(none)';
-      const prompt =
-        textRetries > 0
-          ? [
-              `RESPOND ONLY WITH A \`\`\`tool BLOCK. No text, no explanations.`,
-              `Screenshot: ${capture.width}x${capture.height}`,
-              `[Step ${totalActions + 1}/${maxActions}] Task: ${task}`,
-              `Log:\n${recentLog}`,
-            ].join('\n')
-          : [
-              `[Step ${totalActions + 1}/${maxActions}]`,
-              `Screenshot: ${capture.width}x${capture.height}`,
-              `Task: ${task}`,
-              `Log:\n${recentLog}`,
-              `Execute next action or respond "TASK_COMPLETE".`,
-            ].join('\n');
+      const prompt = await this.promptService.render('TAKE_CONTROL_FALLBACK.md', {
+        task,
+        turn: String(turn),
+        maxTurns: String(maxTurns),
+      });
 
-      let response: string;
       try {
-        response = await this.ai.sendMessageWithVision(prompt, capture.dataUrl, takeControlSystemCtx, 'high', {
-          signal: this.abortController?.signal,
-        });
-      } catch (error: any) {
-        log.push(`[${totalActions}] API error: ${error.message}`);
-        onChunk?.(`\n❌ API error: ${error.message}\n`);
-        break;
-      }
+        const response = await this.ai.sendMessageWithVision(
+          prompt,
+          capture.dataUrl,
+          await this.memory.buildSystemContext(),
+          'high',
+          { signal: this.abortController?.signal },
+        );
 
-      // Check for task completion
-      if (response.includes('TASK_COMPLETE') || response.includes('Zadanie ukończone')) {
-        onStatus?.('✅ Zadanie ukończone');
-        log.push(`[${totalActions}] Zadanie ukończone`);
-        onChunk?.('\n✅ Zadanie ukończone\n');
-        break;
-      }
+        onChunk?.(`\n💭 ${response.substring(0, 300)}...\n`);
 
-      // Try to parse tool call from response
-      const toolCall = this.parseToolCall(response);
-      if (toolCall) {
-        totalActions++;
-        textRetries = 0; // Reset text retries on successful tool call
-
-        // Scale coordinates from AI space (screenshot) to native screen
-        if (toolCall.params.x !== undefined && toolCall.params.y !== undefined) {
-          toolCall.params.x = Math.round(toolCall.params.x * capture.scaleX);
-          toolCall.params.y = Math.round(toolCall.params.y * capture.scaleY);
-        }
-
-        onChunk?.(`\n⚙️ [${totalActions}/${maxActions}] ${toolCall.tool}(${JSON.stringify(toolCall.params)})\n`);
-
-        try {
-          const result = await this.tools.execute(toolCall.tool, toolCall.params);
-          const resultStr = result.data || result.error || 'OK';
-          log.push(`[${totalActions}] ${toolCall.tool}(${JSON.stringify(toolCall.params)}) → ${resultStr}`);
-          onChunk?.(`${result.success ? '✅' : '❌'} ${resultStr}\n`);
-        } catch (execError: any) {
-          const errMsg = execError.message || 'Unknown execution error';
-          log.push(`[${totalActions}] ${toolCall.tool} ERROR: ${errMsg}`);
-          onChunk?.(`❌ Execution error: ${errMsg}\n`);
-        }
-
-        // Wait for UI to settle
-        await new Promise((r) => setTimeout(r, 800));
-      } else {
-        // AI responded with text instead of a tool block — retry with stricter prompt
-        textRetries++;
-        log.push(`[text-${textRetries}] AI: ${response.slice(0, 200)}`);
-        onChunk?.(`\n💭 ${response.slice(0, 300)}\n`);
-
-        if (textRetries >= maxTextRetries) {
-          onChunk?.('\n⚠️ AI nie wykonuje akcji (brak bloków ```tool) — przerywam.\n');
-          log.push('Przerwano: AI nie generuje bloków tool');
+        const toolCall = this.parseToolCall(response);
+        if (!toolCall) {
+          log.push(`[${turn}] DONE: ${response.slice(0, 100)}`);
           break;
         }
-        // Continue loop — next iteration will use stricter prompt and fresh screenshot
-      }
-    }
 
-    if (this.isCancelled) {
-      onStatus?.('⛔ Przerwano przez użytkownika');
-      log.push('Przerwano przez użytkownika');
-    } else if (totalActions >= maxActions) {
-      onStatus?.('⚠️ Osiągnięto limit akcji');
-      log.push('Osiągnięto limit akcji');
+        log.push(`[${turn}] ${toolCall.tool}: ${JSON.stringify(toolCall.params)}`);
+        onChunk?.(`⚙️ ${toolCall.tool}\n`);
+
+        // Execute automation tool
+        await this.tools.execute(toolCall.tool, toolCall.params);
+
+        // Wait for UI
+        await new Promise((r) => setTimeout(r, 1000));
+      } catch (error: any) {
+        log.push(`[${turn}] ERROR: ${error.message}`);
+        break;
+      }
     }
 
     return log.join('\n');
-  }
-
-  /**
-   * Stop take-control mode.
-   */
-  stopTakeControl(): void {
-    this.abortController?.abort();
-    this.takeControlEngine.stopTakeControl();
-  }
-
-  isTakeControlActive(): boolean {
-    return this.takeControlActive || this.takeControlEngine.isTakeControlActive();
-  }
-
-  /**
-   * Get pending cron suggestions awaiting user approval.
-   * Combines legacy and ResponseProcessor suggestions.
-   */
-  getPendingCronSuggestions(): Array<Omit<CronJob, 'id' | 'createdAt' | 'runCount'>> {
-    return [...this.pendingCronSuggestions, ...this.responseProcessor.getPendingCronSuggestions()];
-  }
-
-  /**
-   * Approve a pending cron suggestion by index.
-   */
-  approveCronSuggestion(index: number): CronJob | null {
-    // Try legacy first
-    if (index < this.pendingCronSuggestions.length) {
-      if (index < 0) return null;
-      const suggestion = this.pendingCronSuggestions.splice(index, 1)[0];
-      return this.cron.addJob(suggestion);
-    }
-    // Then responseProcessor
-    const rpIndex = index - this.pendingCronSuggestions.length;
-    return this.responseProcessor.approveCronSuggestion(rpIndex);
-  }
-
-  /**
-   * Reject (dismiss) a pending cron suggestion by index.
-   */
-  rejectCronSuggestion(index: number): boolean {
-    if (index < this.pendingCronSuggestions.length) {
-      if (index < 0) return false;
-      this.pendingCronSuggestions.splice(index, 1);
-      return true;
-    }
-    const rpIndex = index - this.pendingCronSuggestions.length;
-    return this.responseProcessor.rejectCronSuggestion(rpIndex);
   }
 }
