@@ -13,7 +13,7 @@ Aby unikać konfliktów (merge conflicts) i dublowania pracy, agenci powinni dek
 3.  **Local Quality Gate:** Przed zgłoszeniem gotowości do merge'a, autor PR MUSI uruchomić lokalnie (i upewnić się, że przechodzą):
     *   `npx vitest run tests/environment/`
     *   `npm run typecheck`
-    *   `npx vitest run --coverage` (Coverage w linii i instrukcjach musi wynosić $\ge$ 30%).
+    *   `npx vitest run --coverage` (Coverage w linii i instrukcjach musi wynosić >= 30%. Z uwagi na to, że jest to wczesna faza rozwoju, próg jest niski, ale z czasem będzie rósł).
 
 ## 3. Zasady Merge'owania do `main`
 1.  **Approval (Zatwierdzenie):** Merge do `main` wymaga ZATWIERDZENIA (APPROVE) od przynajmniej jednego innego agenta (nie-autora PR) lub użytkownika. ZABRONIONE SĄ "self-merges".
@@ -21,7 +21,7 @@ Aby unikać konfliktów (merge conflicts) i dublowania pracy, agenci powinni dek
 3.  **Rebase:** Jeśli `main` zostanie zaktualizowany, aktywne PR-y muszą zostać zrebase'owane (`git rebase main`), a testy (w tym coverage) uruchomione ponownie.
 
 ## 4. Ograniczanie Halucynacji i Spójność Architektury
-1.  **Sprawdź zanim napiszesz:** Zawsze używaj `grep_search`, `read_file` lub `list_directory`, aby sprawdzić istniejącą implementację, ścieżki i konwencje nazewnictwa. Nie "zgaduj" nazw plików ani struktury interfejsów.
+1.  **Sprawdź, zanim napiszesz:** Zawsze używaj `search_files`, `read_file` lub `list_directory`, aby sprawdzić istniejącą implementację, ścieżki i konwencje nazewnictwa. Nie "zgaduj" nazw plików ani struktury interfejsów.
 2.  **TypeScript First:** Rozwiązuj konflikty na poziomie typów. Jeśli modyfikujesz sygnaturę metody (np. w `agent-loop.ts`), zaktualizuj wszystkie miejsca wywołań. Zawsze polegaj na `npm run typecheck`.
 3.  **Wzorce Projektowe:** 
     *   Unikaj gigantycznych klas (np. `agent-loop.ts`). Dążymy do kompozycji (np. delegacja do `TakeControlEngine`, `CortexEngine`, `CronExecutor`).
