@@ -196,7 +196,7 @@ function TelegramTab() {
   const [allowedChats, setAllowedChats] = useState('');
   const [allowedUsernames, setAllowedUsernames] = useState('');
   const [autoStartLocal, setAutoStartLocal] = useState(false);
-  const [autoStartDirty, setAutoStartDirty] = useState(false);
+  const autoStartDirtyRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -204,12 +204,12 @@ function TelegramTab() {
     loadStatus();
     const unsub = window.kxai.onTelegramStatus((s) => {
       setStatus(s);
-      if (!autoStartDirty) {
+      if (!autoStartDirtyRef.current) {
         setAutoStartLocal(s.autoStart);
       }
     });
     return unsub;
-  }, [autoStartDirty]);
+  }, []);
 
   async function loadStatus() {
     try {
@@ -218,7 +218,7 @@ function TelegramTab() {
       setAllowedChats(s.allowedChatIds.length > 0 ? s.allowedChatIds.join(', ') : '');
       setAllowedUsernames(s.allowedUsernames.length > 0 ? s.allowedUsernames.join(', ') : '');
       setAutoStartLocal(s.autoStart);
-      setAutoStartDirty(false);
+      autoStartDirtyRef.current = false;
     } catch {
       /* ignore */
     }
@@ -440,7 +440,7 @@ function TelegramTab() {
                   checked={autoStartLocal}
                   onChange={(e) => {
                     setAutoStartLocal(e.target.checked);
-                    setAutoStartDirty(true);
+                    autoStartDirtyRef.current = true;
                   }}
                 />
                 {t('settings.telegram.autoStart')}
@@ -449,8 +449,9 @@ function TelegramTab() {
                 className={s.mcpBtnSmallAccent}
                 onClick={handleSaveAutoStart}
                 disabled={loading || autoStartLocal === status?.autoStart}
+                aria-label={`${t('common.save')} ${t('settings.telegram.autoStart')}`}
               >
-                {t('settings.telegram.save')}
+                {t('common.save')}
               </button>
             </div>
           </div>
@@ -469,8 +470,13 @@ function TelegramTab() {
                 placeholder={t('settings.telegram.allowedChatsPlaceholder')}
                 style={{ flex: 1 }}
               />
-              <button className={s.mcpBtnSmallAccent} onClick={handleSaveAllowedChats} disabled={loading}>
-                {t('settings.telegram.save')}
+              <button
+                className={s.mcpBtnSmallAccent}
+                onClick={handleSaveAllowedChats}
+                disabled={loading}
+                aria-label={t('settings.telegram.saveAllowedChats')}
+              >
+                {t('common.save')}
               </button>
             </div>
           </div>
@@ -489,8 +495,13 @@ function TelegramTab() {
                 placeholder={t('settings.telegram.allowedUsernamesPlaceholder')}
                 style={{ flex: 1 }}
               />
-              <button className={s.mcpBtnSmallAccent} onClick={handleSaveAllowedUsernames} disabled={loading}>
-                {t('settings.telegram.save')}
+              <button
+                className={s.mcpBtnSmallAccent}
+                onClick={handleSaveAllowedUsernames}
+                disabled={loading}
+                aria-label={t('settings.telegram.saveAllowedUsernames')}
+              >
+                {t('common.save')}
               </button>
             </div>
           </div>
