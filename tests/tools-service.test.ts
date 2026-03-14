@@ -108,6 +108,30 @@ function createService(): ToolsService {
 }
 
 // =============================================================================
+// ALWAYS_INCLUDE_CATEGORIES — regression: mcp + calendar always visible
+// =============================================================================
+describe('ALWAYS_INCLUDE_CATEGORIES', () => {
+  it('includes mcp in always-include categories', () => {
+    const categories = (ToolsService as any).ALWAYS_INCLUDE_CATEGORIES as Set<string>;
+    expect(categories.has('mcp')).toBe(true);
+  });
+
+  it('includes calendar in always-include categories', () => {
+    const categories = (ToolsService as any).ALWAYS_INCLUDE_CATEGORIES as Set<string>;
+    expect(categories.has('calendar')).toBe(true);
+  });
+
+  it('still includes core categories (system, memory, agent, cron)', () => {
+    const categories = (ToolsService as any).ALWAYS_INCLUDE_CATEGORIES as Set<string>;
+    expect(categories.has('system')).toBe(true);
+    expect(categories.has('memory')).toBe(true);
+    expect(categories.has('agent')).toBe(true);
+    expect(categories.has('cron')).toBe(true);
+    expect(categories.has('observation')).toBe(true);
+  });
+});
+
+// =============================================================================
 // safeMathEval
 // =============================================================================
 describe('safeMathEval', () => {

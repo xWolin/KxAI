@@ -109,6 +109,7 @@ interface ProactiveContext {
   currentWindow: string;
   kgSummary: string;
   isAfk: boolean;
+  mcpConnectedServers: string[];
 }
 
 interface ProactiveRule {
@@ -806,7 +807,10 @@ export class CortexEngine {
         /* not critical */
       }
 
-      const prompt = `[CORTEX — Autonomiczny agent]\n\n${timeCtx}${activitySection}\n\nAktywne cron joby:\n${jobsSummary || '(brak)'}${heartbeatSection}${observationCtx}${screenSection}${eventsSection}${memoryNudge}${memoryReminder}
+      // Integration awareness — tell the agent what services are available
+      const integrationSection = this.buildIntegrationContext();
+
+      const prompt = `[CORTEX — Autonomiczny agent]\n\n${timeCtx}${activitySection}\n\nAktywne cron joby:\n${jobsSummary || '(brak)'}${heartbeatSection}${observationCtx}${screenSection}${eventsSection}${integrationSection}${memoryNudge}${memoryReminder}
 
 ${autonomousPrompt ? `\n${autonomousPrompt}\n` : ''}Masz pełny dostęp do narzędzi (podane w API). Jeśli chcesz coś ZROBIĆ — wywołaj narzędzie. Nie mów "mogę to zrobić" — PO PROSTU TO ZRÓB.
 Jeśli chcesz ZAPROPONOWAĆ akcję (np. automatyzacja, cron, reorganizacja) zamiast od razu ją wykonać, użyj bloku:
@@ -1232,6 +1236,21 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
     else if (hourOfDay >= 17 && hourOfDay < 22) timeOfDay = 'evening';
     else timeOfDay = 'night';
 
+    // MCP connected servers — use getStatus() which has actual connection state
+    let mcpConnectedServers: string[] = [];
+    try {
+      if (this.mcpClient) {
+        const hubStatus = this.mcpClient.getStatus?.();
+        if (hubStatus?.servers) {
+          mcpConnectedServers = hubStatus.servers
+            .filter((s) => s.status === 'connected')
+            .map((s) => (s.name || s.id || '').toLowerCase());
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
     return {
       now,
       hourOfDay,
@@ -1248,6 +1267,7 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       currentWindow,
       kgSummary,
       isAfk: this.isAfk,
+      mcpConnectedServers,
     };
   }
 
@@ -1835,6 +1855,62 @@ KRYTYCZNA ZASADA ANTY-POWTÓRZEŃ:
     return ctx;
   }
 
+  /**
+   * Build a context section describing connected integrations.
+   * This nudges the think cycle to actually USE available services.
+   */
+  private buildIntegrationContext(): string {
+    const integrations: string[] = [];
+
+    // MCP servers (email, slack, notion, etc.) — use getStatus() for actual connection state
+    try {
+      if (this.mcpClient) {
+        const hubStatus = this.mcpClient.getStatus?.();
+        const connected = hubStatus?.servers?.filter((s) => s.status === 'connected') ?? [];
+        if (connected.length > 0) {
+          for (const s of connected) {
+            const name = (s.name || s.id || '').toLowerCase();
+            if (name.includes('gmail') || name.includes('outlook') || name.includes('email')) {
+              integrations.push(
+                `📧 Email (${s.name}): PODŁĄCZONY — sprawdzaj co jakiś czas nieprzeczytane wiadomości!`,
+              );
+            } else if (name.includes('slack')) {
+              integrations.push(`💬 Slack (${s.name}): PODŁĄCZONY — sprawdzaj wiadomości`);
+            } else if (name.includes('notion')) {
+              integrations.push(`📝 Notion (${s.name}): PODŁĄCZONY`);
+            } else if (name.includes('github')) {
+              integrations.push(`🐙 GitHub (${s.name}): PODŁĄCZONY`);
+            } else {
+              integrations.push(`🔌 ${s.name}: PODŁĄCZONY (${s.tools?.length || 0} narzędzi)`);
+            }
+          }
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Calendar
+    try {
+      if (this.calendarService?.isConnected()) {
+        const upcoming = this.calendarService.getUpcomingEvents(60);
+        if (upcoming.length > 0) {
+          const next = upcoming[0];
+          const mins = Math.round((new Date(next.start).getTime() - Date.now()) / 60000);
+          integrations.push(`📅 Kalendarz: PODŁĄCZONY — następne spotkanie za ${mins} min: ${next.summary}`);
+        } else {
+          integrations.push(`📅 Kalendarz: PODŁĄCZONY — brak nadchodzących spotkań`);
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    if (integrations.length === 0) return '';
+
+    return `\n## 🔗 Podłączone integracje — KORZYSTAJ Z NICH AKTYWNIE\n${integrations.join('\n')}\n`;
+  }
+
   private buildEventsSection(): string {
     if (this.eventQueue.length === 0) return '';
     const sorted = [...this.eventQueue].sort((a, b) => this.priorityValue(b.priority) - this.priorityValue(a.priority));
@@ -1930,6 +2006,38 @@ Zapisz to podsumowanie do pamięci używając:
 \`\`\`update_memory
 {"file":"memory","section":"Podsumowanie","content":"treść podsumowania"}
 \`\`\``,
+      },
+      {
+        id: 'email-digest',
+        minAfk: 15,
+        prompt: `Użytkownik jest AFK — sprawdź jego emaile i przygotuj digest.
+
+KROKI:
+1. Użyj narzędzia mcp_gmail_search_emails (lub podobnego) żeby znaleźć nieprzeczytane emaile z ostatnich 24h
+2. Pogrupuj emaile po nadawcy/temacie
+3. Zidentyfikuj te wymagające odpowiedzi
+4. Przygotuj krótki raport (max 5 najważniejszych emaili)
+5. Zapisz digest w pamięci jako "Email Digest [data]" używając \`\`\`update_memory z plikiem "memory"
+
+Jeśli nie masz dostępu do narzędzi email, odpowiedz "CORTEX_OK".
+NIE PYTAJ — po prostu zrób to.`,
+      },
+      {
+        id: 'workflow-optimization',
+        minAfk: 20,
+        prompt: `Przeanalizuj ostatnie aktywności użytkownika i znajdź możliwości optymalizacji.
+
+KROKI:
+1. Sprawdź listę cron jobów (cron_list) — czy wszystkie są aktualne? Czy jakiś jest zbędny?
+2. Sprawdź workflow patterns — czy widzisz powtarzalne sekwencje które można zamienić na makro?
+3. Sprawdź Knowledge Graph — czy są braki w profilu użytkownika?
+
+Jeśli znajdziesz coś do poprawy:
+- Zaktualizuj/usuń nieaktualne cron joby
+- Zaproponuj nowe cron joby blokiem \`\`\`cron
+- Uzupełnij Knowledge Graph (kg_add_entity, kg_add_relation)
+
+NIE PYTAJ — działaj. Jeśli nie masz nic do zrobienia, odpowiedz "CORTEX_OK".`,
       },
     ];
 
@@ -2314,7 +2422,30 @@ Bądź motywujący i konkretny.`;
       },
     },
 
-    // ── 10. Night Mode ──
+    // ── 10. Email Check Nudge ──
+    {
+      id: 'email-check',
+      name: 'Sprawdzenie poczty',
+      priority: 5,
+      cooldownMs: 2 * 60 * 60_000,
+
+      shouldFire(ctx: ProactiveContext): boolean {
+        const hasEmail = ctx.mcpConnectedServers.some(
+          (s) => s.includes('gmail') || s.includes('outlook') || s.includes('email'),
+        );
+        return hasEmail && ctx.timeOfDay !== 'night' && !ctx.isAfk;
+      },
+
+      generate() {
+        return {
+          type: 'proactive',
+          message: '📧 Masz podłączoną pocztę — chcesz żebym sprawdził nieprzeczytane wiadomości?',
+          context: 'email-check-nudge',
+        };
+      },
+    },
+
+    // ── 11. Night Mode ──
     {
       id: 'night-mode',
       name: 'Tryb nocny',
