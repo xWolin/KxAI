@@ -474,6 +474,8 @@ export const pl: TranslationDict = {
   'common.loading': 'Ładowanie...',
   'common.yes': 'Tak',
   'common.no': 'Nie',
+  'settings.common.saved': 'Ustawienia zapisane',
+  'settings.common.error': '❌ Błąd: {message}',
   // Privacy & Clipboard
   // ═══════════════════════════════════════════════
   'settings.privacy.title': 'Prywatność i dane',
