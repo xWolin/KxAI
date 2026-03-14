@@ -183,6 +183,7 @@ export type {
   CortexMessageSource,
   CortexMessagePriority,
   CortexMessage,
+  CortexMemoryUpdate,
   CortexStatus,
   CortexRuleStats,
   CortexFeedback,

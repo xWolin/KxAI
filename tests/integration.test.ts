@@ -457,9 +457,12 @@ describe('ResponseProcessor — Integration', () => {
   describe('processMemoryUpdates', () => {
     it('processes single memory update', async () => {
       const response = '```update_memory\n{"file":"user","section":"preferences","content":"Likes dark mode"}\n```';
-      const count = await processor.processMemoryUpdates(response);
+      const result = await processor.processMemoryUpdates(response);
 
-      expect(count).toBe(1);
+      expect(result.count).toBe(1);
+      expect(result.details).toHaveLength(1);
+      expect(result.details[0].file).toBe('user');
+      expect(result.details[0].section).toBe('preferences');
       expect(mockMemory.updateMemorySection).toHaveBeenCalledWith(
         'USER.md',
         'preferences',
@@ -474,8 +477,9 @@ describe('ResponseProcessor — Integration', () => {
         '```update_memory\n{"file":"soul","section":"personality","content":"Helpful and friendly"}\n```',
       ].join('\n');
 
-      const count = await processor.processMemoryUpdates(response);
-      expect(count).toBe(2);
+      const result = await processor.processMemoryUpdates(response);
+      expect(result.count).toBe(2);
+      expect(result.details).toHaveLength(2);
       expect(mockMemory.updateMemorySection).toHaveBeenCalledTimes(2);
     });
 
@@ -486,12 +490,14 @@ describe('ResponseProcessor — Integration', () => {
         '```update_memory\n{"file":"user","section":"ok2","content":"also valid"}\n```',
       ].join('\n');
 
-      const count = await processor.processMemoryUpdates(response);
-      expect(count).toBe(2);
+      const result = await processor.processMemoryUpdates(response);
+      expect(result.count).toBe(2);
     });
 
     it('returns 0 for no update blocks', async () => {
-      expect(await processor.processMemoryUpdates('No updates here.')).toBe(0);
+      const result = await processor.processMemoryUpdates('No updates here.');
+      expect(result.count).toBe(0);
+      expect(result.details).toHaveLength(0);
     });
   });
 

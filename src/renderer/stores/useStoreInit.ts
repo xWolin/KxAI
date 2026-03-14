@@ -129,6 +129,7 @@ export function useStoreInit(): void {
           message: msg.message,
           context: msg.context || '',
           ruleId: msg.ruleId,
+          memoryUpdates: msg.memoryUpdates,
         });
       }
     });

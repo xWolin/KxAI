@@ -837,7 +837,7 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       this.recordObservation(currentWindowTitle, monitorCtx, response);
 
       // Post-process: cron suggestions, memory updates (auto-approve safe categories)
-      await this.responseProcessor.postProcess(response, undefined, { autoApproveCrons: true });
+      const ppResult = await this.responseProcessor.postProcess(response, undefined, { autoApproveCrons: true });
 
       // Parse proposals — structured suggestions from AI
       const proposals = this.parseProposals(response);
@@ -847,17 +847,20 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
           priority: proposal.risk === 'dangerous' ? 'critical' : 'normal',
           message: `💡 **${proposal.title}**\n${proposal.description}`,
           proposal,
+          memoryUpdates: ppResult.memoryUpdateDetails.length > 0 ? ppResult.memoryUpdateDetails : undefined,
         });
       }
 
       // Clean and emit (only if no proposals — avoid double notification)
       if (proposals.length === 0) {
         const cleanResponse = this.cleanResponse(response);
-        if (cleanResponse) {
+        // Always emit if there are memory updates (even if text was cleaned away)
+        if (cleanResponse || ppResult.memoryUpdateDetails.length > 0) {
           this.emitMessage({
             source: 'think',
             priority: 'normal',
-            message: cleanResponse,
+            message: cleanResponse ?? '',
+            memoryUpdates: ppResult.memoryUpdateDetails.length > 0 ? ppResult.memoryUpdateDetails : undefined,
           });
         }
       }
@@ -1712,6 +1715,7 @@ KRYTYCZNA ZASADA ANTY-POWTÓRZEŃ:
     context?: string;
     ruleId?: string;
     proposal?: import('../../shared/types/cortex').CortexProposal;
+    memoryUpdates?: import('../../shared/types/cortex').CortexMemoryUpdate[];
   }): void {
     const msg: CortexMessage = {
       id: `ctx_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -1721,6 +1725,7 @@ KRYTYCZNA ZASADA ANTY-POWTÓRZEŃ:
       context: opts.context,
       ruleId: opts.ruleId,
       proposal: opts.proposal,
+      memoryUpdates: opts.memoryUpdates,
       timestamp: Date.now(),
     };
     this.onMessage?.(msg);
