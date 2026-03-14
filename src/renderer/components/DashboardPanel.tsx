@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import type { ToolDefinition, CronJob, ActivityEntry, SystemSnapshot } from '../types';
+import type { ToolDefinition, CronJob, ActivityEntry, SystemSnapshot, ParticipantResearchRecord } from '../types';
 import type { McpHubStatus } from '@shared/types';
 import s from './DashboardPanel.module.css';
 import { cn } from '../utils/cn';
@@ -28,6 +28,7 @@ const TABS = [
   { id: 'system', label: '💻 System' },
   { id: 'mcp', label: '🔌 MCP' },
   { id: 'activity', label: '📋 Aktywność' },
+  { id: 'research', label: '🔬 Badania' },
 ];
 
 // ─── Component ───
@@ -50,6 +51,7 @@ export function DashboardPanel({ onBack }: DashboardPanelProps) {
         {activeTab === 'system' && <SystemTab />}
         {activeTab === 'mcp' && <McpTab />}
         {activeTab === 'activity' && <ActivityTab />}
+        {activeTab === 'research' && <ResearchHistoryTab />}
       </div>
     </div>
   );
@@ -456,6 +458,234 @@ function ActivityTab() {
           <span className={s.activityAction}>{entry.action}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ─── Research History Tab ───
+
+const CONFIDENCE_BADGE: Record<string, 'success' | 'accent' | 'error' | 'default'> = {
+  high: 'success',
+  medium: 'accent',
+  low: 'error',
+  unknown: 'default',
+};
+
+function ResearchHistoryTab() {
+  const { t } = useTranslation();
+  const [records, setRecords] = useState<ParticipantResearchRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('');
+  const [selected, setSelected] = useState<ParticipantResearchRecord | null>(null);
+  const [rerunning, setRerunning] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    setLoading(true);
+    window.kxai
+      .getResearchHistory?.()
+      .then((r) => setRecords(r ?? []))
+      .catch(() => setRecords([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const handleRerun = useCallback(
+    async (id: string) => {
+      setRerunning(id);
+      try {
+        await window.kxai.rerunParticipantResearch?.(id);
+        load();
+      } finally {
+        setRerunning(null);
+      }
+    },
+    [load],
+  );
+
+  const handleDelete = useCallback(
+    async (id: string) => {
+      await window.kxai.deleteResearchRecord?.(id);
+      setSelected((prev) => (prev?.id === id ? null : prev));
+      load();
+    },
+    [load],
+  );
+
+  if (loading) return <Spinner />;
+
+  const filterLower = filter.toLowerCase();
+  const filtered = records.filter(
+    (r) =>
+      !filterLower ||
+      r.name.toLowerCase().includes(filterLower) ||
+      (r.company ?? '').toLowerCase().includes(filterLower) ||
+      (r.role ?? '').toLowerCase().includes(filterLower),
+  );
+
+  if (records.length === 0) {
+    return (
+      <div className={s.researchEmpty}>
+        <div className={s.researchEmptyIcon}>🔬</div>
+        <div className={s.researchEmptyTitle}>{t('dashboard.research.empty')}</div>
+        <div className={s.researchEmptyHint}>{t('dashboard.research.emptyHint')}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={s.researchLayout}>
+      {/* Sidebar — record list */}
+      <div className={s.researchSidebar}>
+        <input
+          className={s.searchInput}
+          placeholder={t('dashboard.research.search')}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+        />
+        <div className={s.researchCount}>
+          {filtered.length} / {records.length} {t('dashboard.research.records')}
+        </div>
+        <div className={s.researchList}>
+          {filtered.map((rec) => (
+            <div
+              key={rec.id}
+              className={`${s.researchItem} ${selected?.id === rec.id ? s.researchItemSelected : ''}`}
+              onClick={() => setSelected(rec)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === 'Enter' && setSelected(rec)}
+            >
+              <div className={s.researchItemHeader}>
+                {rec.photoBase64 ? (
+                  <img src={`data:image/jpeg;base64,${rec.photoBase64}`} alt={rec.name} className={s.researchThumb} />
+                ) : (
+                  <div className={s.researchThumbPlaceholder}>👤</div>
+                )}
+                <div className={s.researchItemMeta}>
+                  <div className={s.researchItemName}>{rec.name}</div>
+                  {rec.company && <div className={s.researchItemCompany}>{rec.company}</div>}
+                </div>
+                <Badge variant={CONFIDENCE_BADGE[rec.confidence] ?? 'default'}>{rec.confidence}</Badge>
+              </div>
+              {rec.stale && <div className={s.researchStale}>⚠ {t('dashboard.research.stale')}</div>}
+              <div className={s.researchItemDate}>
+                {new Date(rec.lastRunAt).toLocaleDateString('pl-PL', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Detail pane */}
+      <div className={s.researchDetail}>
+        {selected ? (
+          <ResearchDetail
+            record={selected}
+            rerunning={rerunning === selected.id}
+            onRerun={() => handleRerun(selected.id)}
+            onDelete={() => handleDelete(selected.id)}
+          />
+        ) : (
+          <div className={s.researchDetailEmpty}>{t('dashboard.research.selectHint')}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ResearchDetail({
+  record,
+  rerunning,
+  onRerun,
+  onDelete,
+}: {
+  record: ParticipantResearchRecord;
+  rerunning: boolean;
+  onRerun: () => void;
+  onDelete: () => void;
+}) {
+  const { t } = useTranslation();
+
+  return (
+    <div className={s.researchDetailContent}>
+      {/* Person header */}
+      <div className={s.researchDetailHeader}>
+        {record.photoBase64 ? (
+          <img
+            src={`data:image/jpeg;base64,${record.photoBase64}`}
+            alt={record.name}
+            className={s.researchDetailPhoto}
+          />
+        ) : (
+          <div className={s.researchDetailPhotoPlaceholder}>👤</div>
+        )}
+        <div>
+          <div className={s.researchDetailName}>{record.name}</div>
+          {record.role && <div className={s.researchDetailRole}>{record.role}</div>}
+          {record.company && <div className={s.researchDetailCompany}>{record.company}</div>}
+        </div>
+        <div className={s.researchDetailBadges}>
+          <Badge variant={CONFIDENCE_BADGE[record.confidence] ?? 'default'}>{record.confidence}</Badge>
+          {record.stale && <Badge variant="error">stale</Badge>}
+        </div>
+      </div>
+
+      {/* Summary */}
+      <div className={s.researchSection}>
+        <div className={s.researchSectionTitle}>{t('dashboard.research.summary')}</div>
+        <div className={s.researchSummary}>{record.summary || '—'}</div>
+      </div>
+
+      {/* Sources */}
+      {record.sources.length > 0 && (
+        <div className={s.researchSection}>
+          <div className={s.researchSectionTitle}>{t('dashboard.research.sources')}</div>
+          <ul className={s.researchSources}>
+            {record.sources.map((src, i) => (
+              <li key={i} className={s.researchSource}>
+                🔗 {src}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Meta */}
+      <div className={s.researchMeta}>
+        <span>
+          {t('dashboard.research.lastRun')}:{' '}
+          {new Date(record.lastRunAt).toLocaleString('pl-PL', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </span>
+        <span>v{record.version}</span>
+      </div>
+
+      {/* Actions */}
+      <div className={s.researchActions}>
+        <button
+          className={s.actionBtnPrimary}
+          onClick={onRerun}
+          disabled={rerunning}
+          title={t('dashboard.research.rerun')}
+        >
+          {rerunning ? <Spinner /> : `🔄 ${t('dashboard.research.rerun')}`}
+        </button>
+        <button className={s.actionBtnDanger} onClick={onDelete} title={t('dashboard.research.delete')}>
+          🗑 {t('dashboard.research.delete')}
+        </button>
+      </div>
     </div>
   );
 }

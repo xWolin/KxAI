@@ -456,6 +456,19 @@ export const en: TranslationDict = {
   'dashboard.mcp.connect': 'Connect',
   'dashboard.activity.empty': 'No activity.',
 
+  // Research history tab
+  'dashboard.research.empty': 'No research history yet.',
+  'dashboard.research.emptyHint': 'Run a meeting briefing to start building participant history.',
+  'dashboard.research.search': 'Search by name, company or role…',
+  'dashboard.research.records': 'records',
+  'dashboard.research.stale': 'May be outdated',
+  'dashboard.research.selectHint': 'Select a person to see details.',
+  'dashboard.research.summary': 'Summary',
+  'dashboard.research.sources': 'Sources',
+  'dashboard.research.lastRun': 'Last researched',
+  'dashboard.research.rerun': 'Re-research',
+  'dashboard.research.delete': 'Delete',
+
   // ═══════════════════════════════════════
   // ErrorBoundary
   // ═══════════════════════════════════════
