@@ -79,6 +79,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .headerEmoji {
@@ -89,6 +92,9 @@
   font-weight: 600;
   font-size: 14px;
   letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .headerModel {
@@ -165,8 +171,9 @@
 
 .headerActions {
   display: flex;
-  gap: 4px;
+  gap: 3px;
   -webkit-app-region: no-drag;
+  flex-shrink: 0;
 }
 
 .btn {
