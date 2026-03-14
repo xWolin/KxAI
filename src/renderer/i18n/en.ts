@@ -161,11 +161,18 @@ export const en: TranslationDict = {
   'settings.general.ttsProvider': 'TTS Engine',
   'settings.general.ttsProviderHint':
     'ElevenLabs — best quality. OpenAI TTS — good quality. Web Speech — built-in, free.',
+  'settings.general.ttsProviderElevenLabs': 'ElevenLabs (best quality)',
+  'settings.general.ttsProviderOpenAI': 'OpenAI TTS',
+  'settings.general.ttsProviderWeb': 'Web Speech API (built-in)',
   'settings.general.ttsElevenLabsKey': 'ElevenLabs API Key',
   'settings.general.ttsElevenLabsKeyPlaceholder': 'Paste ElevenLabs API key (sk-...)',
   'settings.general.ttsVoiceId': 'ElevenLabs Voice ID',
   'settings.general.ttsVoiceIdHint': 'Voice ID from ElevenLabs Voice Library. Default: Daniel (onwK4e9ZLuTAKqWW03F9).',
   'settings.general.ttsElModel': 'ElevenLabs model',
+  'settings.general.ttsModelMultilingual': 'eleven_multilingual_v2 (PL/EN)',
+  'settings.general.ttsModelFlash': 'eleven_flash_v2_5 (fast, cheap)',
+  'settings.general.ttsModelTurbo': 'eleven_turbo_v2_5 (fast, good)',
+  'settings.general.ttsModelMonolingual': 'eleven_monolingual_v1 (EN only)',
   'settings.general.ttsOpenaiVoice': 'OpenAI TTS voice',
   'settings.general.ttsOpenaiModel': 'OpenAI TTS model',
   'settings.general.ttsWebHint':

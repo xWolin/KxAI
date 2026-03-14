@@ -435,7 +435,14 @@ function TelegramTab() {
                   cursor: 'pointer',
                 }}
               >
-                <input type="checkbox" checked={autoStartLocal} onChange={(e) => setAutoStartLocal(e.target.checked)} />
+                <input
+                  type="checkbox"
+                  checked={autoStartLocal}
+                  onChange={(e) => {
+                    setAutoStartLocal(e.target.checked);
+                    setAutoStartDirty(true);
+                  }}
+                />
                 {t('settings.telegram.autoStart')}
               </label>
               <button
@@ -1549,9 +1556,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     value={ttsProvider}
                     onChange={(e) => setTtsProvider(e.target.value as 'elevenlabs' | 'openai' | 'web')}
                   >
-                    <option value="elevenlabs">ElevenLabs (najlepsza jakość)</option>
-                    <option value="openai">OpenAI TTS</option>
-                    <option value="web">Web Speech API (wbudowany)</option>
+                    <option value="elevenlabs">{t('settings.general.ttsProviderElevenLabs')}</option>
+                    <option value="openai">{t('settings.general.ttsProviderOpenAI')}</option>
+                    <option value="web">{t('settings.general.ttsProviderWeb')}</option>
                   </select>
                   <p className={s.hint}>{t('settings.general.ttsProviderHint')}</p>
 
@@ -1581,10 +1588,10 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       <p className={s.hint}>{t('settings.general.ttsVoiceIdHint')}</p>
                       <label className={s.label}>{t('settings.general.ttsElModel')}</label>
                       <select className={s.select} value={ttsElModel} onChange={(e) => setTtsElModel(e.target.value)}>
-                        <option value="eleven_multilingual_v2">eleven_multilingual_v2 (PL/EN)</option>
-                        <option value="eleven_flash_v2_5">eleven_flash_v2_5 (szybki, tani)</option>
-                        <option value="eleven_turbo_v2_5">eleven_turbo_v2_5 (szybki, dobry)</option>
-                        <option value="eleven_monolingual_v1">eleven_monolingual_v1 (EN only)</option>
+                        <option value="eleven_multilingual_v2">{t('settings.general.ttsModelMultilingual')}</option>
+                        <option value="eleven_flash_v2_5">{t('settings.general.ttsModelFlash')}</option>
+                        <option value="eleven_turbo_v2_5">{t('settings.general.ttsModelTurbo')}</option>
+                        <option value="eleven_monolingual_v1">{t('settings.general.ttsModelMonolingual')}</option>
                       </select>
                     </>
                   )}
