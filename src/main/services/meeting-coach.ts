@@ -173,7 +173,7 @@ const QUESTION_PATTERNS = [
   // Polish question words at start of sentence
   /^(co|jak|kiedy|gdzie|dlaczego|czemu|czy|ile|kto|jaki|jaka|jakie|który|która|które)\s+/i,
   // English question words
-  /\b(what|how|when|where|why|who|which|can|could|would|should|do|does|did|is|are|was|were|will|have|has)\b.*\?/i,
+  /\b(what|how|when|where|why|who|which|can|could|would|short|do|does|did|is|are|was|were|will|have|has)\b.*\?/i,
   // Direct request patterns (Polish)
   /\b(powiedz|opowiedz|wyjaśnij|wytłumacz|przedstaw|omów|opisz|pokaż)\b/i,
   // Direct request patterns (English)
@@ -1352,9 +1352,9 @@ Odpowiedz TYLKO JSON-em bez markdown:
     const { name, company, role, photoBase64 } = participant;
     log.info(`[MeetingCoach] Researching participant: ${name} (${company || 'unknown company'})`);
 
-    onProgress?.(`Szukam informacji o ${name}...`);
+    onProgress?.(`Inicjuję badanie uczestnika: ${name}...`);
 
-    // Step 1: Generate search queries
+    // Step 1: Generate base search queries
     const searchQueries = [
       `${name}${company ? ' ' + company : ''}`,
       `${name} LinkedIn`,
@@ -1365,7 +1365,56 @@ Odpowiedz TYLKO JSON-em bez markdown:
       searchQueries.push(`${company} ${role || 'team'}`);
     }
 
-    // Step 2: Search the web for each query
+    // Step 2: Handle photo if provided (Vision-enhanced OSINT)
+    let photoDescription = '';
+    if (photoBase64) {
+      try {
+        onProgress?.('Analizuję zdjęcie uczestnika (Vision OSINT)...');
+        // Refined prompt to extract identifying features
+        const photoPrompt = `Analizujesz zdjęcie uczestnika spotkania: ${name}.
+Zidentyfikuj:
+1. Widoczne napisy, logotypy na ubraniu lub w tle.
+2. Charakterystyczne cechy (okulary, styl ubioru, otoczenie — np. biuro konkretnej firmy).
+3. Jeśli to zdjęcie profilowe z social media, opisz kontekst (np. "zdjęcie profesjonalne, tło sugeruje konferencję technologiczną").
+4. Czy widać jakiekolwiek identyfikatory (identyfikator na szyi, plakietka)?
+
+Bądź bardzo precyzyjny. Te informacje posłużą do dalszego researchu w sieci.`;
+
+        const photoDataUrl = photoBase64.startsWith('data:') ? photoBase64 : `data:image/jpeg;base64,${photoBase64}`;
+        photoDescription =
+          (await this.aiService.sendMessageWithVision(
+            photoPrompt,
+            photoDataUrl,
+            'Jesteś ekspertem OSINT. Twoim zadaniem jest wyciągnięcie ze zdjęcia maksymalnej ilości faktów, które pomogą zidentyfikować osobę i jej powiązania zawodowe.',
+          )) || '';
+
+        log.info(`[MeetingCoach] Photo analysis for ${name}: ${photoDescription.slice(0, 100)}...`);
+
+        // Step 2b: Refine search queries based on photo analysis
+        if (photoDescription.length > 20) {
+          const refinedQueriesPrompt = `Na podstawie opisu zdjęcia osoby o nazwisku ${name}:
+"${photoDescription}"
+oraz znanej firmy: "${company || 'brak'}", wygeneruj 2 dodatkowe, bardzo precyzyjne zapytania do wyszukiwarki, które pomogą potwierdzić tożsamość lub znaleźć unikalne informacje (np. udział w konkretnych eventach widocznych na zdjęciu).
+Zwróć tylko zapytania, jedno w linii.`;
+
+          const extraQueries = await this.aiService.sendMessage(refinedQueriesPrompt, undefined, undefined, {
+            skipHistory: true,
+          });
+          if (extraQueries) {
+            const lines = extraQueries
+              .split('\n')
+              .map((l) => l.trim())
+              .filter((l) => l.length > 5 && !l.startsWith('-'));
+            searchQueries.push(...lines.slice(0, 2));
+            log.info(`[MeetingCoach] Added ${lines.length} refined queries based on vision.`);
+          }
+        }
+      } catch (err) {
+        log.warn('[MeetingCoach] Photo analysis/refinement failed:', err);
+      }
+    }
+
+    // Step 3: Search the web for each query
     const allSearchResults: Array<{ title: string; text: string; url: string }> = [];
     const https = require('https');
 
@@ -1397,7 +1446,7 @@ Odpowiedz TYLKO JSON-em bez markdown:
         for (const block of resultBlocks.slice(0, 5)) {
           const titleMatch = block.match(/<a[^>]+class="result__a"[^>]*>([\s\S]*?)<\/a>/);
           const snippetMatch = block.match(/<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/);
-          const urlMatch = block.match(/<a[^>]+class="result__a"[^>]+href="([^"]+)"/);
+          const urlMatch = block.match(/<a[^>]+class="result__a"[^+]+href="([^"]+)"/);
           if (titleMatch && snippetMatch) {
             const title = titleMatch[1].replace(/<[^>]+>/g, '').trim();
             const text = snippetMatch[1].replace(/<[^>]+>/g, '').trim();
@@ -1441,7 +1490,7 @@ Odpowiedz TYLKO JSON-em bez markdown:
       }
     }
 
-    // Step 3: Fetch content from the most promising URLs
+    // Step 4: Fetch content from the most promising URLs
     const uniqueUrls = [...new Set(allSearchResults.filter((r) => r.url).map((r) => r.url))].slice(0, 6);
     const fetchedContent: Array<{ url: string; content: string }> = [];
 
@@ -1457,32 +1506,14 @@ Odpowiedz TYLKO JSON-em bez markdown:
       }
     }
 
-    // Step 4: Describe photo if provided
-    let photoDescription = '';
-    if (photoBase64) {
-      try {
-        onProgress?.('Analizuję zdjęcie...');
-        const photoPrompt = `Opisz tę osobę na zdjęciu krótko (wygląd, przybliżony wiek, styl). To ${name}${company ? ' z ' + company : ''}.`;
-        const photoDataUrl = photoBase64.startsWith('data:') ? photoBase64 : `data:image/jpeg;base64,${photoBase64}`;
-        photoDescription =
-          (await this.aiService.sendMessageWithVision(
-            photoPrompt,
-            photoDataUrl,
-            'Jesteś asystentem opisującym osoby na zdjęciach. Bądź zwięzły i profesjonalny.',
-          )) || '';
-      } catch (err) {
-        log.warn('[MeetingCoach] Photo analysis failed:', err);
-      }
-    }
-
     // Step 5: AI synthesis — compile all data into structured profile
     onProgress?.('AI analizuje zebrane informacje...');
 
     const searchContext = allSearchResults.map((r) => `[${r.title}] ${r.text} (${r.url})`).join('\n\n');
     const fetchedContext = fetchedContent.map((f) => `=== ${f.url} ===\n${f.content}`).join('\n\n');
-    const photoCtx = photoDescription ? `\nOpis ze zdjęcia: ${photoDescription}` : '';
+    const photoCtx = photoDescription ? `\nOpis ze zdjęcia (Vision OSINT): ${photoDescription}` : '';
 
-    const synthesisPrompt = `Jesteś ekspertem od researchu osób. Na podstawie zebranych danych, stwórz szczegółowy profil osoby.
+    const synthesisPrompt = `Jesteś ekspertem od researchu osób (OSINT). Na podstawie zebranych danych, stwórz szczegółowy profil osoby.
 
 OSOBA: ${name}
 ${company ? `FIRMA: ${company}` : ''}
@@ -1496,6 +1527,9 @@ TREŚĆ STRON:
 ${fetchedContext || '(brak pobranej treści)'}
 
 ${userContext ? `KONTEKST UŻYTKOWNIKA (do znalezienia wspólnych punktów):\n${userContext}` : ''}
+
+Twoim celem jest potweirdzenie tożsamości osoby i znalezienie unikalnych faktów. 
+Zwróć szczególną uwagę na powiązania między opisem zdjęcia a wynikami wyszukiwania.
 
 Odpowiedz WYŁĄCZNIE poprawnym JSON (bez markdown code blocks):
 {
