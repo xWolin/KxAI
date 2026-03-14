@@ -478,6 +478,7 @@ export const en: TranslationDict = {
   'common.yes': 'Yes',
   'common.no': 'No',
   'settings.common.saved': 'Settings saved',
+  'settings.common.success': '✅ {message}',
   'settings.common.error': '❌ Error: {message}',
   // Privacy & Clipboard
   // ═══════════════════════════════════════════════
@@ -519,7 +520,6 @@ export const en: TranslationDict = {
   'settings.telegram.removeToken': 'Remove token',
   'settings.telegram.tokenRemoved': 'Token removed.',
   'settings.telegram.saveToken': 'Save token',
-  'settings.telegram.save': 'Save',
   'settings.telegram.connected': 'Connected to',
   'settings.telegram.polling': 'Long Polling',
   'settings.telegram.pollingHint':
@@ -545,6 +545,7 @@ export const en: TranslationDict = {
   'settings.telegram.denyByDefaultHint':
     'When enabled, the bot rejects ALL messages from people not on the allowlist (Chat ID or username). Recommended.',
   'settings.telegram.autoStart': 'Auto-start on launch',
+  'settings.telegram.saveAutoStart': 'Save auto-start preference',
   'settings.telegram.setupGuide': 'How to set up?',
   'settings.telegram.step1': 'Open @BotFather on Telegram',
   'settings.telegram.step2': 'Send /newbot and choose a name',

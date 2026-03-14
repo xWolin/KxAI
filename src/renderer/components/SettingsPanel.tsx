@@ -196,7 +196,7 @@ function TelegramTab() {
   const [allowedChats, setAllowedChats] = useState('');
   const [allowedUsernames, setAllowedUsernames] = useState('');
   const [autoStartLocal, setAutoStartLocal] = useState(false);
-  const [autoStartDirty, setAutoStartDirty] = useState(false);
+  const autoStartDirtyRef = useRef(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -204,12 +204,12 @@ function TelegramTab() {
     loadStatus();
     const unsub = window.kxai.onTelegramStatus((s) => {
       setStatus(s);
-      if (!autoStartDirty) {
+      if (!autoStartDirtyRef.current) {
         setAutoStartLocal(s.autoStart);
       }
     });
     return unsub;
-  }, [autoStartDirty]);
+  }, []);
 
   async function loadStatus() {
     try {
@@ -218,7 +218,7 @@ function TelegramTab() {
       setAllowedChats(s.allowedChatIds.length > 0 ? s.allowedChatIds.join(', ') : '');
       setAllowedUsernames(s.allowedUsernames.length > 0 ? s.allowedUsernames.join(', ') : '');
       setAutoStartLocal(s.autoStart);
-      setAutoStartDirty(false);
+      autoStartDirtyRef.current = false;
     } catch {
       /* ignore */
     }
@@ -231,7 +231,9 @@ function TelegramTab() {
     try {
       const result = await window.kxai.telegramSetToken(token.trim());
       if (result.success) {
-        setMessage(`✅ ${t('settings.telegram.connected')} @${result.botUsername}`);
+        setMessage(
+          t('settings.common.success', { message: `${t('settings.telegram.connected')} @${result.botUsername}` }),
+        );
         setToken('');
         await loadStatus();
       } else {
@@ -263,7 +265,7 @@ function TelegramTab() {
     try {
       const result = await window.kxai.telegramStart();
       if (result.success) {
-        setMessage(`✅ ${t('settings.telegram.pollingStarted')}`);
+        setMessage(t('settings.common.success', { message: t('settings.telegram.pollingStarted') }));
       } else {
         setMessage(t('settings.common.error', { message: result.error || 'Unknown error' }));
       }
@@ -297,7 +299,7 @@ function TelegramTab() {
       .filter((n) => !isNaN(n) && n !== 0);
     try {
       await window.kxai.telegramSetAllowedChats(chatIds);
-      setMessage(`✅ ${t('settings.telegram.chatsSaved')}`);
+      setMessage(t('settings.common.success', { message: t('settings.telegram.chatsSaved') }));
       await loadStatus();
     } catch (err: any) {
       setMessage(t('settings.common.error', { message: err.message }));
@@ -311,7 +313,7 @@ function TelegramTab() {
       .filter(Boolean);
     try {
       await window.kxai.telegramSetAllowedUsernames(usernames);
-      setMessage(`✅ ${t('settings.telegram.usernamesSaved')}`);
+      setMessage(t('settings.common.success', { message: t('settings.telegram.usernamesSaved') }));
       await loadStatus();
     } catch (err: any) {
       setMessage(t('settings.common.error', { message: err.message }));
@@ -388,7 +390,9 @@ function TelegramTab() {
           <p className={s.hint}>{t('settings.telegram.botTokenHint')}</p>
           {hasToken ? (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
-              <span style={{ color: 'var(--accent)' }}>✅ {t('settings.telegram.tokenStored')}</span>
+              <span style={{ color: 'var(--accent)' }}>
+                {t('settings.common.success', { message: t('settings.telegram.tokenStored') })}
+              </span>
               <button className={s.mcpBtnSmall} onClick={handleRemoveToken} disabled={loading}>
                 {t('settings.telegram.removeToken')}
               </button>
@@ -440,7 +444,7 @@ function TelegramTab() {
                   checked={autoStartLocal}
                   onChange={(e) => {
                     setAutoStartLocal(e.target.checked);
-                    setAutoStartDirty(true);
+                    autoStartDirtyRef.current = true;
                   }}
                 />
                 {t('settings.telegram.autoStart')}
@@ -449,8 +453,9 @@ function TelegramTab() {
                 className={s.mcpBtnSmallAccent}
                 onClick={handleSaveAutoStart}
                 disabled={loading || autoStartLocal === status?.autoStart}
+                aria-label={t('settings.telegram.saveAutoStart')}
               >
-                {t('settings.telegram.save')}
+                {t('common.save')}
               </button>
             </div>
           </div>
@@ -469,8 +474,13 @@ function TelegramTab() {
                 placeholder={t('settings.telegram.allowedChatsPlaceholder')}
                 style={{ flex: 1 }}
               />
-              <button className={s.mcpBtnSmallAccent} onClick={handleSaveAllowedChats} disabled={loading}>
-                {t('settings.telegram.save')}
+              <button
+                className={s.mcpBtnSmallAccent}
+                onClick={handleSaveAllowedChats}
+                disabled={loading}
+                aria-label={t('settings.telegram.saveAllowedChats')}
+              >
+                {t('common.save')}
               </button>
             </div>
           </div>
@@ -489,8 +499,13 @@ function TelegramTab() {
                 placeholder={t('settings.telegram.allowedUsernamesPlaceholder')}
                 style={{ flex: 1 }}
               />
-              <button className={s.mcpBtnSmallAccent} onClick={handleSaveAllowedUsernames} disabled={loading}>
-                {t('settings.telegram.save')}
+              <button
+                className={s.mcpBtnSmallAccent}
+                onClick={handleSaveAllowedUsernames}
+                disabled={loading}
+                aria-label={t('settings.telegram.saveAllowedUsernames')}
+              >
+                {t('common.save')}
               </button>
             </div>
           </div>
@@ -1821,7 +1836,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
               {updateState?.status === 'not-available' && (
                 <p className={s.hint} style={{ marginTop: '6px' }}>
-                  ✅ {t('settings.general.updateNotAvailable')}
+                  {t('settings.common.success', { message: t('settings.general.updateNotAvailable') })}
                 </p>
               )}
             </div>
