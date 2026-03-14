@@ -453,7 +453,7 @@ function TelegramTab() {
                 className={s.mcpBtnSmallAccent}
                 onClick={handleSaveAutoStart}
                 disabled={loading || autoStartLocal === status?.autoStart}
-                aria-label={`${t('common.save')} ${t('settings.telegram.autoStart')}`}
+                aria-label={t('settings.telegram.saveAutoStart')}
               >
                 {t('common.save')}
               </button>

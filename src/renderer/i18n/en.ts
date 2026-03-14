@@ -545,6 +545,7 @@ export const en: TranslationDict = {
   'settings.telegram.denyByDefaultHint':
     'When enabled, the bot rejects ALL messages from people not on the allowlist (Chat ID or username). Recommended.',
   'settings.telegram.autoStart': 'Auto-start on launch',
+  'settings.telegram.saveAutoStart': 'Save auto-start preference',
   'settings.telegram.setupGuide': 'How to set up?',
   'settings.telegram.step1': 'Open @BotFather on Telegram',
   'settings.telegram.step2': 'Send /newbot and choose a name',

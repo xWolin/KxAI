@@ -550,6 +550,7 @@ export const pl: TranslationDict = {
   'settings.telegram.denyByDefaultHint':
     'Gdy włączone, bot odrzuca WSZYSTKIE wiadomości od osób spoza listy dozwolonych (Chat ID lub username). Zalecane.',
   'settings.telegram.autoStart': 'Auto-start przy uruchomieniu',
+  'settings.telegram.saveAutoStart': 'Zapisz ustawienie auto-startu',
   'settings.telegram.setupGuide': 'Jak ustawić?',
   'settings.telegram.step1': 'Otwórz @BotFather na Telegramie',
   'settings.telegram.step2': 'Wyślij /newbot i nadaj nazwę',

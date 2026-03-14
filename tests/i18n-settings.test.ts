@@ -18,6 +18,7 @@ const NEW_KEYS = [
   'settings.common.success',
   'settings.common.error',
   'settings.telegram.saveToken',
+  'settings.telegram.saveAutoStart',
   'settings.general.ttsProviderElevenLabs',
   'settings.general.ttsProviderOpenAI',
   'settings.general.ttsProviderWeb',
