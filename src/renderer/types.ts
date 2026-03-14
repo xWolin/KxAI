@@ -192,6 +192,11 @@ export interface KxAIBridge {
   onMeetingDetected: (callback: (data: { app: string; title: string }) => void) => () => void;
   onMeetingBriefingUpdated: (callback: (briefing: MeetingBriefingInfo | null) => void) => () => void;
 
+  // Research history (participant_research_history store)
+  getResearchHistory?: () => Promise<ParticipantResearchRecord[]>;
+  rerunParticipantResearch?: (id: string) => Promise<{ ok: boolean }>;
+  deleteResearchRecord?: (id: string) => Promise<{ ok: boolean }>;
+
   // Sub-agents
   subagentSpawn: (
     task: string,
@@ -366,6 +371,25 @@ export interface ProactiveMessage {
   ruleId?: string;
   /** Memory updates applied during this think cycle — shown as save confirmation */
   memoryUpdates?: ProactiveMemoryUpdate[];
+}
+
+// ──────────────── Participant Research History ────────────────
+
+export interface ParticipantResearchRecord {
+  id: string;
+  name: string;
+  company?: string;
+  role?: string;
+  /** Base64-encoded thumbnail, optional */
+  photoBase64?: string;
+  summary: string;
+  sources: string[];
+  confidence: 'low' | 'medium' | 'high' | 'unknown';
+  /** Unix ms timestamp of last research run */
+  lastRunAt: number;
+  /** True if the record may be outdated */
+  stale: boolean;
+  version: number;
 }
 
 export interface KxAIConfig {
