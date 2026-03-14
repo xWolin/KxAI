@@ -2399,13 +2399,15 @@ export class ToolsService {
     'agent',
     'observation',
     'cron',
+    'mcp',
+    'calendar',
   ]);
 
   /**
    * Select tools relevant to a specific user message.
    *
    * Strategy:
-   * 1. Always include core categories (system, memory, agent, observation, cron)
+   * 1. Always include core categories (system, memory, agent, observation, cron, mcp, calendar)
    * 2. Add categories triggered by keywords found in the message (PL + EN)
    * 3. Fill remaining capacity with all other tools up to `limit`
    * 4. Hard cap at `limit` as a safety net

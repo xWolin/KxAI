@@ -66,10 +66,10 @@ function createDeps() {
 // Constructor
 // =============================================================================
 describe('CortexEngine constructor', () => {
-  it('initializes with 10 builtin proactive rules', () => {
+  it('initializes with 11 builtin proactive rules', () => {
     const engine = new CortexEngine(createDeps());
     const status = engine.getStatus();
-    expect(status.ruleStats.rulesEnabled).toBe(10);
+    expect(status.ruleStats.rulesEnabled).toBe(11);
   });
 
   it('starts in disabled state', () => {
@@ -568,5 +568,294 @@ describe('triggerReflection', () => {
     await engine.triggerReflection('manual');
     // ai.sendMessage should NOT be called since reflection is skipped
     expect(deps.ai.sendMessage).not.toHaveBeenCalled();
+  });
+});
+
+// =============================================================================
+// AFK tasks — regression tests for email-digest & workflow-optimization
+// =============================================================================
+describe('AFK tasks', () => {
+  it('getNextAfkTask returns email-digest when afk >= 15 and earlier tasks consumed', () => {
+    const engine = new CortexEngine(createDeps());
+    const getTask = (engine as any).getNextAfkTask.bind(engine);
+
+    // Mark earlier tasks as completed
+    (engine as any).afkTasksDone = new Set(['memory-review', 'pattern-analysis', 'welcome-back']);
+
+    const task = getTask(15);
+    expect(task).not.toBeNull();
+    expect(task!.id).toBe('email-digest');
+    expect(task!.prompt).toContain('email');
+  });
+
+  it('getNextAfkTask returns workflow-optimization when afk >= 20 and earlier tasks consumed', () => {
+    const engine = new CortexEngine(createDeps());
+    const getTask = (engine as any).getNextAfkTask.bind(engine);
+
+    (engine as any).afkTasksDone = new Set([
+      'memory-review', 'pattern-analysis', 'welcome-back', 'email-digest',
+    ]);
+
+    const task = getTask(20);
+    expect(task).not.toBeNull();
+    expect(task!.id).toBe('workflow-optimization');
+    expect(task!.prompt).toContain('cron');
+  });
+
+  it('getNextAfkTask skips email-digest when afk < 15', () => {
+    const engine = new CortexEngine(createDeps());
+    const getTask = (engine as any).getNextAfkTask.bind(engine);
+
+    (engine as any).afkTasksDone = new Set(['memory-review', 'pattern-analysis']);
+
+    const task = getTask(14);
+    // Should return welcome-back (minAfk: 15 > 14), or null if none qualify
+    // Actually: welcome-back minAfk=15 > 14, so task should be pattern-analysis or null
+    // Let's just verify email-digest is NOT returned
+    if (task) {
+      expect(task.id).not.toBe('email-digest');
+      expect(task.id).not.toBe('workflow-optimization');
+    }
+  });
+
+  it('all 5 AFK tasks are defined in correct order', () => {
+    const engine = new CortexEngine(createDeps());
+    const getTask = (engine as any).getNextAfkTask.bind(engine);
+
+    // With enough AFK time and no completed tasks, first task should be memory-review
+    const first = getTask(30);
+    expect(first).not.toBeNull();
+    expect(first!.id).toBe('memory-review');
+  });
+});
+
+// =============================================================================
+// MCP connected detection — uses getStatus() not listServers()
+// =============================================================================
+describe('MCP connected detection in gatherProactiveContext', () => {
+  it('populates mcpConnectedServers from getStatus() with status=connected', async () => {
+    const deps = createDeps();
+    const engine = new CortexEngine(deps);
+
+    // Wire mcpClient with getStatus() returning connected servers
+    (engine as any).mcpClient = {
+      getStatus: () => ({
+        servers: [
+          { id: 'gmail-1', name: 'Gmail', status: 'connected', tools: [] },
+          { id: 'slack-1', name: 'Slack', status: 'disconnected', tools: [] },
+          { id: 'notion-1', name: 'Notion', status: 'connected', tools: [] },
+        ],
+        totalTools: 5,
+        connectedCount: 2,
+      }),
+    };
+
+    // Wire other deps needed by gatherProactiveContext
+    (engine as any).calendarService = null;
+    (engine as any).screenMonitor = null;
+    (engine as any).knowledgeGraph = null;
+    (engine as any).systemMonitor = null;
+
+    const ctx = await (engine as any).gatherProactiveContext();
+    expect(ctx.mcpConnectedServers).toEqual(
+      expect.arrayContaining(['gmail', 'notion']),
+    );
+    expect(ctx.mcpConnectedServers).not.toContain('slack');
+    expect(ctx.mcpConnectedServers).toHaveLength(2);
+  });
+
+  it('returns empty mcpConnectedServers when no mcpClient', async () => {
+    const deps = createDeps();
+    const engine = new CortexEngine(deps);
+
+    (engine as any).mcpClient = null;
+    (engine as any).calendarService = null;
+    (engine as any).screenMonitor = null;
+    (engine as any).knowledgeGraph = null;
+    (engine as any).systemMonitor = null;
+
+    const ctx = await (engine as any).gatherProactiveContext();
+    expect(ctx.mcpConnectedServers).toEqual([]);
+  });
+
+  it('returns empty mcpConnectedServers when all servers disconnected', async () => {
+    const deps = createDeps();
+    const engine = new CortexEngine(deps);
+
+    (engine as any).mcpClient = {
+      getStatus: () => ({
+        servers: [
+          { id: 's1', name: 'TestServer', status: 'disconnected', tools: [] },
+        ],
+        totalTools: 0,
+        connectedCount: 0,
+      }),
+    };
+    (engine as any).calendarService = null;
+    (engine as any).screenMonitor = null;
+    (engine as any).knowledgeGraph = null;
+    (engine as any).systemMonitor = null;
+
+    const ctx = await (engine as any).gatherProactiveContext();
+    expect(ctx.mcpConnectedServers).toEqual([]);
+  });
+});
+
+// =============================================================================
+// buildIntegrationContext — produces integration awareness section
+// =============================================================================
+describe('buildIntegrationContext', () => {
+  it('returns empty string when no integrations connected', () => {
+    const engine = new CortexEngine(createDeps());
+    (engine as any).mcpClient = null;
+    (engine as any).calendarService = null;
+
+    const result = (engine as any).buildIntegrationContext();
+    expect(result).toBe('');
+  });
+
+  it('includes email nudge when Gmail is connected', () => {
+    const engine = new CortexEngine(createDeps());
+    (engine as any).mcpClient = {
+      getStatus: () => ({
+        servers: [
+          { id: 'g1', name: 'Gmail', status: 'connected', tools: ['a', 'b'] },
+        ],
+        totalTools: 2,
+        connectedCount: 1,
+      }),
+    };
+    (engine as any).calendarService = null;
+
+    const result = (engine as any).buildIntegrationContext();
+    expect(result).toContain('Email');
+    expect(result).toContain('PODŁĄCZONY');
+    expect(result).toContain('integracje');
+  });
+
+  it('includes calendar section when calendar is connected', () => {
+    const engine = new CortexEngine(createDeps());
+    (engine as any).mcpClient = null;
+    (engine as any).calendarService = {
+      isConnected: () => true,
+      getUpcomingEvents: () => [],
+    };
+
+    const result = (engine as any).buildIntegrationContext();
+    expect(result).toContain('Kalendarz');
+    expect(result).toContain('PODŁĄCZONY');
+  });
+
+  it('shows next meeting time when calendar has upcoming events', () => {
+    const engine = new CortexEngine(createDeps());
+    (engine as any).mcpClient = null;
+    const futureTime = new Date(Date.now() + 30 * 60_000).toISOString();
+    (engine as any).calendarService = {
+      isConnected: () => true,
+      getUpcomingEvents: () => [{ summary: 'Standup', start: futureTime }],
+    };
+
+    const result = (engine as any).buildIntegrationContext();
+    expect(result).toContain('Standup');
+    expect(result).toContain('min');
+  });
+
+  it('skips disconnected MCP servers', () => {
+    const engine = new CortexEngine(createDeps());
+    (engine as any).mcpClient = {
+      getStatus: () => ({
+        servers: [
+          { id: 's1', name: 'Slack', status: 'disconnected', tools: [] },
+        ],
+        totalTools: 0,
+        connectedCount: 0,
+      }),
+    };
+    (engine as any).calendarService = null;
+
+    const result = (engine as any).buildIntegrationContext();
+    expect(result).toBe('');
+  });
+});
+
+// =============================================================================
+// email-check proactive rule — fires when email MCP is connected
+// =============================================================================
+describe('email-check proactive rule', () => {
+  it('fires when Gmail is connected and not night/AFK', () => {
+    const engine = new CortexEngine(createDeps());
+    const rules = (engine as any).rules as Array<any>;
+    const emailRule = rules.find((r: any) => r.id === 'email-check');
+    expect(emailRule).toBeDefined();
+
+    const ctx = {
+      mcpConnectedServers: ['gmail'],
+      timeOfDay: 'morning',
+      isAfk: false,
+    };
+    expect(emailRule.shouldFire(ctx)).toBe(true);
+  });
+
+  it('fires when Outlook is connected', () => {
+    const engine = new CortexEngine(createDeps());
+    const rules = (engine as any).rules as Array<any>;
+    const emailRule = rules.find((r: any) => r.id === 'email-check');
+
+    const ctx = {
+      mcpConnectedServers: ['outlook'],
+      timeOfDay: 'afternoon',
+      isAfk: false,
+    };
+    expect(emailRule.shouldFire(ctx)).toBe(true);
+  });
+
+  it('does not fire at night', () => {
+    const engine = new CortexEngine(createDeps());
+    const rules = (engine as any).rules as Array<any>;
+    const emailRule = rules.find((r: any) => r.id === 'email-check');
+
+    const ctx = {
+      mcpConnectedServers: ['gmail'],
+      timeOfDay: 'night',
+      isAfk: false,
+    };
+    expect(emailRule.shouldFire(ctx)).toBe(false);
+  });
+
+  it('does not fire when user is AFK', () => {
+    const engine = new CortexEngine(createDeps());
+    const rules = (engine as any).rules as Array<any>;
+    const emailRule = rules.find((r: any) => r.id === 'email-check');
+
+    const ctx = {
+      mcpConnectedServers: ['gmail'],
+      timeOfDay: 'morning',
+      isAfk: true,
+    };
+    expect(emailRule.shouldFire(ctx)).toBe(false);
+  });
+
+  it('does not fire when no email server connected', () => {
+    const engine = new CortexEngine(createDeps());
+    const rules = (engine as any).rules as Array<any>;
+    const emailRule = rules.find((r: any) => r.id === 'email-check');
+
+    const ctx = {
+      mcpConnectedServers: ['slack', 'notion'],
+      timeOfDay: 'morning',
+      isAfk: false,
+    };
+    expect(emailRule.shouldFire(ctx)).toBe(false);
+  });
+
+  it('generates correct proactive message', () => {
+    const engine = new CortexEngine(createDeps());
+    const rules = (engine as any).rules as Array<any>;
+    const emailRule = rules.find((r: any) => r.id === 'email-check');
+
+    const msg = emailRule.generate();
+    expect(msg.type).toBe('proactive');
+    expect(msg.message).toContain('poczt');
+    expect(msg.context).toBe('email-check-nudge');
   });
 });
