@@ -104,7 +104,7 @@ function PrivacyTab() {
         setPrivacyMessage(t('settings.privacy.exported', { path: result.exportPath || '?' }));
       }
     } catch (err: any) {
-      setPrivacyMessage('❌ ' + (err.message || 'Export failed'));
+      setPrivacyMessage(t('settings.common.error', { message: err.message || 'Export failed' }));
     } finally {
       setPrivacyLoading(false);
     }
@@ -118,7 +118,7 @@ function PrivacyTab() {
       await window.kxai.privacyDeleteData();
       setPrivacyMessage(t('settings.privacy.deleted'));
     } catch (err: any) {
-      setPrivacyMessage('❌ ' + (err.message || 'Delete failed'));
+      setPrivacyMessage(t('settings.common.error', { message: err.message || 'Delete failed' }));
     } finally {
       setPrivacyLoading(false);
     }
@@ -196,6 +196,7 @@ function TelegramTab() {
   const [allowedChats, setAllowedChats] = useState('');
   const [allowedUsernames, setAllowedUsernames] = useState('');
   const [autoStartLocal, setAutoStartLocal] = useState(false);
+  const [autoStartDirty, setAutoStartDirty] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -203,11 +204,12 @@ function TelegramTab() {
     loadStatus();
     const unsub = window.kxai.onTelegramStatus((s) => {
       setStatus(s);
-      // Only update local state if it hasn't been modified by user yet
-      // This is a simple approximation; robust way would involve tracking 'dirty' state
+      if (!autoStartDirty) {
+        setAutoStartLocal(s.autoStart);
+      }
     });
     return unsub;
-  }, []);
+  }, [autoStartDirty]);
 
   async function loadStatus() {
     try {
@@ -216,6 +218,7 @@ function TelegramTab() {
       setAllowedChats(s.allowedChatIds.length > 0 ? s.allowedChatIds.join(', ') : '');
       setAllowedUsernames(s.allowedUsernames.length > 0 ? s.allowedUsernames.join(', ') : '');
       setAutoStartLocal(s.autoStart);
+      setAutoStartDirty(false);
     } catch {
       /* ignore */
     }
@@ -326,12 +329,16 @@ function TelegramTab() {
   }
 
   async function handleSaveAutoStart() {
+    if (loading) return;
+    setLoading(true);
     try {
       await window.kxai.telegramSetAutoStart(autoStartLocal);
       setMessage(t('settings.common.saved'));
       await loadStatus();
     } catch (err: any) {
       setMessage(t('settings.common.error', { message: err.message }));
+    } finally {
+      setLoading(false);
     }
   }
 
