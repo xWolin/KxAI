@@ -352,12 +352,20 @@ export interface ConversationMessage {
   type?: 'chat' | 'proactive' | 'analysis';
 }
 
+export interface ProactiveMemoryUpdate {
+  file: string;
+  section: string;
+  contentSnippet: string;
+}
+
 export interface ProactiveMessage {
   id: string;
   type: string;
   message: string;
   context: string;
   ruleId?: string;
+  /** Memory updates applied during this think cycle — shown as save confirmation */
+  memoryUpdates?: ProactiveMemoryUpdate[];
 }
 
 export interface KxAIConfig {

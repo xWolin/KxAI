@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { speak, stopSpeaking } from '../utils/tts';
-import type { ProactiveMessage } from '../types';
+import type { ProactiveMessage, ProactiveMemoryUpdate } from '../types';
 import s from './ProactiveNotification.module.css';
 import { cn } from '../utils/cn';
 import { useTranslation } from '../i18n';
@@ -82,7 +82,10 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
       </div>
 
       {/* Content */}
-      <div className={s.content}>{message.message}</div>
+      {message.message && <div className={s.content}>{message.message}</div>}
+
+      {/* Memory saves — show what was actually stored */}
+      {message.memoryUpdates && message.memoryUpdates.length > 0 && <MemorySaveList updates={message.memoryUpdates} />}
 
       {/* Actions */}
       <div className={s.actions}>
@@ -101,6 +104,36 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
           {t('proactive.reply')}
         </button>
       </div>
+    </div>
+  );
+}
+
+// ─── Memory Save List ───
+
+const FILE_LABELS: Record<string, string> = {
+  soul: 'Soul',
+  user: 'User Profile',
+  memory: 'Memory',
+};
+
+function MemorySaveList({ updates }: { updates: ProactiveMemoryUpdate[] }) {
+  return (
+    <div className={s.memorySaves}>
+      <div className={s.memorySavesHeader}>💾 Saved to memory:</div>
+      <ul className={s.memorySavesList}>
+        {updates.map((u, i) => (
+          <li key={i} className={s.memorySavesItem}>
+            <span className={s.memorySavesFile}>{FILE_LABELS[u.file] ?? u.file}</span>
+            <span className={s.memorySavesSep}>›</span>
+            <span className={s.memorySavesSection}>{u.section}</span>
+            {u.contentSnippet && (
+              <span className={s.memorySavesSnippet} title={u.contentSnippet}>
+                {u.contentSnippet.length > 50 ? u.contentSnippet.slice(0, 50) + '…' : u.contentSnippet}
+              </span>
+            )}
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
