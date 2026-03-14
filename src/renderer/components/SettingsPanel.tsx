@@ -104,7 +104,7 @@ function PrivacyTab() {
         setPrivacyMessage(t('settings.privacy.exported', { path: result.exportPath || '?' }));
       }
     } catch (err: any) {
-      setPrivacyMessage('❌ ' + (err.message || 'Export failed'));
+      setPrivacyMessage(t('settings.common.error', { message: err.message || 'Export failed' }));
     } finally {
       setPrivacyLoading(false);
     }
@@ -118,7 +118,7 @@ function PrivacyTab() {
       await window.kxai.privacyDeleteData();
       setPrivacyMessage(t('settings.privacy.deleted'));
     } catch (err: any) {
-      setPrivacyMessage('❌ ' + (err.message || 'Delete failed'));
+      setPrivacyMessage(t('settings.common.error', { message: err.message || 'Delete failed' }));
     } finally {
       setPrivacyLoading(false);
     }
@@ -195,14 +195,21 @@ function TelegramTab() {
   const [token, setToken] = useState('');
   const [allowedChats, setAllowedChats] = useState('');
   const [allowedUsernames, setAllowedUsernames] = useState('');
+  const [autoStartLocal, setAutoStartLocal] = useState(false);
+  const [autoStartDirty, setAutoStartDirty] = useState(false);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
     loadStatus();
-    const unsub = window.kxai.onTelegramStatus((s) => setStatus(s));
+    const unsub = window.kxai.onTelegramStatus((s) => {
+      setStatus(s);
+      if (!autoStartDirty) {
+        setAutoStartLocal(s.autoStart);
+      }
+    });
     return unsub;
-  }, []);
+  }, [autoStartDirty]);
 
   async function loadStatus() {
     try {
@@ -210,6 +217,8 @@ function TelegramTab() {
       setStatus(s);
       setAllowedChats(s.allowedChatIds.length > 0 ? s.allowedChatIds.join(', ') : '');
       setAllowedUsernames(s.allowedUsernames.length > 0 ? s.allowedUsernames.join(', ') : '');
+      setAutoStartLocal(s.autoStart);
+      setAutoStartDirty(false);
     } catch {
       /* ignore */
     }
@@ -226,10 +235,10 @@ function TelegramTab() {
         setToken('');
         await loadStatus();
       } else {
-        setMessage(`❌ ${result.error}`);
+        setMessage(t('settings.common.error', { message: result.error || 'Unknown error' }));
       }
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     } finally {
       setLoading(false);
     }
@@ -242,7 +251,7 @@ function TelegramTab() {
       setMessage(t('settings.telegram.tokenRemoved'));
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     } finally {
       setLoading(false);
     }
@@ -256,11 +265,11 @@ function TelegramTab() {
       if (result.success) {
         setMessage(`✅ ${t('settings.telegram.pollingStarted')}`);
       } else {
-        setMessage(`❌ ${result.error}`);
+        setMessage(t('settings.common.error', { message: result.error || 'Unknown error' }));
       }
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     } finally {
       setLoading(false);
     }
@@ -273,7 +282,7 @@ function TelegramTab() {
       setMessage(t('settings.telegram.pollingStopped'));
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     } finally {
       setLoading(false);
     }
@@ -291,7 +300,7 @@ function TelegramTab() {
       setMessage(`✅ ${t('settings.telegram.chatsSaved')}`);
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     }
   }
 
@@ -305,7 +314,7 @@ function TelegramTab() {
       setMessage(`✅ ${t('settings.telegram.usernamesSaved')}`);
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     }
   }
 
@@ -315,17 +324,21 @@ function TelegramTab() {
       await window.kxai.telegramSetDenyByDefault(newVal);
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
     }
   }
 
-  async function handleToggleAutoStart() {
-    const newVal = !(status?.autoStart ?? false);
+  async function handleSaveAutoStart() {
+    if (loading) return;
+    setLoading(true);
     try {
-      await window.kxai.telegramSetAutoStart(newVal);
+      await window.kxai.telegramSetAutoStart(autoStartLocal);
+      setMessage(t('settings.common.saved'));
       await loadStatus();
     } catch (err: any) {
-      setMessage(`❌ ${err.message}`);
+      setMessage(t('settings.common.error', { message: err.message }));
+    } finally {
+      setLoading(false);
     }
   }
 
@@ -422,9 +435,23 @@ function TelegramTab() {
                   cursor: 'pointer',
                 }}
               >
-                <input type="checkbox" checked={status?.autoStart ?? false} onChange={handleToggleAutoStart} />
+                <input
+                  type="checkbox"
+                  checked={autoStartLocal}
+                  onChange={(e) => {
+                    setAutoStartLocal(e.target.checked);
+                    setAutoStartDirty(true);
+                  }}
+                />
                 {t('settings.telegram.autoStart')}
               </label>
+              <button
+                className={s.mcpBtnSmallAccent}
+                onClick={handleSaveAutoStart}
+                disabled={loading || autoStartLocal === status?.autoStart}
+              >
+                {t('settings.telegram.save')}
+              </button>
             </div>
           </div>
         )}
@@ -442,13 +469,8 @@ function TelegramTab() {
                 placeholder={t('settings.telegram.allowedChatsPlaceholder')}
                 style={{ flex: 1 }}
               />
-              <button
-                className={s.mcpBtnSmall}
-                onClick={handleSaveAllowedChats}
-                disabled={loading}
-                aria-label={t('settings.telegram.saveAllowedChats')}
-              >
-                💾
+              <button className={s.mcpBtnSmallAccent} onClick={handleSaveAllowedChats} disabled={loading}>
+                {t('settings.telegram.save')}
               </button>
             </div>
           </div>
@@ -467,13 +489,8 @@ function TelegramTab() {
                 placeholder={t('settings.telegram.allowedUsernamesPlaceholder')}
                 style={{ flex: 1 }}
               />
-              <button
-                className={s.mcpBtnSmall}
-                onClick={handleSaveAllowedUsernames}
-                disabled={loading}
-                aria-label={t('settings.telegram.saveAllowedUsernames')}
-              >
-                💾
+              <button className={s.mcpBtnSmallAccent} onClick={handleSaveAllowedUsernames} disabled={loading}>
+                {t('settings.telegram.save')}
               </button>
             </div>
           </div>
@@ -1539,9 +1556,9 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                     value={ttsProvider}
                     onChange={(e) => setTtsProvider(e.target.value as 'elevenlabs' | 'openai' | 'web')}
                   >
-                    <option value="elevenlabs">ElevenLabs (najlepsza jakość)</option>
-                    <option value="openai">OpenAI TTS</option>
-                    <option value="web">Web Speech API (wbudowany)</option>
+                    <option value="elevenlabs">{t('settings.general.ttsProviderElevenLabs')}</option>
+                    <option value="openai">{t('settings.general.ttsProviderOpenAI')}</option>
+                    <option value="web">{t('settings.general.ttsProviderWeb')}</option>
                   </select>
                   <p className={s.hint}>{t('settings.general.ttsProviderHint')}</p>
 
@@ -1571,10 +1588,10 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
                       <p className={s.hint}>{t('settings.general.ttsVoiceIdHint')}</p>
                       <label className={s.label}>{t('settings.general.ttsElModel')}</label>
                       <select className={s.select} value={ttsElModel} onChange={(e) => setTtsElModel(e.target.value)}>
-                        <option value="eleven_multilingual_v2">eleven_multilingual_v2 (PL/EN)</option>
-                        <option value="eleven_flash_v2_5">eleven_flash_v2_5 (szybki, tani)</option>
-                        <option value="eleven_turbo_v2_5">eleven_turbo_v2_5 (szybki, dobry)</option>
-                        <option value="eleven_monolingual_v1">eleven_monolingual_v1 (EN only)</option>
+                        <option value="eleven_multilingual_v2">{t('settings.general.ttsModelMultilingual')}</option>
+                        <option value="eleven_flash_v2_5">{t('settings.general.ttsModelFlash')}</option>
+                        <option value="eleven_turbo_v2_5">{t('settings.general.ttsModelTurbo')}</option>
+                        <option value="eleven_monolingual_v1">{t('settings.general.ttsModelMonolingual')}</option>
                       </select>
                     </>
                   )}
