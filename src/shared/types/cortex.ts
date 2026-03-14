@@ -41,6 +41,16 @@ export type CortexMessageSource = 'think' | 'alert' | 'reflection' | 'welcome-ba
 /** Priority levels for Cortex messages */
 export type CortexMessagePriority = 'low' | 'normal' | 'high' | 'critical';
 
+/** A single applied memory update — passed to UI for user-visible confirmation */
+export interface CortexMemoryUpdate {
+  /** Logical file key: 'soul' | 'user' | 'memory' */
+  file: string;
+  /** The section heading that was updated */
+  section: string;
+  /** First 80 characters of the saved content for quick preview */
+  contentSnippet: string;
+}
+
 /** Unified message from CortexEngine to UI */
 export interface CortexMessage {
   /** Unique message ID */
@@ -59,6 +69,8 @@ export interface CortexMessage {
   timestamp: number;
   /** Optional structured proposal attached to this message */
   proposal?: CortexProposal;
+  /** Memory updates applied during this think cycle — shown as save confirmation */
+  memoryUpdates?: CortexMemoryUpdate[];
 }
 
 // ─── Cortex Status ───

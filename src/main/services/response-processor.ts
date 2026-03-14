@@ -21,6 +21,16 @@ const log = createLogger('ResponseProcessor');
 
 export type CronSuggestion = Omit<CronJob, 'id' | 'createdAt' | 'runCount'>;
 
+/** Details of a single applied memory update — used for user-visible confirmation */
+export interface MemoryUpdateDetail {
+  /** Logical file key: 'soul' | 'user' | 'memory' */
+  file: string;
+  /** The section heading that was updated */
+  section: string;
+  /** First 80 characters of the saved content for quick preview */
+  contentSnippet: string;
+}
+
 export interface PostProcessResult {
   /** Parsed cron suggestion, if any */
   cronSuggestion: CronSuggestion | null;
@@ -32,6 +42,8 @@ export interface PostProcessResult {
   bootstrapComplete: boolean;
   /** Number of memory updates applied */
   memoryUpdatesApplied: number;
+  /** Details of each applied memory update (file, section, snippet) */
+  memoryUpdateDetails: MemoryUpdateDetail[];
 }
 
 /** Categories that are safe to auto-approve without user confirmation */
@@ -75,6 +87,7 @@ export class ResponseProcessor {
       takeControlTask: null,
       bootstrapComplete: false,
       memoryUpdatesApplied: 0,
+      memoryUpdateDetails: [],
     };
 
     // 1. Cron suggestions
@@ -97,7 +110,9 @@ export class ResponseProcessor {
     result.takeControlTask = this.parseTakeControlRequest(response);
 
     // 3. Memory updates
-    result.memoryUpdatesApplied = await this.processMemoryUpdates(response);
+    const memResult = await this.processMemoryUpdates(response);
+    result.memoryUpdatesApplied = memResult.count;
+    result.memoryUpdateDetails = memResult.details;
 
     // 4. Bootstrap completion
     if (response.includes('BOOTSTRAP_COMPLETE')) {
@@ -171,12 +186,13 @@ export class ResponseProcessor {
    * Parse and apply memory updates from AI response.
    * Supports multiple ```update_memory blocks in one response.
    * Validates each with zod schema — logs and skips invalid entries.
-   * Returns the number of updates applied.
+   * Returns a count and per-update details for user-visible confirmation.
    */
-  async processMemoryUpdates(response: string): Promise<number> {
+  async processMemoryUpdates(response: string): Promise<{ count: number; details: MemoryUpdateDetail[] }> {
     const regex = /```update_memory\s*\n([\s\S]*?)\n```/g;
     let match: RegExpExecArray | null;
     let count = 0;
+    const details: MemoryUpdateDetail[] = [];
 
     while ((match = regex.exec(response)) !== null) {
       try {
@@ -209,6 +225,11 @@ export class ResponseProcessor {
         if (ok) {
           log.info(`Memory update: ${file} → ## ${parsed.data.section} (${parsed.data.content.length} chars)`);
           count++;
+          details.push({
+            file: parsed.data.file,
+            section: parsed.data.section,
+            contentSnippet: parsed.data.content.slice(0, 80).replace(/\n/g, ' '),
+          });
         } else {
           log.warn(`Memory update failed: ${file} → ## ${parsed.data.section} (file missing or empty content?)`);
         }
@@ -217,7 +238,7 @@ export class ResponseProcessor {
       }
     }
 
-    return count;
+    return { count, details };
   }
 
   /**
