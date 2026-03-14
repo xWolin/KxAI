@@ -231,7 +231,9 @@ function TelegramTab() {
     try {
       const result = await window.kxai.telegramSetToken(token.trim());
       if (result.success) {
-        setMessage(`✅ ${t('settings.telegram.connected')} @${result.botUsername}`);
+        setMessage(
+          t('settings.common.success', { message: `${t('settings.telegram.connected')} @${result.botUsername}` }),
+        );
         setToken('');
         await loadStatus();
       } else {
@@ -263,7 +265,7 @@ function TelegramTab() {
     try {
       const result = await window.kxai.telegramStart();
       if (result.success) {
-        setMessage(`✅ ${t('settings.telegram.pollingStarted')}`);
+        setMessage(t('settings.common.success', { message: t('settings.telegram.pollingStarted') }));
       } else {
         setMessage(t('settings.common.error', { message: result.error || 'Unknown error' }));
       }
@@ -297,7 +299,7 @@ function TelegramTab() {
       .filter((n) => !isNaN(n) && n !== 0);
     try {
       await window.kxai.telegramSetAllowedChats(chatIds);
-      setMessage(`✅ ${t('settings.telegram.chatsSaved')}`);
+      setMessage(t('settings.common.success', { message: t('settings.telegram.chatsSaved') }));
       await loadStatus();
     } catch (err: any) {
       setMessage(t('settings.common.error', { message: err.message }));
@@ -311,7 +313,7 @@ function TelegramTab() {
       .filter(Boolean);
     try {
       await window.kxai.telegramSetAllowedUsernames(usernames);
-      setMessage(`✅ ${t('settings.telegram.usernamesSaved')}`);
+      setMessage(t('settings.common.success', { message: t('settings.telegram.usernamesSaved') }));
       await loadStatus();
     } catch (err: any) {
       setMessage(t('settings.common.error', { message: err.message }));
@@ -388,7 +390,9 @@ function TelegramTab() {
           <p className={s.hint}>{t('settings.telegram.botTokenHint')}</p>
           {hasToken ? (
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 4 }}>
-              <span style={{ color: 'var(--accent)' }}>✅ {t('settings.telegram.tokenStored')}</span>
+              <span style={{ color: 'var(--accent)' }}>
+                {t('settings.common.success', { message: t('settings.telegram.tokenStored') })}
+              </span>
               <button className={s.mcpBtnSmall} onClick={handleRemoveToken} disabled={loading}>
                 {t('settings.telegram.removeToken')}
               </button>
@@ -1832,7 +1836,7 @@ export function SettingsPanel({ config, onBack, onConfigUpdate }: SettingsPanelP
 
               {updateState?.status === 'not-available' && (
                 <p className={s.hint} style={{ marginTop: '6px' }}>
-                  ✅ {t('settings.general.updateNotAvailable')}
+                  {t('settings.common.success', { message: t('settings.general.updateNotAvailable') })}
                 </p>
               )}
             </div>

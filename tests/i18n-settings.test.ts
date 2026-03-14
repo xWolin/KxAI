@@ -15,6 +15,7 @@ import { pl } from '../src/renderer/i18n/pl';
 // Keys added / required by fix/ui-consistency
 const NEW_KEYS = [
   'settings.common.saved',
+  'settings.common.success',
   'settings.common.error',
   'settings.telegram.saveToken',
   'settings.general.ttsProviderElevenLabs',
@@ -44,10 +45,23 @@ describe('i18n — settings.common keys (fix/ui-consistency)', () => {
     expect(pl['settings.common.error']).toContain('{message}');
   });
 
+  it('settings.common.success contains {message} placeholder', () => {
+    expect(en['settings.common.success']).toContain('{message}');
+    expect(pl['settings.common.success']).toContain('{message}');
+  });
+
   it('settings.common.error interpolates correctly', () => {
     const template = en['settings.common.error']!;
     const result = template.replaceAll('{message}', 'network timeout');
     expect(result).toContain('network timeout');
+    expect(result).not.toContain('{message}');
+  });
+
+  it('settings.common.success interpolates correctly', () => {
+    const template = en['settings.common.success']!;
+    const result = template.replaceAll('{message}', 'saved successfully');
+    expect(result).toContain('saved successfully');
+    expect(result).toContain('✅');
     expect(result).not.toContain('{message}');
   });
 });

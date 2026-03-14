@@ -482,6 +482,7 @@ export const pl: TranslationDict = {
   'common.yes': 'Tak',
   'common.no': 'Nie',
   'settings.common.saved': 'Ustawienia zapisane',
+  'settings.common.success': '✅ {message}',
   'settings.common.error': '❌ Błąd: {message}',
   // Privacy & Clipboard
   // ═══════════════════════════════════════════════

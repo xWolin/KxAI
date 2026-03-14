@@ -478,6 +478,7 @@ export const en: TranslationDict = {
   'common.yes': 'Yes',
   'common.no': 'No',
   'settings.common.saved': 'Settings saved',
+  'settings.common.success': '✅ {message}',
   'settings.common.error': '❌ Error: {message}',
   // Privacy & Clipboard
   // ═══════════════════════════════════════════════
