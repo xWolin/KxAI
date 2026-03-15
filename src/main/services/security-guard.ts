@@ -47,9 +47,12 @@ const DANGEROUS_COMMANDS = [
   'chmod 777 /',
   'chmod -R 777',
   'chown -R',
-  // Network exfiltration
-  'curl.*|.*bash',
-  'wget.*|.*sh',
+  // Network exfiltration — match download-pipe-to-shell patterns only
+  // NOTE: use escaped \| so the regex sees a literal pipe, not alternation.
+  // Without escaping, '.*bash' / '.*sh' would match ANY command containing
+  // those substrings (e.g. 'powershell', 'git bash').
+  'curl.*\\|.*bash',
+  'wget.*\\|.*\\bsh\\b',
   'nc -e',
   'ncat -e',
   // Registry destruction (Windows)
