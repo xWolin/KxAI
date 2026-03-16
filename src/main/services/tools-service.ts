@@ -2019,6 +2019,168 @@ export class ToolsService {
         return { success: true, data: `🗑️ Anulowano przypomnienie: ${target.name}` };
       },
     );
+
+    // ── cron_list ──
+    this.register(
+      {
+        name: 'cron_list',
+        description: 'Wyświetla listę wszystkich zadań cyklicznych (cron jobs) agenta',
+        category: 'cron',
+        parameters: {
+          category: {
+            type: 'string',
+            description: 'Filtruj po kategorii (routine, workflow, reminder, cleanup, health-check)',
+          },
+        },
+      },
+      async (params: { category?: string }) => {
+        const cron = this.cronService!;
+        let jobs = cron.getJobs();
+        if (params.category) {
+          jobs = jobs.filter((j) => j.category === params.category);
+        }
+
+        if (jobs.length === 0) {
+          return { success: true, data: '📭 Brak zarejestrowanych zadań cron.' };
+        }
+
+        const lines = jobs.map((j, i) => {
+          const status = j.enabled ? '🟢' : '⚪';
+          const type = j.oneShot ? '🔂' : '🔄';
+          const lastRun = j.lastRun ? new Date(j.lastRun).toLocaleTimeString() : 'nigdy';
+          return `${i + 1}. ${status} ${type} [${j.category}] ${j.name}\n   ⏰ Schedule: ${j.schedule} | Wykonań: ${j.runCount} | Ostatnio: ${lastRun}\n   📝 Action: ${j.action.slice(0, 100)}${j.action.length > 100 ? '...' : ''}\n   🆔 ID: ${j.id}`;
+        });
+
+        return { success: true, data: `📅 Zadania Cron (${jobs.length}):\n\n${lines.join('\n\n')}` };
+      },
+    );
+
+    // ── cron_create ──
+    this.register(
+      {
+        name: 'cron_create',
+        description: 'Tworzy nowe zadanie cykliczne (cron job)',
+        category: 'cron',
+        parameters: {
+          name: { type: 'string', description: 'Nazwa zadania' },
+          schedule: {
+            type: 'string',
+            description: 'Schedule (np. "5m", "1h", "0 8 * * *", "every 30 minutes")',
+          },
+          action: { type: 'string', description: 'Co agent ma zrobić (instrukcja tekstowa)' },
+          category: {
+            type: 'string',
+            description: 'Kategoria (routine, workflow, reminder, cleanup, health-check)',
+          },
+          enabled: { type: 'boolean', description: 'Czy zadanie ma być od razu aktywne (domyślnie: true)' },
+        },
+      },
+      async (params: { name: string; schedule: string; action: string; category?: string; enabled?: boolean }) => {
+        const cron = this.cronService!;
+        const job = cron.addJob({
+          name: params.name,
+          schedule: params.schedule,
+          action: params.action,
+          category: (params.category as any) || 'custom',
+          enabled: params.enabled !== false,
+          autoCreated: true,
+        });
+        return { success: true, data: `✅ Utworzono zadanie cron: ${job.name}\n🆔 ID: ${job.id}` };
+      },
+    );
+
+    // ── cron_remove ──
+    this.register(
+      {
+        name: 'cron_remove',
+        description: 'Usuwa zadanie cron po ID',
+        category: 'cron',
+        parameters: {
+          id: { type: 'string', description: 'ID zadania (UUID)' },
+        },
+      },
+      async (params: { id: string }) => {
+        const cron = this.cronService!;
+        const success = cron.removeJob(params.id);
+        if (!success) {
+          return { success: false, error: `Nie znaleziono zadania o ID: ${params.id}` };
+        }
+        return { success: true, data: `🗑️ Usunięto zadanie cron: ${params.id}` };
+      },
+    );
+
+    // ── cron_update ──
+    this.register(
+      {
+        name: 'cron_update',
+        description: 'Aktualizuje istniejące zadanie cron',
+        category: 'cron',
+        parameters: {
+          id: { type: 'string', description: 'ID zadania (UUID)' },
+          enabled: { type: 'boolean', description: 'Włącz/wyłącz zadanie' },
+          schedule: { type: 'string', description: 'Nowy schedule' },
+          action: { type: 'string', description: 'Nowa instrukcja action' },
+        },
+      },
+      async (params: { id: string; enabled?: boolean; schedule?: string; action?: string }) => {
+        const cron = this.cronService!;
+        const updated = cron.updateJob(params.id, {
+          enabled: params.enabled,
+          schedule: params.schedule,
+          action: params.action,
+        });
+        if (!updated) {
+          return { success: false, error: `Nie znaleziono zadania o ID: ${params.id}` };
+        }
+        return { success: true, data: `✅ Zaktualizowano zadanie cron: ${updated.name}` };
+      },
+    );
+
+    // ── cron_get_history ──
+    this.register(
+      {
+        name: 'cron_get_history',
+        description: 'Pobiera historię wykonań zadań cron',
+        category: 'cron',
+        parameters: {
+          id: { type: 'string', description: 'Opcjonalne ID zadania aby filtrować' },
+        },
+      },
+      async (params: { id?: string }) => {
+        const cron = this.cronService!;
+        const history = await cron.getHistory(params.id);
+        if (history.length === 0) {
+          return { success: true, data: '📭 Brak historii wykonań.' };
+        }
+        const lines = history.slice(-20).map((h) => {
+          const status = h.success ? '✅' : '❌';
+          const time = new Date(h.timestamp).toLocaleString();
+          return `${status} ${time} | Result: ${h.result.slice(0, 100)}${h.result.length > 100 ? '...' : ''}`;
+        });
+        return { success: true, data: `📜 Ostatnie 20 wykonań:\n\n${lines.join('\n')}` };
+      },
+    );
+
+    // ── cron_update_state ──
+    this.register(
+      {
+        name: 'cron_update_state',
+        description: 'Aktualizuje trwały stan zadania cron (np. cursor, lastSeenId)',
+        category: 'cron',
+        parameters: {
+          id: { type: 'string', description: 'ID zadania (UUID)' },
+          state: { type: 'object', description: 'Nowy stan (zmergowany z istniejącym)' },
+        },
+      },
+      async (params: { id: string; state: Record<string, unknown> }) => {
+        const cron = this.cronService!;
+        const success = cron.updateJobState(params.id, params.state);
+        if (!success) {
+          return { success: false, error: `Nie znaleziono zadania o ID: ${params.id}` };
+        }
+        return { success: true, data: `✅ Zaktualizowano stan zadania: ${params.id}` };
+      },
+    );
   }
 
   /**

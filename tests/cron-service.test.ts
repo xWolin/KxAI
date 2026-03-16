@@ -427,6 +427,63 @@ describe('CronService', () => {
       expect(jobs[0].name).toBe('Persisted');
     });
   });
+
+  // =============================================================================
+  // Alignment and Execution (Regression)
+  // =============================================================================
+  describe('alignment and execution', () => {
+    it('aligns "50 8 * * *" correctly when started at 08:00', async () => {
+      // Local time 08:00:00.000
+      const now = new Date(2026, 2, 16, 8, 0, 0, 0);
+      vi.setSystemTime(now);
+
+      const svc = new CronService();
+      svc.setExecutor(async () => 'ok');
+
+      const job = svc.addJob({
+        name: 'Morning Job',
+        schedule: '50 8 * * *',
+        action: 'Test',
+        enabled: true,
+        autoCreated: false,
+        category: 'custom'
+      });
+
+      // Fast forward 49 mins 59s 999ms -> should not have run
+      await vi.advanceTimersByTimeAsync(50 * 60 * 1000 - 1);
+      expect(job.runCount).toBe(0);
+
+      // Fast forward 1ms more (to exactly 08:50:00.000) -> should have run
+      await vi.advanceTimersByTimeAsync(1);
+      expect(job.runCount).toBe(1);
+    });
+
+    it('aligns "every 5 minutes" correctly', async () => {
+      // Local time 10:02:15.000
+      const now = new Date(2026, 2, 16, 10, 2, 15, 0);
+      vi.setSystemTime(now);
+
+      const svc = new CronService();
+      svc.setExecutor(async () => 'ok');
+
+      const job = svc.addJob({
+        name: 'Interval Job',
+        schedule: 'every 5 minutes',
+        action: 'Test',
+        enabled: true,
+        autoCreated: false,
+        category: 'custom'
+      });
+
+      // Should run at 10:05:00.000
+      // Delay should be 2m 45s = 165,000 ms
+      await vi.advanceTimersByTimeAsync(164_999);
+      expect(job.runCount).toBe(0);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(job.runCount).toBe(1);
+    });
+  });
 });
 
 

@@ -96,6 +96,15 @@ export class CronService {
     return this.jobs[idx];
   }
 
+  /** Merge partial state into a job's persistent state object without rescheduling. */
+  updateJobState(id: string, state: Record<string, unknown>): boolean {
+    const idx = this.jobs.findIndex((j) => j.id === id);
+    if (idx === -1) return false;
+    this.jobs[idx] = { ...this.jobs[idx], state: { ...this.jobs[idx].state, ...state } };
+    void this.saveJobs();
+    return true;
+  }
+
   removeJob(id: string): boolean {
     this.unscheduleJob(id);
     const before = this.jobs.length;
@@ -160,10 +169,60 @@ export class CronService {
     const now = new Date();
     let initialDelay = intervalMs;
 
-    // For minute-based schedules, align to next minute boundary
-    if (intervalMs >= 60000) {
-      const msIntoMinute = now.getSeconds() * 1000 + now.getMilliseconds();
-      initialDelay = intervalMs - (msIntoMinute % intervalMs);
+    // Support for 5-field cron expressions alignment
+    const cronParts = job.schedule.split(/\s+/);
+    if (cronParts.length === 5) {
+      const [minStr, hourStr, domStr, monthStr, dowStr] = cronParts;
+
+      // Fixed time: "MM HH * * *" (once per day)
+      if (
+        !isNaN(parseInt(minStr)) &&
+        !isNaN(parseInt(hourStr)) &&
+        domStr === '*' &&
+        monthStr === '*' &&
+        dowStr === '*'
+      ) {
+        const min = parseInt(minStr);
+        const hour = parseInt(hourStr);
+
+        const nextRun = new Date(now);
+        nextRun.setHours(hour, min, 0, 0);
+
+        if (nextRun <= now) {
+          nextRun.setDate(nextRun.getDate() + 1);
+        }
+        initialDelay = nextRun.getTime() - now.getTime();
+      }
+      // "*/N * * * *" = every N minutes
+      else if (minStr.startsWith('*/') && hourStr === '*' && domStr === '*' && monthStr === '*' && dowStr === '*') {
+        const n = parseInt(minStr.slice(2));
+        const msIntoHour = now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds();
+        initialDelay = n * 60000 - (msIntoHour % (n * 60000));
+      }
+      // "0 */N * * *" = every N hours
+      else if (minStr === '0' && hourStr.startsWith('*/') && domStr === '*' && monthStr === '*' && dowStr === '*') {
+        const n = parseInt(hourStr.slice(2));
+        const msIntoDay =
+          now.getHours() * 3600000 + now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds();
+        initialDelay = n * 3600000 - (msIntoDay % (n * 3600000));
+      }
+    } else {
+      // Keyword-based or simple duration: "5m", "every 5 minutes"
+      // Align to next boundary (minute, hour, or day)
+      if (intervalMs >= 60000 && intervalMs < 3600000) {
+        // Minute-based: align to hour boundary
+        const msIntoHour = now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds();
+        initialDelay = intervalMs - (msIntoHour % intervalMs);
+      } else if (intervalMs >= 3600000 && intervalMs < 86400000) {
+        // Hour-based: align to day boundary
+        const msIntoDay =
+          now.getHours() * 3600000 + now.getMinutes() * 60000 + now.getSeconds() * 1000 + now.getMilliseconds();
+        initialDelay = intervalMs - (msIntoDay % intervalMs);
+      } else {
+        // Default alignment to next minute
+        const msIntoMinute = now.getSeconds() * 1000 + now.getMilliseconds();
+        initialDelay = 60000 - (msIntoMinute % 60000);
+      }
     }
 
     const timer = setTimeout(() => {
