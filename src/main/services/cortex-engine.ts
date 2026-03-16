@@ -243,6 +243,8 @@ export class CortexEngine {
   private thinkRunning = false;
   /** Set by runNativeToolLoop — total tool calls executed in last run. Used for ack guardrail. */
   private lastRunToolCallsMade = 0;
+  /** True when the current think cycle has emitted a visible message. Used to suppress auto-drain. */
+  private lastThinkEmittedMessage = false;
 
   // ─── Think Queue (priority queue replacing skip-on-busy policy) ───
   private readonly thinkQueue = new ThinkQueue();
@@ -822,6 +824,7 @@ export class CortexEngine {
     }
 
     this.thinkRunning = true;
+    this.lastThinkEmittedMessage = false;
 
     try {
       // Read HEARTBEAT.md
@@ -920,6 +923,12 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         return;
       }
 
+      // Truthfulness guard: flag completion claims when no tool calls were made
+      if (this.lastRunToolCallsMade === 0 && this.hasCompletionClaim(response)) {
+        log.warn('Truthfulness guard: completion claim without tool calls — prepending guardrail notice');
+        response = `⚠️ [GUARDRAIL] Potwierdzenie bez działania — brak wywołań narzędzi w tym cyklu.\n\n${response}`;
+      }
+
       // Record observation for continuity
       this.recordObservation(currentWindowTitle, monitorCtx, response);
 
@@ -942,6 +951,7 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         this.topicDedup.record(proposal);
         acceptedProposals.push(proposal);
 
+        this.lastThinkEmittedMessage = true;
         this.emitMessage({
           source: 'think',
           priority: proposal.risk === 'dangerous' ? 'critical' : 'normal',
@@ -956,6 +966,7 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         const cleanResponse = this.cleanResponse(response);
         // Always emit if there are memory updates (even if text was cleaned away)
         if (cleanResponse || ppResult.memoryUpdateDetails.length > 0) {
+          this.lastThinkEmittedMessage = true;
           this.emitMessage({
             source: 'think',
             priority: 'normal',
@@ -1000,8 +1011,9 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
       this.abortController = null;
       // Clear consumed events
       this.eventQueue = [];
-      // Drain queue: run next queued trigger immediately (if any and not AFK)
-      if (!this.isAfk) void this.drainThinkQueue();
+      // Auto-drain only on suppressed cycles (CORTEX_OK) — avoids spam chains when think emits output.
+      // Non-suppressed cycles leave queued triggers for the next scheduled timer tick.
+      if (!this.isAfk && !this.lastThinkEmittedMessage) void this.drainThinkQueue();
     }
   }
 
@@ -2128,6 +2140,16 @@ KRYTYCZNA ZASADA ANTY-POWTÓRZEŃ:
       trimmed === 'REFLECTION_OK' ||
       trimmed === 'NO_REPLY' ||
       trimmed.length < 10
+    );
+  }
+
+  /**
+   * Returns true if the response text contains a Polish first-person or passive completion claim
+   * (e.g. "wysłałem", "zrobione") that would be false without a corresponding tool call.
+   */
+  private hasCompletionClaim(text: string): boolean {
+    return /\b(wysłałem|wysłałam|wysłane|wysłano|zrobiłem|zrobiłam|zrobione|zrobiono|ukończyłem|ukończyłam|ukończone|ukończono|wykonałem|wykonałam|wykonane|wykonano)\b/i.test(
+      text,
     );
   }
 
