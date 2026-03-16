@@ -22,6 +22,8 @@ export interface CronJob {
   oneShot?: boolean;
   /** Target timestamp for one-shot reminders (epoch ms) — used for scheduling */
   runAt?: number;
+  /** Persistent state for stateful jobs (e.g. cursor, lastSeenId) — merged on update */
+  state?: Record<string, unknown>;
 }
 
 export interface CronExecution {

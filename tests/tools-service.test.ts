@@ -868,3 +868,143 @@ describe('formatSize', () => {
     expect(formatSize(bytes)).toBe(expected);
   });
 });
+
+// =============================================================================
+// Cron Management Tools
+// =============================================================================
+describe('cron management tools', () => {
+  function makeCronService(existingJobs: any[] = []) {
+    const jobs = [...existingJobs];
+    return {
+      getJobs: vi.fn(() => jobs),
+      addJob: vi.fn((job: any) => {
+        const newJob = { ...job, id: `job_${jobs.length + 1}`, runCount: 0 };
+        jobs.push(newJob);
+        return newJob;
+      }),
+      removeJob: vi.fn((id: string) => {
+        const idx = jobs.findIndex(j => j.id === id);
+        if (idx !== -1) {
+          jobs.splice(idx, 1);
+          return true;
+        }
+        return false;
+      }),
+      updateJob: vi.fn((id: string, updates: any) => {
+        const job = jobs.find(j => j.id === id);
+        if (job) {
+          Object.assign(job, updates);
+          return job;
+        }
+        return null;
+      }),
+      updateJobState: vi.fn((id: string, state: any) => {
+        const job = jobs.find(j => j.id === id);
+        if (job) {
+          job.state = { ...(job.state || {}), ...state };
+          return true;
+        }
+        return false;
+      }),
+      getHistory: vi.fn(async (id?: string) => {
+        return id ? [] : [{ jobId: 'job_1', timestamp: Date.now(), success: true, result: 'OK' }];
+      }),
+    } as any;
+  }
+
+  it('cron_list returns jobs', async () => {
+    const svc = createService();
+    const cron = makeCronService([{ id: '1', name: 'Job 1', schedule: '5m', action: 'A', enabled: true, category: 'routine' }]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('cron_list', {});
+    expect(result.success).toBe(true);
+    expect(result.data).toContain('Job 1');
+  });
+
+  it('cron_list filters by category', async () => {
+    const svc = createService();
+    const cron = makeCronService([
+      { id: '1', name: 'J1', schedule: '5m', action: 'A', enabled: true, category: 'routine' },
+      { id: '2', name: 'J2', schedule: '5m', action: 'A', enabled: true, category: 'reminder' }
+    ]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('cron_list', { category: 'reminder' });
+    expect(result.data).toContain('J2');
+    expect(result.data).not.toContain('J1');
+  });
+
+  it('cron_create adds a job', async () => {
+    const svc = createService();
+    const cron = makeCronService([]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('cron_create', { name: 'New', schedule: '1h', action: 'Do it', category: 'workflow' });
+    expect(result.success).toBe(true);
+    expect(cron.addJob).toHaveBeenCalled();
+    expect(result.data).toContain('New');
+  });
+
+  it('cron_remove deletes a job', async () => {
+    const svc = createService();
+    const cron = makeCronService([{ id: 'job_1', name: 'J1', schedule: '5m', action: 'A', enabled: true, category: 'routine' }]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('cron_remove', { id: 'job_1' });
+    expect(result.success).toBe(true);
+    expect(cron.removeJob).toHaveBeenCalledWith('job_1');
+  });
+
+  it('cron_remove returns error for unknown ID', async () => {
+    const svc = createService();
+    const cron = makeCronService([]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('cron_remove', { id: 'nonexistent' });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Nie znaleziono');
+  });
+
+  it('cron_update modifies a job', async () => {
+    const svc = createService();
+    const cron = makeCronService([{ id: 'job_1', name: 'J1', schedule: '5m', action: 'A', enabled: true, category: 'routine' }]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('cron_update', { id: 'job_1', enabled: false });
+    expect(result.success).toBe(true);
+    expect(cron.updateJob).toHaveBeenCalledWith('job_1', { enabled: false, schedule: undefined, action: undefined });
+  });
+
+  it('cron_get_history returns execution log', async () => {
+    const svc = createService();
+    const cron = makeCronService([]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('cron_get_history', {});
+    expect(result.success).toBe(true);
+    expect(result.data).toContain('Result: OK');
+  });
+
+  it('cron_update_state merges state and returns success', async () => {
+    const svc = createService();
+    const job = { id: 'job_1', name: 'J1', state: { lastId: 100 } };
+    const cron = makeCronService([job]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('cron_update_state', { id: 'job_1', state: { nextId: 200 } });
+    expect(result.success).toBe(true);
+    expect(cron.updateJobState).toHaveBeenCalledWith('job_1', { nextId: 200 });
+    expect(job.state).toEqual({ lastId: 100, nextId: 200 });
+  });
+
+  it('cron_update_state returns error for unknown ID', async () => {
+    const svc = createService();
+    const cron = makeCronService([]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('cron_update_state', { id: 'unknown', state: { foo: 'bar' } });
+    expect(result.success).toBe(false);
+    expect(result.error).toContain('Nie znaleziono');
+  });
+});
