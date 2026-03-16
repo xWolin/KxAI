@@ -11,6 +11,7 @@ interface FloatingWidgetProps {
   controlActive?: boolean;
   hasSuggestion?: boolean;
   wantsToSpeak?: boolean;
+  isThinking?: boolean;
 }
 
 export function FloatingWidget({
@@ -21,6 +22,7 @@ export function FloatingWidget({
   controlActive,
   hasSuggestion,
   wantsToSpeak,
+  isThinking,
 }: FloatingWidgetProps) {
   const { t } = useTranslation();
   const isDragging = useRef(false);
@@ -83,16 +85,18 @@ export function FloatingWidget({
     [onClick],
   );
 
-  // Priority: control > suggestion > speak > notify > normal
+  // Priority: control > suggestion > speak > thinking > notify > normal
   const stateClass = controlActive
     ? s.control
     : hasSuggestion
       ? s.suggestion
       : wantsToSpeak
         ? s.speak
-        : hasNotification
-          ? s.notify
-          : undefined;
+        : isThinking
+          ? s.thinking
+          : hasNotification
+            ? s.notify
+            : undefined;
 
   const titleText = controlActive
     ? t('widget.titleControl', { name })
@@ -100,7 +104,9 @@ export function FloatingWidget({
       ? t('widget.titleSuggestion', { name })
       : wantsToSpeak
         ? t('widget.titleWantsToSpeak', { name })
-        : t('widget.titleDefault', { name });
+        : isThinking
+          ? `${name} myśli...`
+          : t('widget.titleDefault', { name });
 
   // ─── No click-through needed — window is exactly widget-sized (68x68) ───
   const handleMouseEnter = useCallback(() => {}, []);
@@ -135,6 +141,9 @@ export function FloatingWidget({
 
       {/* Control active indicator */}
       {controlActive && <div className={s.controlRing} />}
+
+      {/* Thinking active indicator */}
+      {isThinking && !controlActive && <div className={s.thinkingRing} />}
     </div>
   );
 }

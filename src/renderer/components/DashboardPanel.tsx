@@ -23,6 +23,7 @@ interface DashboardPanelProps {
 
 const TABS = [
   { id: 'overview', label: '📊 Przegląd' },
+  { id: 'cortex', label: '🧠 Cortex' },
   { id: 'tools', label: '🔧 Narzędzia' },
   { id: 'cron', label: '⏰ Cron' },
   { id: 'system', label: '💻 System' },
@@ -46,6 +47,7 @@ export function DashboardPanel({ onBack }: DashboardPanelProps) {
       <Tabs tabs={TABS} activeTab={activeTab} onTabChange={setActiveTab} className={s.tabs} />
       <div className={s.content}>
         {activeTab === 'overview' && <OverviewTab />}
+        {activeTab === 'cortex' && <CortexTab />}
         {activeTab === 'tools' && <ToolsTab />}
         {activeTab === 'cron' && <CronTab />}
         {activeTab === 'system' && <SystemTab />}
@@ -697,4 +699,69 @@ function formatUptime(hours?: number): string {
   const h = Math.floor(hours);
   const m = Math.round((hours - h) * 60);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
+}
+
+// ─── Cortex Tab ───
+
+function CortexTab() {
+  const { t } = useTranslation();
+  const [status, setStatus] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  const loadStatus = useCallback(() => {
+    window.kxai
+      .cortexGetStatus?.()
+      .then(setStatus)
+      .catch(() => null)
+      .finally(() => setLoading(false));
+  }, []);
+
+  useEffect(() => {
+    loadStatus();
+    const interval = setInterval(loadStatus, 5000); // Auto-refresh every 5s
+    return () => clearInterval(interval);
+  }, [loadStatus]);
+
+  if (loading) return <Spinner />;
+  if (!status) return <div className={s.emptyState}>Brak danych z CortexEngine</div>;
+
+  return (
+    <div className={s.activityList}>
+      <div className={s.toolCategoryHeader}>
+        <Badge variant={status.enabled ? 'accent' : 'default'}>
+          {status.enabled ? 'Cortex Włączony' : 'Cortex Wyłączony'}
+        </Badge>
+        <span className={s.toolCategoryCount}>
+          Tryb: {status.intensity} | Ekran: {status.screenMode}
+        </span>
+      </div>
+
+      <div className={s.overviewGrid}>
+        <StatCard value={status.isThinking ? 'Tak' : 'Nie'} label="Obecnie myśli (isThinking)" />
+        <StatCard value={status.thinkQueueDepth} label="Kolejka (thinkQueueDepth)" />
+        <StatCard value={status.totalThinkCycles} label="Cykle Think" />
+        <StatCard value={status.totalReflections} label="Cykle Refleksji" />
+        <StatCard value={status.pendingEvents} label="Oczekujące Zdarzenia" />
+      </div>
+
+      <div className={s.toolCategoryHeader} style={{ marginTop: 24 }}>
+        <Badge variant="accent">Statystyki Reguł Proaktywnych</Badge>
+        <span className={s.toolCategoryCount}>{status.ruleStats?.rulesEnabled} włączonych</span>
+      </div>
+
+      {status.ruleStats?.ruleDetails.map((rule: any) => (
+        <div key={rule.ruleId} className={s.activityItem}>
+          <div className={s.activityHeader}>
+            <span className={s.activityType}>{rule.name}</span>
+            <span className={s.activityTime}>
+              Rate: {Math.round(rule.acceptRate * 100)}% ({rule.accepted}/{rule.fired})
+            </span>
+          </div>
+          <div className={s.activitySource}>
+            {rule.lastFired ? `Ostatnio użyto: ${new Date(rule.lastFired).toLocaleString()}` : 'Nigdy nie użyto'}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }

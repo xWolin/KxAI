@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { speak, stopSpeaking } from '../utils/tts';
 import type { ProactiveMessage, ProactiveMemoryUpdate } from '../types';
 import s from './ProactiveNotification.module.css';
@@ -68,8 +68,12 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
     }
   };
 
+  const isAutoExecuting = message.proposal && message.proposal.risk === 'safe';
+
   return (
     <div className={cn('slide-in', s.root)} role="alertdialog" aria-live="assertive">
+      {isAutoExecuting && <AutoExecuteBar duration={30000} />}
+
       {/* Header */}
       <div className={s.header}>
         <div className={s.headerLeft}>
@@ -98,12 +102,20 @@ export function ProactiveNotification({ message, onDismiss, onReply }: Proactive
           {isSpeaking ? '⏹️' : '🔊'}
         </button>
         <button onClick={handleDismiss} className={s.btnDismiss}>
-          {t('proactive.dismiss')}
+          {isAutoExecuting ? 'Anuluj (Stop)' : t('proactive.dismiss')}
         </button>
         <button onClick={handleReply} className={s.btnReply}>
           {t('proactive.reply')}
         </button>
       </div>
+    </div>
+  );
+}
+
+function AutoExecuteBar({ duration }: { duration: number }) {
+  return (
+    <div className={s.autoExecWrap}>
+      <div className={s.autoExecBar} style={{ animationDuration: `${duration}ms` }} />
     </div>
   );
 }
