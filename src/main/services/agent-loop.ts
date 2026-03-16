@@ -82,6 +82,7 @@ export class AgentLoop {
   private afkTasksDone: Set<string> = new Set(); // Track which AFK tasks were done this session
   private onHeartbeatResult?: (message: string) => void; // Callback for heartbeat messages
   private onSubAgentResult?: (result: SubAgentResult) => void; // Callback for sub-agent completions
+  private onProcessingDone?: () => void; // Callback for CortexEngine ThinkQueue drain after message
   onAgentStatus?: (status: AgentStatus) => void; // Callback for UI status updates
 
   // ─── Active Hours — heartbeat only during configured hours ───
@@ -320,6 +321,15 @@ export class AgentLoop {
   /** Returns true if the agent is currently processing a user message. Used by ReflectionEngine. */
   isCurrentlyProcessing(): boolean {
     return this.isProcessing;
+  }
+
+  /**
+   * Set callback invoked when a user message finishes processing.
+   * CortexEngine uses this to drain the ThinkQueue immediately instead of
+   * waiting for the next timer tick.
+   */
+  setProcessingDoneCallback(cb: () => void): void {
+    this.onProcessingDone = cb;
   }
 
   /**
@@ -594,6 +604,8 @@ export class AgentLoop {
       this.isProcessing = false;
       this.abortController = null;
       this.emitStatus({ state: 'idle' });
+      // Notify CortexEngine so it can drain the ThinkQueue immediately
+      this.onProcessingDone?.();
     }
   }
 

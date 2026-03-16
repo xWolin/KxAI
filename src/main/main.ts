@@ -91,6 +91,9 @@ function startCortexEngine(win: BrowserWindow): void {
   // Set processing check — prevents think() during active chat
   cortexEngine.setProcessingCheck(() => agentLoop.isCurrentlyProcessing());
 
+  // Drain ThinkQueue immediately after each user message completes
+  agentLoop.setProcessingDoneCallback(() => cortexEngine.notifyProcessingDone());
+
   // Wire action request callback — route approval requests to renderer
   cortexEngine.setActionRequestCallback((request) => {
     safeSend(Ev.CORTEX_ACTION_REQUEST, request);

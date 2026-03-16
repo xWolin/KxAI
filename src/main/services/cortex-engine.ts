@@ -57,7 +57,10 @@ import type {
 } from '../../shared/types/cortex';
 import type { ActionApprovalRequest, ActionApprovalResponse } from '../../shared/types/security';
 import { CORTEX_TIER_PRESETS } from '../../shared/types/cortex';
+import { randomUUID } from 'crypto';
 import { ToolLoopDetector } from './tool-loop-detector';
+import { ThinkQueue } from './think-queue';
+import type { ThinkTriggerReason, ThinkTriggerPriority, ThinkQueueMetrics } from './think-queue';
 import { createLogger } from './logger';
 
 const log = createLogger('CortexEngine');
@@ -236,6 +239,10 @@ export class CortexEngine {
   private totalThinkCycles = 0;
   private thinkRunning = false;
 
+  // ─── Think Queue (priority queue replacing skip-on-busy policy) ───
+  private readonly thinkQueue = new ThinkQueue();
+  private onThinkMetrics?: (metrics: ThinkQueueMetrics & { waitMs?: number; triggerType?: ThinkTriggerReason }) => void;
+
   // ─── System Event Queue ───
   private eventQueue: CortexSystemEvent[] = [];
   private static readonly MAX_EVENTS = 20;
@@ -311,6 +318,31 @@ export class CortexEngine {
 
   setActionRequestCallback(cb: (request: ActionApprovalRequest) => void): void {
     this.onActionRequest = cb;
+  }
+
+  setThinkMetricsCallback(
+    cb: (metrics: ThinkQueueMetrics & { waitMs?: number; triggerType?: ThinkTriggerReason }) => void,
+  ): void {
+    this.onThinkMetrics = cb;
+  }
+
+  /**
+   * Called by AgentLoop after a user message is fully processed.
+   * Drains the ThinkQueue so queued think triggers don't wait for the next timer tick.
+   */
+  notifyProcessingDone(): void {
+    if (!this.enabled) return;
+    if (this.thinkRunning) return; // think() will drain in its finally block
+    if (this.thinkQueue.depth() === 0) return;
+    // Use setImmediate to avoid blocking the caller
+    setImmediate(() => {
+      if (this.enabled && !this.thinkRunning) void this.drainThinkQueue();
+    });
+  }
+
+  /** Return a snapshot of the current ThinkQueue metrics. */
+  getThinkQueueMetrics(): ThinkQueueMetrics {
+    return this.thinkQueue.getMetrics();
   }
 
   /**
@@ -445,7 +477,7 @@ export class CortexEngine {
 
     // ── AI Think timer ──
     this.thinkTimer = setInterval(() => {
-      if (this.enabled) void this.think();
+      if (this.enabled) void this.think({ reason: 'timer', priority: 'normal' });
     }, this.tierConfig.thinkIntervalMs);
 
     // ── Reflection timer ──
@@ -560,6 +592,8 @@ export class CortexEngine {
 
   /**
    * Push a system event for the next think cycle.
+   * Cron events and user-return events also enqueue a high-priority think trigger
+   * so the agent reacts promptly rather than waiting for the next timer tick.
    */
   pushEvent(source: string, text: string, priority: CortexMessagePriority = 'normal'): void {
     if (this.eventQueue.length >= CortexEngine.MAX_EVENTS) {
@@ -574,6 +608,27 @@ export class CortexEngine {
       timestamp: Date.now(),
       priority,
     });
+
+    // Proactively enqueue a think trigger for high-signal events so the agent
+    // reacts at the next safe opportunity rather than waiting for the timer tick.
+    if (source === 'cron' || source === 'idle') {
+      const triggerReason: ThinkTriggerReason = source === 'idle' ? 'user_return' : 'cron_event';
+      const triggerPriority: ThinkTriggerPriority = priority === 'critical' || priority === 'high' ? 'high' : 'normal';
+      this.thinkQueue.enqueue({
+        id: randomUUID(),
+        reason: triggerReason,
+        priority: triggerPriority,
+        enqueuedAt: Date.now(),
+        payload: text.slice(0, 80),
+      });
+      this.emitThinkMetrics();
+      // If nothing is running, drain immediately
+      if (!this.thinkRunning && !this.isAfk) {
+        setImmediate(() => {
+          if (this.enabled && !this.thinkRunning) void this.drainThinkQueue();
+        });
+      }
+    }
   }
 
   /**
@@ -721,20 +776,34 @@ export class CortexEngine {
   // ░░░ 2. AI THINK CYCLE (Heartbeat replacement) ░░░
   // ═══════════════════════════════════════════════════════════════
 
-  private async think(): Promise<void> {
-    // Queue policy: skip if agent is processing user message
-    if (this.isProcessingCheck?.()) {
-      log.info('Think skipped — agent is processing user message');
-      return;
-    }
-
+  private async think(trigger?: {
+    reason: ThinkTriggerReason;
+    priority: ThinkTriggerPriority;
+    enqueuedAt?: number;
+  }): Promise<void> {
+    // Outside active hours: hard skip — do not enqueue, no value in thinking now
     if (!this.isWithinActiveHours()) {
       log.info('Think skipped — outside active hours');
       return;
     }
 
+    // Queue policy: enqueue instead of skip when agent is busy or think already running
+    if (this.isProcessingCheck?.()) {
+      const reason: ThinkTriggerReason = trigger?.reason ?? 'timer';
+      const priority: ThinkTriggerPriority = trigger?.priority ?? 'normal';
+      this.thinkQueue.enqueue({ id: randomUUID(), reason, priority, enqueuedAt: Date.now() });
+      log.info(`Think enqueued [${priority}:${reason}] — agent processing user message`);
+      this.emitThinkMetrics();
+      return;
+    }
+
+    // Exactly-one-in-flight semaphore: enqueue if already running
     if (this.thinkRunning) {
-      log.info('Think skipped — already running');
+      const reason: ThinkTriggerReason = trigger?.reason ?? 'timer';
+      const priority: ThinkTriggerPriority = trigger?.priority ?? 'low';
+      this.thinkQueue.enqueue({ id: randomUUID(), reason, priority, enqueuedAt: Date.now() });
+      log.info(`Think enqueued [${priority}:${reason}] — think already in flight`);
+      this.emitThinkMetrics();
       return;
     }
 
@@ -880,12 +949,50 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
     } catch (err) {
       log.error('Think cycle error:', err);
       this.emitStatus({ state: 'idle' });
+      // Re-enqueue current trigger with backoff if it came from the queue
+      if (trigger) {
+        this.thinkQueue.requeueWithBackoff(
+          { id: randomUUID(), ...trigger, enqueuedAt: trigger.enqueuedAt ?? Date.now() },
+          err instanceof Error ? err : new Error(String(err)),
+        );
+        this.emitThinkMetrics();
+      }
     } finally {
       this.thinkRunning = false;
       this.abortController = null;
       // Clear consumed events
       this.eventQueue = [];
+      // Drain queue: run next queued trigger immediately (if any and not AFK)
+      if (!this.isAfk) void this.drainThinkQueue();
     }
+  }
+
+  /**
+   * Dequeue and execute one queued think trigger (if ready).
+   * Injects any pending drop summary as a system event.
+   */
+  private async drainThinkQueue(): Promise<void> {
+    if (!this.enabled || this.thinkRunning || this.isAfk) return;
+
+    // Inject drop summary so the next think cycle is aware of skipped triggers
+    const dropSummary = this.thinkQueue.consumeDropSummary();
+    if (dropSummary) {
+      this.pushEvent('system', dropSummary, 'low');
+    }
+
+    const next = this.thinkQueue.dequeue();
+    if (!next) return;
+
+    const waitMs = Date.now() - next.enqueuedAt;
+    log.info(`ThinkQueue drain: [${next.priority}] ${next.reason} waited ${waitMs}ms`);
+    this.onThinkMetrics?.({ ...this.thinkQueue.getMetrics(), waitMs, triggerType: next.reason });
+
+    await this.think({ reason: next.reason, priority: next.priority, enqueuedAt: next.enqueuedAt });
+  }
+
+  /** Emit current queue metrics snapshot. */
+  private emitThinkMetrics(): void {
+    this.onThinkMetrics?.(this.thinkQueue.getMetrics());
   }
 
   /**
