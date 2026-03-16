@@ -911,3 +911,130 @@ describe('email-check proactive rule', () => {
     expect(msg.context).toBe('email-check-nudge');
   });
 });
+
+// =============================================================================
+// ThinkQueue integration — enqueue/drain/metrics (Phase 1: ADR-001)
+// =============================================================================
+describe('ThinkQueue integration', () => {
+  // ── Enqueue instead of skip when agent is processing user message ──────────
+
+  it('enqueues trigger (not drops) when isProcessingCheck returns true', async () => {
+    const engine = new CortexEngine(createDeps());
+    engine.setProcessingCheck(() => true);
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    const m = engine.getThinkQueueMetrics();
+    expect(m.queueDepth).toBe(1);
+    expect(m.totalEnqueued).toBe(1);
+  });
+
+  // ── Exactly-one-in-flight semaphore: enqueue when thinkRunning ───────────
+
+  it('enqueues trigger when think is already in flight (thinkRunning=true)', async () => {
+    const engine = new CortexEngine(createDeps());
+    (engine as any).thinkRunning = true;
+
+    await (engine as any).think({ reason: 'cron_event', priority: 'high' });
+
+    const m = engine.getThinkQueueMetrics();
+    expect(m.queueDepth).toBe(1);
+    expect(m.totalEnqueued).toBe(1);
+  });
+
+  // ── pushEvent('cron') proactively enqueues a think trigger ───────────────
+
+  it('pushEvent("cron") enqueues a cron_event think trigger', () => {
+    const engine = new CortexEngine(createDeps());
+
+    engine.pushEvent('cron', 'Job "email-digest" executed OK', 'normal');
+
+    const m = engine.getThinkQueueMetrics();
+    expect(m.queueDepth).toBe(1);
+    expect(m.totalEnqueued).toBe(1);
+  });
+
+  // ── pushEvent('idle') enqueues a user_return trigger ─────────────────────
+
+  it('pushEvent("idle") enqueues a user_return think trigger', () => {
+    const engine = new CortexEngine(createDeps());
+
+    engine.pushEvent('idle', 'User returned after 5 minutes AFK', 'normal');
+
+    const m = engine.getThinkQueueMetrics();
+    expect(m.queueDepth).toBe(1);
+    expect(m.totalEnqueued).toBe(1);
+  });
+
+  // ── Other pushEvent sources do NOT enqueue a think trigger ───────────────
+
+  it('pushEvent("screen") does NOT enqueue a think trigger', () => {
+    const engine = new CortexEngine(createDeps());
+
+    engine.pushEvent('screen', 'Screen changed', 'normal');
+
+    expect(engine.getThinkQueueMetrics().queueDepth).toBe(0);
+  });
+
+  // ── notifyProcessingDone drains the queue ────────────────────────────────
+
+  it('notifyProcessingDone drains queued trigger after processing completes', async () => {
+    const engine = new CortexEngine(createDeps());
+    // Enable engine so notifyProcessingDone's guard passes (without full start/timers)
+    (engine as any).enabled = true;
+
+    // While processing, enqueue a trigger
+    engine.setProcessingCheck(() => true);
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+    expect(engine.getThinkQueueMetrics().queueDepth).toBe(1);
+
+    // Processing done — trigger drain
+    engine.setProcessingCheck(() => false);
+    engine.notifyProcessingDone();
+
+    // Flush setImmediate (drain) and the think cycle's finally→drain
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+
+    expect(engine.getThinkQueueMetrics().queueDepth).toBe(0);
+  });
+
+  // ── Active hours skip does NOT enqueue ───────────────────────────────────
+
+  it('does NOT enqueue when outside active hours', async () => {
+    const deps = createDeps();
+    deps.config.get = vi.fn().mockImplementation((key: string) => {
+      if (key === 'cortexIntensity') return 'balanced';
+      if (key === 'cortexActiveHoursStart') return 9;
+      if (key === 'cortexActiveHoursEnd') return 17;
+      return undefined;
+    });
+
+    const engine = new CortexEngine(deps);
+
+    // Manually set activeHours to force outside-hours condition
+    (engine as any).activeHours = { start: 25, end: 26 }; // impossible hour → always outside
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    expect(engine.getThinkQueueMetrics().queueDepth).toBe(0);
+  });
+
+  // ── Drop summary injected as system event ────────────────────────────────
+
+  it('drop summary is consumed and eventQueue gets it on next drain', async () => {
+    const engine = new CortexEngine(createDeps());
+    const thinkQueue: any = (engine as any).thinkQueue;
+
+    // Manually fill queue with low-priority items, then force a drop
+    for (let i = 0; i < 5; i++) {
+      thinkQueue.enqueue({ id: `low${i}`, reason: 'timer', priority: 'low', enqueuedAt: Date.now() });
+    }
+    thinkQueue.enqueue({ id: 'high1', reason: 'cron_event', priority: 'high', enqueuedAt: Date.now() });
+
+    // consumeDropSummary should return a non-null string
+    const summary = thinkQueue.consumeDropSummary();
+    expect(summary).not.toBeNull();
+    expect(summary).toContain('low');
+  });
+});
