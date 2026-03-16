@@ -1173,3 +1173,120 @@ describe('Ack guardrail', () => {
     expect(pushEventSpy).toHaveBeenCalledWith('system', payload, 'low');
   });
 });
+
+// =============================================================================
+// Think anti-spam: drain-on-suppress only
+// =============================================================================
+describe('Think anti-spam: drain only on suppressed cycles', () => {
+  function createSpamDeps(responseText: string) {
+    const deps = createDeps();
+    deps.memory.get = vi.fn().mockResolvedValue('- [ ] Sprawdź email');
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({
+      text: responseText,
+      toolCalls: [],
+      _messages: [],
+    });
+    deps.tools.selectToolsForMessage = vi.fn().mockReturnValue([]);
+    deps.responseProcessor.postProcess = vi
+      .fn()
+      .mockResolvedValue({ memoryUpdatesApplied: 0, autoApprovedCron: 0, memoryUpdateDetails: [] });
+    return deps;
+  }
+
+  it('does NOT auto-drain queue when think emits a message', async () => {
+    const deps = createSpamDeps('Sprawdzę email wkrótce.');
+    const engine = new CortexEngine(deps);
+    const drainSpy = vi.spyOn(engine as any, 'drainThinkQueue').mockResolvedValue(undefined);
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    expect(drainSpy).not.toHaveBeenCalled();
+  });
+
+  it('auto-drains queue when think cycle is suppressed (CORTEX_OK)', async () => {
+    const deps = createSpamDeps('CORTEX_OK');
+    const engine = new CortexEngine(deps);
+    const drainSpy = vi.spyOn(engine as any, 'drainThinkQueue').mockResolvedValue(undefined);
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    expect(drainSpy).toHaveBeenCalledOnce();
+  });
+});
+
+// =============================================================================
+// Truthfulness guard — flag completion claims without tool calls
+// =============================================================================
+describe('Truthfulness guard', () => {
+  function createTruthDeps(responseText: string) {
+    const deps = createDeps();
+    deps.memory.get = vi.fn().mockResolvedValue('- [ ] Sprawdź email');
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({
+      text: responseText,
+      toolCalls: [],
+      _messages: [],
+    });
+    deps.tools.selectToolsForMessage = vi.fn().mockReturnValue([]);
+    deps.responseProcessor.postProcess = vi
+      .fn()
+      .mockResolvedValue({ memoryUpdatesApplied: 0, autoApprovedCron: 0, memoryUpdateDetails: [] });
+    return deps;
+  }
+
+  it('hasCompletionClaim() detects Polish completion action phrases', () => {
+    const engine = new CortexEngine(createDeps());
+    expect((engine as any).hasCompletionClaim('Wysłałem email.')).toBe(true);
+    expect((engine as any).hasCompletionClaim('Gotowe, zrobiłem to.')).toBe(true);
+    expect((engine as any).hasCompletionClaim('Ukończyłem zadanie.')).toBe(true);
+    expect((engine as any).hasCompletionClaim('wysłałam raport do klienta.')).toBe(true);
+    expect((engine as any).hasCompletionClaim('Zrobiłam to co prosiłeś.')).toBe(true);
+    expect((engine as any).hasCompletionClaim('Zadanie wykonane.')).toBe(true);
+  });
+
+  it('hasCompletionClaim() does NOT flag neutral or future-tense responses', () => {
+    const engine = new CortexEngine(createDeps());
+    expect((engine as any).hasCompletionClaim('CORTEX_OK')).toBe(false);
+    expect((engine as any).hasCompletionClaim('Sprawdzę email wkrótce.')).toBe(false);
+    expect((engine as any).hasCompletionClaim('Przeanalizuję dane.')).toBe(false);
+    expect((engine as any).hasCompletionClaim('Planuję uruchomić skrypt.')).toBe(false);
+  });
+
+  it('prepends truthfulness warning when response claims completion without tool calls', async () => {
+    const deps = createTruthDeps('Wysłałem email do Wolina.');
+    const engine = new CortexEngine(deps);
+
+    const messages: any[] = [];
+    engine.setMessageCallback((msg) => messages.push(msg));
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    const emitted = messages.find((m) => m.source === 'think');
+    expect(emitted).toBeDefined();
+    expect(emitted.message).toContain('[GUARDRAIL]');
+  });
+
+  it('does NOT prepend warning when tool calls were made despite completion claim', async () => {
+    const deps = createTruthDeps('Wysłałem email do Wolina.');
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({
+      text: '',
+      toolCalls: [{ id: 'tc1', name: 'send_email', arguments: {} }],
+      _messages: [],
+    });
+    (deps as any).ai.continueWithToolResults = vi.fn().mockResolvedValue({
+      text: 'Wysłałem email do Wolina.',
+      toolCalls: [],
+      _messages: [],
+    });
+
+    const engine = new CortexEngine(deps);
+
+    const messages: any[] = [];
+    engine.setMessageCallback((msg) => messages.push(msg));
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    const emitted = messages.find((m) => m.source === 'think');
+    expect(emitted).toBeDefined();
+    expect(emitted.message).not.toContain('[GUARDRAIL]');
+  });
+});
