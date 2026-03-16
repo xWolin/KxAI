@@ -1173,3 +1173,332 @@ describe('Ack guardrail', () => {
     expect(pushEventSpy).toHaveBeenCalledWith('system', payload, 'low');
   });
 });
+
+// =============================================================================
+// Autonomy Phase 2 improvements
+// =============================================================================
+
+describe('Autonomy Ph2: active hours bypass', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    // Set current time to 12:00 (noon)
+    vi.setSystemTime(new Date('2024-01-15T12:00:00Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function createActiveHoursDeps(responseText = 'CORTEX_OK') {
+    const deps = createDeps();
+    deps.memory.get = vi.fn().mockResolvedValue('- [ ] zadanie');
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({
+      text: responseText,
+      toolCalls: [],
+      _messages: [],
+    });
+    deps.tools.selectToolsForMessage = vi.fn().mockReturnValue([]);
+    deps.responseProcessor.postProcess = vi
+      .fn()
+      .mockResolvedValue({ memoryUpdatesApplied: 0, autoApprovedCron: 0, memoryUpdateDetails: [] });
+    return deps;
+  }
+
+  it('blocks timer trigger when outside active hours', async () => {
+    const deps = createActiveHoursDeps();
+    const engine = new CortexEngine(deps);
+    // Set active hours to 08:00-10:00 (UTC) — current time 12:00 is outside
+    (engine as any).activeHours = { start: 8 * 60, end: 10 * 60 };
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    expect(deps.ai.streamMessageWithNativeTools).not.toHaveBeenCalled();
+  });
+
+  it('allows cron_event trigger outside active hours', async () => {
+    const deps = createActiveHoursDeps();
+    const engine = new CortexEngine(deps);
+    (engine as any).activeHours = { start: 8 * 60, end: 10 * 60 };
+
+    await (engine as any).think({ reason: 'cron_event', priority: 'high' });
+
+    expect(deps.ai.streamMessageWithNativeTools).toHaveBeenCalled();
+  });
+
+  it('allows user_return trigger outside active hours', async () => {
+    const deps = createActiveHoursDeps();
+    const engine = new CortexEngine(deps);
+    (engine as any).activeHours = { start: 8 * 60, end: 10 * 60 };
+
+    await (engine as any).think({ reason: 'user_return', priority: 'high' });
+
+    expect(deps.ai.streamMessageWithNativeTools).toHaveBeenCalled();
+  });
+
+  it('allows rule_check trigger when within active hours', async () => {
+    const deps = createActiveHoursDeps();
+    const engine = new CortexEngine(deps);
+    // Active hours 10:00-14:00 — current time 12:00 is inside
+    (engine as any).activeHours = { start: 10 * 60, end: 14 * 60 };
+
+    await (engine as any).think({ reason: 'rule_check', priority: 'low' });
+
+    expect(deps.ai.streamMessageWithNativeTools).toHaveBeenCalled();
+  });
+});
+
+describe('Autonomy Ph2: AFK rate limit adaptive', () => {
+  it('uses 3-minute rate limit when user has been AFK 30+ minutes', async () => {
+    const deps = createDeps();
+    deps.memory.get = vi.fn().mockResolvedValue('');
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({ text: 'CORTEX_OK', toolCalls: [], _messages: [] });
+    deps.tools.selectToolsForMessage = vi.fn().mockReturnValue([]);
+    deps.responseProcessor.postProcess = vi
+      .fn()
+      .mockResolvedValue({ memoryUpdatesApplied: 0, autoApprovedCron: 0, memoryUpdateDetails: [] });
+
+    const engine = new CortexEngine(deps);
+    const now = Date.now();
+    // User AFK for 35 minutes
+    (engine as any).isAfk = true;
+    (engine as any).afkSince = now - 35 * 60 * 1000;
+    // Last AFK task was 4 minutes ago (less than 3min would be blocked, 4min > 3min should pass)
+    (engine as any).lastAfkTaskTime = now - 4 * 60 * 1000;
+
+    // Mock getNextAfkTask to track if it was called (means rate limit didn't block)
+    const getNextAfkTaskSpy = vi.spyOn(engine as any, 'getNextAfkTask').mockReturnValue(null);
+
+    await (engine as any).afkThink();
+
+    // getNextAfkTask should have been called — rate limit passed (4min > 3min limit)
+    expect(getNextAfkTaskSpy).toHaveBeenCalled();
+  });
+
+  it('uses 10-minute rate limit when user has been AFK less than 30 minutes', async () => {
+    const deps = createDeps();
+    const engine = new CortexEngine(deps);
+    const now = Date.now();
+    // User AFK for 10 minutes
+    (engine as any).isAfk = true;
+    (engine as any).afkSince = now - 10 * 60 * 1000;
+    // Last AFK task was 4 minutes ago (less than 10min → should be rate limited)
+    (engine as any).lastAfkTaskTime = now - 4 * 60 * 1000;
+
+    const getNextAfkTaskSpy = vi.spyOn(engine as any, 'getNextAfkTask').mockReturnValue(null);
+
+    await (engine as any).afkThink();
+
+    // Rate limited — getNextAfkTask should NOT have been called
+    expect(getNextAfkTaskSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('Autonomy Ph2: memory update system event', () => {
+  it('pushes system event when postProcess reports memory updates', async () => {
+    const deps = createDeps();
+    deps.memory.get = vi.fn().mockResolvedValue('- [ ] zadanie');
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({
+      text: 'Zapamiętałem nowe informacje.',
+      toolCalls: [],
+      _messages: [],
+    });
+    deps.tools.selectToolsForMessage = vi.fn().mockReturnValue([]);
+    deps.responseProcessor.postProcess = vi.fn().mockResolvedValue({
+      memoryUpdatesApplied: 2,
+      autoApprovedCron: 0,
+      memoryUpdateDetails: [
+        { file: 'MEMORY.md', section: 'Preferencje', contentSnippet: 'Lubi kawę...' },
+        { file: 'USER.md', section: 'Kontekst', contentSnippet: 'Pracuje nad KxAI...' },
+      ],
+    });
+
+    const engine = new CortexEngine(deps);
+    const pushEventSpy = vi.spyOn(engine as any, 'pushEvent');
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    expect(pushEventSpy).toHaveBeenCalledWith(
+      'system',
+      expect.stringContaining('Zaktualizowano pamięć (2)'),
+      'low',
+    );
+  });
+
+  it('does NOT push system event when no memory updates', async () => {
+    const deps = createDeps();
+    deps.memory.get = vi.fn().mockResolvedValue('- [ ] zadanie');
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({
+      text: 'CORTEX_OK',
+      toolCalls: [],
+      _messages: [],
+    });
+    deps.tools.selectToolsForMessage = vi.fn().mockReturnValue([]);
+    deps.responseProcessor.postProcess = vi
+      .fn()
+      .mockResolvedValue({ memoryUpdatesApplied: 0, autoApprovedCron: 0, memoryUpdateDetails: [] });
+
+    const engine = new CortexEngine(deps);
+    const pushEventSpy = vi.spyOn(engine as any, 'pushEvent');
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    const memCalls = pushEventSpy.mock.calls.filter((c) => String(c[1]).includes('Zaktualizowano pamięć'));
+    expect(memCalls).toHaveLength(0);
+  });
+});
+
+describe('Autonomy Ph2: reflection insights persistence', () => {
+  it('calls memory.updateMemorySection when reflection contains INSIGHT lines', async () => {
+    const deps = createDeps();
+    deps.memory.get = vi.fn().mockResolvedValue('');
+    deps.memory.updateMemorySection = vi.fn().mockResolvedValue(undefined);
+    deps.workflow.getActivityLog = vi.fn().mockReturnValue([]);
+    deps.workflow.getDailySummary = vi.fn().mockReturnValue('');
+    deps.workflow.getWeeklyPatterns = vi.fn().mockReturnValue('');
+    deps.workflow.getPatterns = vi.fn().mockReturnValue([]);
+    deps.cron.getJobs = vi.fn().mockReturnValue([]);
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({
+      text: 'Analiza zakończona.\nINSIGHT: Użytkownik pracuje najlepiej rano.\nINSIGHT: Częste przerwy poprawiają produktywność.',
+      toolCalls: [],
+      _messages: [],
+    });
+    deps.tools.selectToolsForMessage = vi.fn().mockReturnValue([]);
+    deps.responseProcessor.postProcess = vi
+      .fn()
+      .mockResolvedValue({ memoryUpdatesApplied: 0, autoApprovedCron: 0, memoryUpdateDetails: [] });
+
+    const engine = new CortexEngine(deps);
+
+    await (engine as any).runReflection('manual');
+
+    expect(deps.memory.updateMemorySection).toHaveBeenCalledWith(
+      'MEMORY.md',
+      'Reflection Insights',
+      expect.stringContaining('Użytkownik pracuje najlepiej rano'),
+    );
+  });
+
+  it('does NOT call memory.updateMemorySection when response has no INSIGHT lines', async () => {
+    const deps = createDeps();
+    deps.memory.get = vi.fn().mockResolvedValue('');
+    deps.memory.updateMemorySection = vi.fn().mockResolvedValue(undefined);
+    deps.workflow.getActivityLog = vi.fn().mockReturnValue([]);
+    deps.workflow.getDailySummary = vi.fn().mockReturnValue('');
+    deps.workflow.getWeeklyPatterns = vi.fn().mockReturnValue('');
+    deps.workflow.getPatterns = vi.fn().mockReturnValue([]);
+    deps.cron.getJobs = vi.fn().mockReturnValue([]);
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({
+      text: 'Wszystko wygląda dobrze.',
+      toolCalls: [],
+      _messages: [],
+    });
+    deps.tools.selectToolsForMessage = vi.fn().mockReturnValue([]);
+    deps.responseProcessor.postProcess = vi
+      .fn()
+      .mockResolvedValue({ memoryUpdatesApplied: 0, autoApprovedCron: 0, memoryUpdateDetails: [] });
+
+    const engine = new CortexEngine(deps);
+
+    await (engine as any).runReflection('manual');
+
+    expect(deps.memory.updateMemorySection).not.toHaveBeenCalled();
+  });
+});
+
+describe('Autonomy Ph2: pattern→cron auto-conversion', () => {
+  it('creates cron job for unacknowledged pattern with suggestedCron', () => {
+    const deps = createDeps();
+    deps.cron.addJob = vi.fn().mockReturnValue({ id: 'new-job-1', name: '[Auto] check email' });
+    deps.workflow.getPatterns = vi.fn().mockReturnValue([
+      {
+        id: 'pat_1',
+        description: 'Sprawdzanie emaila rano',
+        timeRange: { startHour: 8, endHour: 10 },
+        daysOfWeek: [1, 2, 3, 4, 5],
+        frequency: 5,
+        lastSeen: Date.now(),
+        suggestedCron: '0 9 * * 1-5',
+        acknowledged: false,
+      },
+    ]);
+
+    const engine = new CortexEngine(deps);
+    (engine as any).convertNewPatternsToCronJobs();
+
+    expect(deps.cron.addJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        schedule: '0 9 * * 1-5',
+        autoCreated: true,
+        category: 'routine',
+      }),
+    );
+  });
+
+  it('does NOT create cron job for already acknowledged pattern', () => {
+    const deps = createDeps();
+    deps.cron.addJob = vi.fn();
+    deps.workflow.getPatterns = vi.fn().mockReturnValue([
+      {
+        id: 'pat_2',
+        description: 'Już obsłużony wzorzec',
+        timeRange: { startHour: 9, endHour: 11 },
+        daysOfWeek: [1, 2, 3, 4, 5],
+        frequency: 3,
+        lastSeen: Date.now(),
+        suggestedCron: '30 9 * * *',
+        acknowledged: true,
+      },
+    ]);
+
+    const engine = new CortexEngine(deps);
+    (engine as any).convertNewPatternsToCronJobs();
+
+    expect(deps.cron.addJob).not.toHaveBeenCalled();
+  });
+
+  it('does NOT create cron job for pattern without suggestedCron', () => {
+    const deps = createDeps();
+    deps.cron.addJob = vi.fn();
+    deps.workflow.getPatterns = vi.fn().mockReturnValue([
+      {
+        id: 'pat_3',
+        description: 'Wzorzec bez harmonogramu',
+        timeRange: { startHour: 14, endHour: 16 },
+        daysOfWeek: [1, 3, 5],
+        frequency: 2,
+        lastSeen: Date.now(),
+        suggestedCron: undefined,
+        acknowledged: false,
+      },
+    ]);
+
+    const engine = new CortexEngine(deps);
+    (engine as any).convertNewPatternsToCronJobs();
+
+    expect(deps.cron.addJob).not.toHaveBeenCalled();
+  });
+
+  it('marks pattern as acknowledged after conversion (via addPattern upsert)', () => {
+    const deps = createDeps();
+    deps.cron.addJob = vi.fn().mockReturnValue({ id: 'job-1' });
+    deps.workflow.getPatterns = vi.fn().mockReturnValue([
+      {
+        id: 'pat_4',
+        description: 'Dzienny raport',
+        timeRange: { startHour: 17, endHour: 18 },
+        daysOfWeek: [1, 2, 3, 4, 5],
+        frequency: 5,
+        lastSeen: Date.now(),
+        suggestedCron: '0 17 * * 1-5',
+        acknowledged: false,
+      },
+    ]);
+
+    const engine = new CortexEngine(deps);
+    (engine as any).convertNewPatternsToCronJobs();
+
+    expect(deps.workflow.addPattern).toHaveBeenCalledWith(
+      expect.objectContaining({ acknowledged: true }),
+    );
+  });
+});
