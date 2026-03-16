@@ -832,6 +832,18 @@ describe('set_reminder deduplication', () => {
     await svc.execute('set_reminder', { message: 'Different message', time: 'za 5 minut' });
     expect(cron.addJob).toHaveBeenCalledTimes(2);
   });
+
+  it('no false-positive dedup when shorter message is substring of longer (regression)', async () => {
+    // "email" is a substring of "Check email now" — must NOT trigger dedup
+    const svc = createService();
+    const cron = makeCronService([]);
+    svc.setServices({ cron });
+
+    await svc.execute('set_reminder', { message: 'Check email now', time: 'za 5 minut' });
+    await svc.execute('set_reminder', { message: 'email', time: 'za 5 minut' });
+    // Both are distinct messages — both should be created
+    expect(cron.addJob).toHaveBeenCalledTimes(2);
+  });
 });
 
 // =============================================================================

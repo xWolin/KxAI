@@ -1900,9 +1900,16 @@ export class ToolsService {
 
         // Dedup: if an identical active reminder already exists (same message + schedule),
         // return the existing one rather than creating a duplicate.
+        // Use exact prefix match to avoid false positives where a shorter message
+        // is a substring of a longer one (e.g. "email" ⊂ "Check email now").
+        const reminderActionPrefix = `PRZYPOMNIENIE: ${message}.`;
         const existingJobs = cron.getJobs();
         const duplicate = existingJobs.find(
-          (j) => j.category === 'reminder' && j.enabled && j.action.includes(message) && j.schedule === parsed.schedule,
+          (j) =>
+            j.category === 'reminder' &&
+            j.enabled &&
+            j.action.startsWith(reminderActionPrefix) &&
+            j.schedule === parsed.schedule,
         );
         if (duplicate) {
           const timeStr = duplicate.runAt
