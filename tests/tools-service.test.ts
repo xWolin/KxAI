@@ -770,6 +770,71 @@ describe('ToolsService registry', () => {
 });
 
 // =============================================================================
+// set_reminder — deduplication (regression: tools-service.ts:1901)
+// Without this fix, calling set_reminder twice with the same message+schedule
+// would create two identical reminder cron jobs.
+// =============================================================================
+describe('set_reminder deduplication', () => {
+  function makeCronService(existingJobs: any[] = []) {
+    const jobs = [...existingJobs];
+    return {
+      getJobs: vi.fn(() => jobs),
+      addJob: vi.fn((job: any) => {
+        const newJob = { ...job, id: `job_${Date.now()}` };
+        jobs.push(newJob);
+        return newJob;
+      }),
+    } as any;
+  }
+
+  it('creates reminder when none exists', async () => {
+    const svc = createService();
+    const cron = makeCronService([]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('set_reminder', { message: 'Check email', time: 'za 5 minut' });
+    expect(result.success).toBe(true);
+    expect(cron.addJob).toHaveBeenCalledOnce();
+    expect(result.data).toContain('✅');
+  });
+
+  it('returns existing reminder when identical one already exists (dedup)', async () => {
+    const svc = createService();
+    const existing = {
+      id: 'existing-123',
+      category: 'reminder',
+      enabled: true,
+      action: 'PRZYPOMNIENIE: Check email.',
+      schedule: '*/5 * * * *',
+      runAt: undefined,
+    };
+    const cron = makeCronService([existing]);
+    svc.setServices({ cron });
+
+    // Parse "za 5 minut" → same schedule as existing
+    // We need to directly test the dedup path by setting up matching data
+    // Inject via execute with time that produces the same schedule
+    const firstResult = await svc.execute('set_reminder', { message: 'Check email', time: 'za 5 minut' });
+
+    // Whatever the first call produces, a second identical call must not call addJob twice
+    const callCount = cron.addJob.mock.calls.length;
+    await svc.execute('set_reminder', { message: 'Check email', time: 'za 5 minut' });
+    // addJob should not have been called again
+    expect(cron.addJob.mock.calls.length).toBe(callCount);
+  });
+
+  it('creates second reminder when message differs', async () => {
+    const svc = createService();
+    const cron = makeCronService([]);
+    svc.setServices({ cron });
+
+    await svc.execute('set_reminder', { message: 'Check email', time: 'za 5 minut' });
+    await svc.execute('set_reminder', { message: 'Different message', time: 'za 5 minut' });
+    expect(cron.addJob).toHaveBeenCalledTimes(2);
+  });
+});
+
+// =============================================================================
 // formatSize (standalone helper — not exported, test via search_files tool)
 // =============================================================================
 describe('formatSize', () => {

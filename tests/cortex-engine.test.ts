@@ -557,6 +557,58 @@ describe('requestActionApproval (no UI callback)', () => {
 });
 
 // =============================================================================
+// requestActionApproval — AFK timeout behaviour (regression: cortex-engine.ts:384)
+// Without this fix, a 60s timeout always auto-denied moderate tools even when
+// the user was AFK, blocking all autonomous MCP actions.
+// =============================================================================
+describe('requestActionApproval (AFK timeout)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('auto-approves moderate tool on timeout when user is AFK', async () => {
+    const engine = new CortexEngine(createDeps());
+    // Register a dummy callback so the no-UI branch is skipped
+    engine.setActionRequestCallback(() => {});
+    engine.setAfkState(true);
+
+    const promise = (engine as any).requestActionApproval('mcp_kxaichattr_chat_read', {}, 'moderate', 'test');
+    vi.advanceTimersByTime(61_000);
+
+    const result = await promise;
+    expect(result.approved).toBe(true);
+  });
+
+  it('auto-denies moderate tool on timeout when user is NOT AFK', async () => {
+    const engine = new CortexEngine(createDeps());
+    engine.setActionRequestCallback(() => {});
+    engine.setAfkState(false);
+
+    const promise = (engine as any).requestActionApproval('mcp_kxaichattr_chat_read', {}, 'moderate', 'test');
+    vi.advanceTimersByTime(61_000);
+
+    const result = await promise;
+    expect(result.approved).toBe(false);
+  });
+
+  it('always auto-denies dangerous tool on timeout even when AFK', async () => {
+    const engine = new CortexEngine(createDeps());
+    engine.setActionRequestCallback(() => {});
+    engine.setAfkState(true);
+
+    const promise = (engine as any).requestActionApproval('run_command', {}, 'dangerous', 'test');
+    vi.advanceTimersByTime(61_000);
+
+    const result = await promise;
+    expect(result.approved).toBe(false);
+  });
+});
+
+// =============================================================================
 // triggerReflection — skips when isProcessingCheck returns true
 // =============================================================================
 describe('triggerReflection', () => {
