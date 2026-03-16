@@ -689,6 +689,8 @@ export class CortexEngine {
       totalThinkCycles: this.totalThinkCycles,
       totalReflections: this.totalReflections,
       pendingEvents: this.eventQueue.length,
+      thinkQueueDepth: this.thinkQueue.depth(),
+      isThinking: this.thinkRunning,
       ruleStats: this.getRuleStats(),
     };
   }
@@ -789,10 +791,14 @@ export class CortexEngine {
     priority: ThinkTriggerPriority;
     enqueuedAt?: number;
   }): Promise<void> {
-    // Outside active hours: hard skip — do not enqueue, no value in thinking now
+    // Outside active hours: skip timers but allow high-signal triggers (cron events, user return)
     if (!this.isWithinActiveHours()) {
-      log.info('Think skipped — outside active hours');
-      return;
+      const reason = trigger?.reason;
+      if (reason !== 'cron_event' && reason !== 'user_return') {
+        log.info(`Think skipped — outside active hours (${reason ?? 'timer'})`);
+        return;
+      }
+      log.info(`Think allowed outside active hours — high-signal trigger: ${reason}`);
     }
 
     // Queue policy: enqueue instead of skip when agent is busy or think already running
@@ -965,6 +971,12 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         }
       }
 
+      // Memory update confirmation — push system event so next cycle is aware
+      if (ppResult.memoryUpdatesApplied > 0) {
+        const sections = ppResult.memoryUpdateDetails.map((d) => `${d.file}/${d.section}`).join(', ');
+        this.pushEvent('system', `Zaktualizowano pamięć (${ppResult.memoryUpdatesApplied}): ${sections}`, 'low');
+      }
+
       this.lastThinkAt = Date.now();
       this.totalThinkCycles++;
 
@@ -1045,7 +1057,8 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
     const afkMinutes = Math.round((Date.now() - this.afkSince) / 60000);
     const timeSinceLastTask = Date.now() - this.lastAfkTaskTime;
 
-    if (timeSinceLastTask < 10 * 60 * 1000 && this.lastAfkTaskTime > 0) {
+    const afkRateLimitMs = afkMinutes >= 30 ? 3 * 60 * 1000 : 10 * 60 * 1000;
+    if (timeSinceLastTask < afkRateLimitMs && this.lastAfkTaskTime > 0) {
       log.info(`AFK rate limited — last task ${Math.round(timeSinceLastTask / 60000)}min ago`);
       return;
     }
@@ -1210,11 +1223,28 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
     // 5. Post-process
     await this.responseProcessor.postProcess(response, undefined, { autoApproveCrons: true });
 
-    // 6. Parse insights
+    // 6. Parse insights and persist to MEMORY.md (accumulate across cycles)
     const insights = this.parseInsights(response);
+    if (insights.length > 0) {
+      const date = new Date().toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' });
+      const newInsightText = insights.map((i) => `- [${date}] ${i}`).join('\n');
+      // Accumulate: prepend existing section content so history is preserved
+      const existingInsights = this.extractMemorySection(context.memoryMd, 'Reflection Insights');
+      const combined = existingInsights ? `${existingInsights}\n${newInsightText}` : newInsightText;
+      // Keep at most 50 lines to avoid unbounded growth
+      const trimmed = combined
+        .split('\n')
+        .filter((l) => l.trim())
+        .slice(-50)
+        .join('\n');
+      this.memory
+        .updateMemorySection('MEMORY.md', 'Reflection Insights', trimmed)
+        .catch((err) => log.warn('Failed to persist reflection insights:', err));
+    }
 
     // 6b. Parse workflow patterns from ```pattern blocks
     this.parseAndSavePatterns(response);
+    this.convertNewPatternsToCronJobs();
 
     // 7. Emit result
     const cleanSummary = this.cleanReflectionResponse(response);
@@ -2299,6 +2329,17 @@ NIE PYTAJ — działaj. Jeśli nie masz nic do zrobienia, odpowiedz "CORTEX_OK".
     return insights;
   }
 
+  /** Extract text content of a named `## Section` from a markdown string. Returns empty string if not found. */
+  private extractMemorySection(md: string, section: string): string {
+    const header = `## ${section}`;
+    const headerIndex = md.indexOf(header);
+    if (headerIndex === -1) return '';
+    const afterHeader = headerIndex + header.length;
+    const nextSectionIndex = md.slice(afterHeader).search(/\n## /);
+    const endIndex = nextSectionIndex !== -1 ? afterHeader + nextSectionIndex : md.length;
+    return md.slice(afterHeader, endIndex).trim();
+  }
+
   private cleanReflectionResponse(response: string): string | null {
     return this.cleanResponse(response);
   }
@@ -2333,6 +2374,32 @@ NIE PYTAJ — działaj. Jeśli nie masz nic do zrobienia, odpowiedz "CORTEX_OK".
 
     if (saved > 0) {
       log.info(`Saved ${saved} workflow pattern(s) from reflection`);
+    }
+  }
+
+  /** Auto-convert unacknowledged workflow patterns with suggestedCron into real cron jobs. */
+  private convertNewPatternsToCronJobs(): void {
+    const patterns = this.workflow.getPatterns();
+    let converted = 0;
+
+    for (const pattern of patterns) {
+      if (pattern.acknowledged || !pattern.suggestedCron) continue;
+
+      this.cron.addJob({
+        name: `[Auto] ${pattern.description.slice(0, 60)}`,
+        schedule: pattern.suggestedCron,
+        action: `Sprawdź i wykonaj zadanie związane z wzorcem: ${pattern.description}`,
+        autoCreated: true,
+        enabled: true,
+        category: 'routine',
+      });
+      // Mark as acknowledged via addPattern upsert (getPatterns returns a copy)
+      this.workflow.addPattern({ ...pattern, acknowledged: true });
+      converted++;
+    }
+
+    if (converted > 0) {
+      log.info(`Auto-converted ${converted} workflow pattern(s) to cron jobs`);
     }
   }
 

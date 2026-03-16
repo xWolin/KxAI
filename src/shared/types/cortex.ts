@@ -97,6 +97,10 @@ export interface CortexStatus {
   totalReflections: number;
   /** Pending events in queue */
   pendingEvents: number;
+  /** Current depth of the Think Queue */
+  thinkQueueDepth: number;
+  /** Is the Cortex Engine currently running a think cycle */
+  isThinking: boolean;
   /** Proactive rule stats */
   ruleStats: CortexRuleStats;
 }
