@@ -238,6 +238,8 @@ export class CortexEngine {
   private lastThinkAt = 0;
   private totalThinkCycles = 0;
   private thinkRunning = false;
+  /** Set by runNativeToolLoop — total tool calls executed in last run. Used for ack guardrail. */
+  private lastRunToolCallsMade = 0;
 
   // ─── Think Queue (priority queue replacing skip-on-busy policy) ───
   private readonly thinkQueue = new ThinkQueue();
@@ -946,6 +948,23 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
 
       this.lastThinkAt = Date.now();
       this.totalThinkCycles++;
+
+      // Ack guardrail: if think produced no tool calls and no proposals, schedule a
+      // follow-up rule_check so the agent probes for concrete actions rather than
+      // staying passive after a text-only cycle. Guard against infinite chaining by
+      // skipping when the current trigger is already a rule_check.
+      if (this.lastRunToolCallsMade === 0 && proposals.length === 0 && trigger?.reason !== 'rule_check') {
+        const payload =
+          'Poprzedni cykl think zakończył się bez wywołań narzędzi. Oceń czy jest coś konkretnego do wykonania lub zaproponuj action.';
+        this.thinkQueue.enqueue({
+          id: randomUUID(),
+          reason: 'rule_check',
+          priority: 'low',
+          enqueuedAt: Date.now(),
+          payload,
+        });
+        log.info('Ack guardrail: queued rule_check follow-up (0 tool calls in last think)');
+      }
     } catch (err) {
       log.error('Think cycle error:', err);
       this.emitStatus({ state: 'idle' });
@@ -986,6 +1005,11 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
     const waitMs = Date.now() - next.enqueuedAt;
     log.info(`ThinkQueue drain: [${next.priority}] ${next.reason} waited ${waitMs}ms`);
     this.onThinkMetrics?.({ ...this.thinkQueue.getMetrics(), waitMs, triggerType: next.reason });
+
+    // Inject trigger payload as system event so the next think cycle has context
+    if (next.payload) {
+      this.pushEvent('system', next.payload, 'low');
+    }
 
     await this.think({ reason: next.reason, priority: next.priority, enqueuedAt: next.enqueuedAt });
   }
@@ -1570,6 +1594,7 @@ KRYTYCZNA ZASADA ANTY-POWTÓRZEŃ:
   ): Promise<string> {
     const detector = new ToolLoopDetector();
     let iterations = 0;
+    this.lastRunToolCallsMade = 0; // reset for ack guardrail tracking
 
     // Initial call with native tool definitions
     let result: NativeToolStreamResult;
@@ -1616,6 +1641,7 @@ KRYTYCZNA ZASADA ANTY-POWTÓRZEŃ:
 
       for (const tc of result.toolCalls) {
         iterations++;
+        this.lastRunToolCallsMade++;
         log.info(`Cortex tool call #${iterations}: ${tc.name}`);
         this.emitStatus({ state: 'heartbeat', detail: `Cortex: ${tc.name}`, toolName: tc.name });
 

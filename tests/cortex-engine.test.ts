@@ -1038,3 +1038,128 @@ describe('ThinkQueue integration', () => {
     expect(summary).toContain('low');
   });
 });
+
+// =============================================================================
+// Ack Guardrail — follow-up trigger when think produces no tool calls
+// =============================================================================
+describe('Ack guardrail', () => {
+  /** Create deps where think() can actually run through (non-empty HEARTBEAT, stream mock). */
+  function createAckDeps(responseText = 'Sprawdzę email wkrótce.') {
+    const deps = createDeps();
+    // Non-empty HEARTBEAT so think() doesn't short-circuit
+    deps.memory.get = vi.fn().mockResolvedValue('- [ ] Sprawdź email');
+    // streamMessageWithNativeTools returns text-only (no tool calls)
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({
+      text: responseText,
+      toolCalls: [],
+      _messages: [],
+    });
+    deps.tools.selectToolsForMessage = vi.fn().mockReturnValue([]);
+    // Include memoryUpdateDetails so ppResult.memoryUpdateDetails.length doesn't throw
+    deps.responseProcessor.postProcess = vi
+      .fn()
+      .mockResolvedValue({ memoryUpdatesApplied: 0, autoApprovedCron: 0, memoryUpdateDetails: [] });
+    return deps;
+  }
+
+  it('enqueues rule_check follow-up when think ends with 0 tool calls and non-suppressed response', async () => {
+    const engine = new CortexEngine(createAckDeps());
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    const m = engine.getThinkQueueMetrics();
+    expect(m.queueDepth).toBe(1);
+    expect(m.totalEnqueued).toBe(1);
+
+    // Peek at the queued trigger
+    const queued = (engine as any).thinkQueue.dequeue();
+    expect(queued.reason).toBe('rule_check');
+    expect(queued.priority).toBe('low');
+    expect(queued.payload).toContain('narzędzi');
+  });
+
+  it('does NOT enqueue guardrail when response is CORTEX_OK (suppressed)', async () => {
+    const engine = new CortexEngine(createAckDeps('CORTEX_OK'));
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    expect(engine.getThinkQueueMetrics().queueDepth).toBe(0);
+  });
+
+  it('does NOT enqueue guardrail when trigger reason is already rule_check (no infinite loop)', async () => {
+    const engine = new CortexEngine(createAckDeps());
+
+    await (engine as any).think({ reason: 'rule_check', priority: 'low' });
+
+    // Queue depth must be 0 — no further rule_check triggered
+    expect(engine.getThinkQueueMetrics().queueDepth).toBe(0);
+  });
+
+  it('does NOT enqueue guardrail when tool calls were made', async () => {
+    const deps = createAckDeps();
+    // Simulate tool calls: first response has a tool call, second is final text
+    let callCount = 0;
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockImplementation(() => {
+      callCount++;
+      if (callCount === 1) {
+        return Promise.resolve({
+          text: '',
+          toolCalls: [{ id: 'tc1', name: 'memory_read', arguments: {} }],
+          _messages: [],
+        });
+      }
+      // continueWithToolResults for the second turn
+      return Promise.resolve({ text: 'Gotowe.', toolCalls: [], _messages: [] });
+    });
+    deps.ai.continueWithToolResults = vi.fn().mockResolvedValue({
+      text: 'Gotowe.',
+      toolCalls: [],
+      _messages: [],
+    });
+
+    const engine = new CortexEngine(deps);
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    // Tool calls were made (lastRunToolCallsMade > 0) → no guardrail
+    expect(engine.getThinkQueueMetrics().queueDepth).toBe(0);
+  });
+
+  it('injects trigger payload as system event when drainThinkQueue processes rule_check', async () => {
+    const engine = new CortexEngine(createAckDeps());
+    const thinkQueue: any = (engine as any).thinkQueue;
+
+    // Manually enqueue a rule_check trigger with payload
+    const payload = 'Test guardrail context payload';
+    thinkQueue.enqueue({
+      id: 'guardrail-1',
+      reason: 'rule_check',
+      priority: 'low',
+      enqueuedAt: Date.now(),
+      payload,
+    });
+
+    // Block think from running (thinkRunning=true) so we can observe eventQueue injection
+    (engine as any).thinkRunning = true;
+    (engine as any).enabled = true;
+
+    await (engine as any).drainThinkQueue();
+
+    // thinkRunning=true means drainThinkQueue returns early without calling think
+    // But if we un-block, push happens before think is called — test the intermediate state
+    // Instead, test via a spy on pushEvent
+    const pushEventSpy = vi.spyOn(engine as any, 'pushEvent');
+    (engine as any).thinkRunning = false;
+    thinkQueue.enqueue({
+      id: 'guardrail-2',
+      reason: 'rule_check',
+      priority: 'low',
+      enqueuedAt: Date.now(),
+      payload,
+    });
+
+    await (engine as any).drainThinkQueue();
+
+    expect(pushEventSpy).toHaveBeenCalledWith('system', payload, 'low');
+  });
+});
