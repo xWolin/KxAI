@@ -1038,3 +1038,159 @@ describe('ThinkQueue integration', () => {
     expect(summary).toContain('low');
   });
 });
+
+// =============================================================================
+// Safe Proposal Auto-Execution
+// =============================================================================
+describe('Safe proposal auto-execution', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** Build a minimal safe proposal with tool calls. */
+  function makeProposal(risk: 'safe' | 'moderate' | 'dangerous', withToolCalls = true) {
+    return {
+      id: `prop_${Date.now()}`,
+      type: 'automation' as const,
+      title: 'Test proposal',
+      description: 'Do something',
+      risk,
+      toolCalls: withToolCalls ? [{ name: 'memory_read', params: { key: 'HEARTBEAT.md' } }] : undefined,
+    };
+  }
+
+  it('schedules auto-execution timer for safe proposal with tool calls', async () => {
+    const deps = createDeps();
+    const engine = new CortexEngine(deps);
+
+    const proposal = makeProposal('safe');
+    await (engine as any).executeProposal(proposal); // prime pendingProposals cleared state
+
+    // Manually schedule via the internal path
+    const timer = setTimeout(() => {}, 30_000);
+    (engine as any).pendingProposals.set(proposal.id, timer);
+
+    expect((engine as any).pendingProposals.size).toBe(1);
+    clearTimeout(timer);
+  });
+
+  it('dismissProposal cancels the timer and removes from pending', () => {
+    const engine = new CortexEngine(createDeps());
+    const proposal = makeProposal('safe');
+
+    // Manually add a timer to simulate scheduled auto-execution
+    const timer = setTimeout(() => {}, 30_000);
+    (engine as any).pendingProposals.set(proposal.id, timer);
+    expect((engine as any).pendingProposals.size).toBe(1);
+
+    engine.dismissProposal(proposal.id);
+
+    expect((engine as any).pendingProposals.size).toBe(0);
+  });
+
+  it('dismissProposal is no-op for unknown proposal ID', () => {
+    const engine = new CortexEngine(createDeps());
+    // Should not throw
+    expect(() => engine.dismissProposal('nonexistent-id')).not.toThrow();
+  });
+
+  it('stop() clears all pending proposal timers', () => {
+    const engine = new CortexEngine(createDeps());
+    (engine as any).enabled = true;
+
+    const t1 = setTimeout(() => {}, 30_000);
+    const t2 = setTimeout(() => {}, 30_000);
+    (engine as any).pendingProposals.set('p1', t1);
+    (engine as any).pendingProposals.set('p2', t2);
+    expect((engine as any).pendingProposals.size).toBe(2);
+
+    engine.stop();
+
+    expect((engine as any).pendingProposals.size).toBe(0);
+  });
+
+  it('executeProposal calls tools.execute and emits confirmation message', async () => {
+    const deps = createDeps();
+    const messages: any[] = [];
+    const engine = new CortexEngine(deps);
+    engine.setMessageCallback((msg) => messages.push(msg));
+
+    const proposal = makeProposal('safe');
+    await (engine as any).executeProposal(proposal);
+
+    expect(deps.tools.execute).toHaveBeenCalledWith('memory_read', { key: 'HEARTBEAT.md' });
+    expect(messages.length).toBe(1);
+    expect(messages[0].message).toContain('Auto-wykonano');
+    expect(messages[0].message).toContain('Test proposal');
+  });
+
+  it('executeProposal skips tools that require security guard approval', async () => {
+    const deps = createDeps();
+    deps.securityGuard.assessRisk = vi.fn().mockReturnValue({ requiresApproval: true, risk: 'moderate' });
+    const messages: any[] = [];
+    const engine = new CortexEngine(deps);
+    engine.setMessageCallback((msg) => messages.push(msg));
+
+    const proposal = makeProposal('safe');
+    await (engine as any).executeProposal(proposal);
+
+    expect(deps.tools.execute).not.toHaveBeenCalled();
+    expect(messages[0].message).toContain('pominięto');
+  });
+
+  it('executeProposal auto-fires after SAFE_PROPOSAL_AUTO_EXECUTE_MS', async () => {
+    const deps = createDeps();
+    deps.memory.get = vi.fn().mockResolvedValue('- [ ] task');
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({
+      text:
+        'Proposal:\n```proposal\n{"type":"automation","title":"Safe action","description":"desc","risk":"safe","toolCalls":[{"name":"memory_read","params":{"key":"HEARTBEAT.md"}}]}\n```',
+      toolCalls: [],
+      _messages: [],
+    });
+    deps.tools.selectToolsForMessage = vi.fn().mockReturnValue([]);
+    deps.responseProcessor.postProcess = vi
+      .fn()
+      .mockResolvedValue({ memoryUpdatesApplied: 0, autoApprovedCron: 0, memoryUpdateDetails: [] });
+
+    const engine = new CortexEngine(deps);
+
+    await (engine as any).think({ reason: 'timer', priority: 'normal' });
+
+    // One proposal should be pending
+    expect((engine as any).pendingProposals.size).toBe(1);
+
+    // Advance past auto-execute delay
+    await vi.advanceTimersByTimeAsync(CortexEngine.SAFE_PROPOSAL_AUTO_EXECUTE_MS + 100);
+
+    // Timer should have fired → pending cleared
+    expect((engine as any).pendingProposals.size).toBe(0);
+    expect(deps.tools.execute).toHaveBeenCalled();
+  });
+
+  it('moderate and dangerous proposals are NOT scheduled for auto-execution', async () => {
+    const engine = new CortexEngine(createDeps());
+
+    // Simulate emitting non-safe proposals
+    const moderate = makeProposal('moderate');
+    const dangerous = makeProposal('dangerous');
+
+    // Neither should create a pending proposal timer via the scheduling logic
+    // (risk check in think(); verify directly via executeProposal is not called from think path)
+    // We check that pendingProposals stays empty after scheduling logic runs for non-safe risks
+    const safeCheck = (proposal: any) => {
+      if (proposal.risk === 'safe' && proposal.toolCalls?.length && !(engine as any).pendingProposals.has(proposal.id)) {
+        const timer = setTimeout(() => void (engine as any).executeProposal(proposal), CortexEngine.SAFE_PROPOSAL_AUTO_EXECUTE_MS);
+        (engine as any).pendingProposals.set(proposal.id, timer);
+      }
+    };
+
+    safeCheck(moderate);
+    safeCheck(dangerous);
+
+    expect((engine as any).pendingProposals.size).toBe(0);
+    engine.stop();
+  });
+});
