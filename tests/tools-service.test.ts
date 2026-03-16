@@ -770,6 +770,79 @@ describe('ToolsService registry', () => {
 });
 
 // =============================================================================
+// set_reminder — deduplication (regression: tools-service.ts:1901)
+// Without this fix, calling set_reminder twice with the same message+schedule
+// would create two identical reminder cron jobs.
+// =============================================================================
+describe('set_reminder deduplication', () => {
+  function makeCronService(existingJobs: any[] = []) {
+    const jobs = [...existingJobs];
+    return {
+      getJobs: vi.fn(() => jobs),
+      addJob: vi.fn((job: any) => {
+        const newJob = { ...job, id: `job_${Date.now()}` };
+        jobs.push(newJob);
+        return newJob;
+      }),
+    } as any;
+  }
+
+  it('creates reminder when none exists', async () => {
+    const svc = createService();
+    const cron = makeCronService([]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('set_reminder', { message: 'Check email', time: 'za 5 minut' });
+    expect(result.success).toBe(true);
+    expect(cron.addJob).toHaveBeenCalledOnce();
+    expect(result.data).toContain('✅');
+  });
+
+  it('returns existing reminder when identical one already exists (dedup)', async () => {
+    const svc = createService();
+    // action and schedule must match what set_reminder actually stores:
+    // action = `PRZYPOMNIENIE: ${message}. Powiadom...`, schedule = parseReminderTime('za 5 minut') = '5m'
+    const existing = {
+      id: 'existing-123',
+      category: 'reminder',
+      enabled: true,
+      action: 'PRZYPOMNIENIE: Check email. Powiadom użytkownika o tym przypomnieniu — użyj send_notification i wyświetl wiadomość w czacie.',
+      schedule: '5m',
+      runAt: undefined,
+    };
+    const cron = makeCronService([existing]);
+    svc.setServices({ cron });
+
+    const result = await svc.execute('set_reminder', { message: 'Check email', time: 'za 5 minut' });
+    expect(result.success).toBe(true);
+    expect(cron.addJob).not.toHaveBeenCalled();
+    expect(String(result.data)).toContain('existing-123');
+  });
+
+  it('creates second reminder when message differs', async () => {
+    const svc = createService();
+    const cron = makeCronService([]);
+    svc.setServices({ cron });
+
+    await svc.execute('set_reminder', { message: 'Check email', time: 'za 5 minut' });
+    await svc.execute('set_reminder', { message: 'Different message', time: 'za 5 minut' });
+    expect(cron.addJob).toHaveBeenCalledTimes(2);
+  });
+
+  it('no false-positive dedup when shorter message is substring of longer (regression)', async () => {
+    // "email" is a substring of "Check email now" — must NOT trigger dedup
+    const svc = createService();
+    const cron = makeCronService([]);
+    svc.setServices({ cron });
+
+    await svc.execute('set_reminder', { message: 'Check email now', time: 'za 5 minut' });
+    await svc.execute('set_reminder', { message: 'email', time: 'za 5 minut' });
+    // Both are distinct messages — both should be created
+    expect(cron.addJob).toHaveBeenCalledTimes(2);
+  });
+});
+
+// =============================================================================
 // formatSize (standalone helper — not exported, test via search_files tool)
 // =============================================================================
 describe('formatSize', () => {

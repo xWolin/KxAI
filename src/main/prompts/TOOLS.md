@@ -16,8 +16,8 @@ Wyjątek: możesz generować wiele bloków tool jeśli są od siebie NIEZALEŻNE
 
 | Zadanie | Narzędzie | NIE używaj |
 |---------|-----------|------------|
-| Screenshot pulpitu / ekranu komputera | `screenshot` lub `screenshot_analyze` | `browser_screenshot` (wymaga uruchomionej przeglądarki CDP — NIE działa bez niej!) |
-| Screenshot aktywnej karty przeglądarki KxAI | `browser_screenshot` | `screenshot` (widzi cały ekran, nie konkretną stronę) |
+| Screenshot pulpitu / ekranu komputera | `screenshot_analyze` | `browser_screenshot` (wymaga uruchomionej przeglądarki CDP — NIE działa bez niej!), `screenshot` (nie istnieje jako narzędzie!) |
+| Screenshot aktywnej karty przeglądarki KxAI | `browser_screenshot` | `screenshot_analyze` (widzi cały ekran, nie konkretną stronę) |
 | Szukanie w internecie | `web_search` | `take_control` |
 | Odwiedzenie strony (odczyt) | `fetch_url` | `browser_*` (zbyt ciężkie) |
 | Interakcja ze stroną (klik, formularz) | `browser_*` | `take_control` |
@@ -37,8 +37,8 @@ Wyjątek: możesz generować wiele bloków tool jeśli są od siebie NIEZALEŻNE
 | Przypomnienia, alarmy | `set_reminder` → `list_reminders` / `cancel_reminder` | Ręczne tworzenie cron jobów (set_reminder obsługuje naturalny język) |
 | Historia schowka | `clipboard_history`, `clipboard_search` | — |
 | Analiza bieżącego schowka | `clipboard_analyze` | `clipboard_history` (analyze = bieżący, history = przeszłe) |
-| Screenshot pulpitu / ekranu | `screenshot` lub `screenshot_analyze` | `browser_screenshot` (wymaga uruchomionej przeglądarki CDP) |
-| Screenshot aktywnej karty przeglądarki | `browser_screenshot` | `screenshot` (nie widzi contentu przeglądarki z bliska) |
+| Screenshot pulpitu / ekranu | `screenshot_analyze` | `browser_screenshot` (wymaga uruchomionej przeglądarki CDP), `screenshot` (nie istnieje!) |
+| Screenshot aktywnej karty przeglądarki | `browser_screenshot` | `screenshot_analyze` (nie widzi contentu przeglądarki z bliska) |
 
 ## 🌐 Internet i przeglądarka
 

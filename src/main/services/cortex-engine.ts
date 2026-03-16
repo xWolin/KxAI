@@ -381,13 +381,19 @@ export class CortexEngine {
         resolve({ requestId, approved: risk !== 'dangerous' });
       }
 
-      // Timeout after 60 seconds — auto-deny
+      // Timeout after 60 seconds.
+      // When user is AFK, behave like the no-UI path: auto-approve moderate tools
+      // so Cortex can act autonomously while the user is away. Dangerous tools are
+      // always denied regardless of AFK state.
       const timer = setTimeout(() => {
         if (this.pendingActions.has(requestId)) {
           this.pendingActions.delete(requestId);
           this.approvalTimers.delete(requestId);
-          log.warn(`Action approval timeout (60s): ${toolName} — auto-denied`);
-          resolve({ requestId, approved: false });
+          const autoApproved = risk !== 'dangerous' && this.isAfk;
+          log.warn(
+            `Action approval timeout (60s): ${toolName} — ${autoApproved ? 'auto-approved (user AFK)' : 'auto-denied'}`,
+          );
+          resolve({ requestId, approved: autoApproved });
         }
       }, 60_000);
       this.approvalTimers.set(requestId, timer);
