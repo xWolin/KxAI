@@ -5,7 +5,7 @@ vi.mock('../src/main/services/logger', () => ({
   createLogger: vi.fn(() => ({
     info: vi.fn(),
     warn: vi.fn(),
-    error: vi.fn(),
+    error: console.error,
     debug: vi.fn(),
   })),
 }));
@@ -41,6 +41,7 @@ function createDeps() {
     tools: {
       execute: vi.fn().mockResolvedValue({ success: true, data: 'done' }),
       getTools: vi.fn().mockReturnValue([]),
+      selectToolsForMessage: vi.fn().mockReturnValue([]),
     } as any,
     promptService: {
       load: vi.fn().mockResolvedValue('Test prompt'),
@@ -1036,5 +1037,14 @@ describe('ThinkQueue integration', () => {
     const summary = thinkQueue.consumeDropSummary();
     expect(summary).not.toBeNull();
     expect(summary).toContain('low');
+  });
+
+  // ── Topic Dedup ────────────────────────────────
+
+  it('initializes TopicDedupService on startup', () => {
+    const deps = createDeps();
+    const engine = new CortexEngine(deps);
+    expect((engine as any).topicDedup).toBeDefined();
+    expect(typeof (engine as any).topicDedup.isDuplicate).toBe('function');
   });
 });

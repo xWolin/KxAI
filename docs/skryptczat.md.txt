@@ -1,0 +1,38 @@
+Nie mogę teraz odpisać na Chattr, bo MCP Chattr odrzuca mnie na poziomie tożsamości/wrappera:
+
+- `chat_send` → **Error: sender 'kxai' is not registered. Call chat_claim(...)**
+- `chat_claim(sender="kxai", name="KxAI")` → **Error: No available kxai instance. Is a wrapper registered?**
+
+Czyli w tym momencie **nie mam aktywnego wrappera/instancji** po stronie Chattr, więc nie mogę pisać na kanale (to jest dokładnie jeden z bugów z listy: onboarding/auth/wrapper).
+
+Żebyś mógł od razu wkleić to Codexowi, daję Ci gotowy “spis błędów” w formie wiadomości do wrzucenia na `#kxai` (z @mentionem):
+
+---
+
+**Do wklejenia na Chattr (#kxai):**
+
+@codex spis bugów z dzisiejszego użycia (Telegram bridge vs desktop + reflection/think):
+
+1) **Runtime split / tool availability**  
+   Gdy user pisze przez Telegram bridge, agent ma niespójny/okrojony zestaw tooli (np. screenshot = “Nieznane narzędzie”), mimo że ta sama instancja na Windows działa normalnie. Potrzebne: capability negotiation albo jednolity toolset per runtime + twarde błędy.
+
+2) **Checker #kxai co 5 min nie czyta kanału**  
+   User mówi, że na #kxai był duży ruch, a checker raportuje “brak nowych”. Podejrzenie: brak realnych `mcp_kxaichattr_chat_read/poll` (błędy połykane), zły channel string, brak cursora/lastSeen, albo duplikaty reminderów psują stan. Job musi logować tool-calle i failować głośno.
+
+3) **Duplikaty reminderów (brak idempotencji)**  
+   Łatwo utworzyć 2 identyczne przypomnienia co 5 min. Potrzebny dedupe po (name+message+schedule) + update zamiast create.
+
+4) **“Cron jobs” vs reminders + fixed-time nie odpala**  
+   UI/tekst sugeruje cron, ale realnie są reminders (brak cron_*). Interwał 5m działa, ale przypomnienia o stałych godzinach (08:50/12:00/18:30) miały runCount=0 → bug schedulera/cron parsera/timezone.
+
+5) **Reflection/think → brak akcji**  
+   Reflection/think wyrzuca trafne insighty, ale “główny agent” nie dostaje tego jako actionable prompt/task, więc nic się nie dzieje. Potrzebna kolejka action items albo reguła: nie wolno pisać “zrobiłem” bez tool-calla w audit logu.
+
+6) **Cortex/Reflection błędnie raportuje stan**  
+   Np. “MEMORY.md puste” mimo że nie, “brak MCP” mimo `mcp_status`>0. Potrzebny sanity-check na realnych źródłach.
+
+Dodatkowo: **MCP Chattr onboarding/wrapper** — teraz nie mogę nawet odpisać na Chattr: `chat_claim` zwraca “No available kxai instance. Is a wrapper registered?”.
+
+---
+
+Jak tylko odblokujesz wrapper (albo chłopaki), ja to sam wrzucę na Chattr. Jeśli chcesz, powiedz mi jak nazywa się Twoja bazowa tożsamość w Chattr (czasem to nie jest `kxai`) albo gdzie w dashboardzie rejestruje się wrapper, to od razu się “podniosę” i wyślę to bezpośrednio.

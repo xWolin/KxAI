@@ -61,6 +61,7 @@ import { randomUUID } from 'crypto';
 import { ToolLoopDetector } from './tool-loop-detector';
 import { ThinkQueue } from './think-queue';
 import type { ThinkTriggerReason, ThinkTriggerPriority, ThinkQueueMetrics } from './think-queue';
+import { TopicDedupService } from './topic-dedup';
 import { createLogger } from './logger';
 
 const log = createLogger('CortexEngine');
@@ -77,6 +78,7 @@ export interface CortexEngineDeps {
   responseProcessor: ResponseProcessor;
   config: ConfigService;
   securityGuard: SecurityGuard;
+  topicDedup?: TopicDedupService;
 }
 
 /** Screen monitor interface (subset of ScreenMonitorService) */
@@ -181,6 +183,7 @@ export class CortexEngine {
   private responseProcessor: ResponseProcessor;
   private config: ConfigService;
   private securityGuard: SecurityGuard;
+  private topicDedup: TopicDedupService;
 
   // ─── Optional deps (set later) ───
   private calendarService?: CalendarService;
@@ -241,7 +244,9 @@ export class CortexEngine {
 
   // ─── Think Queue (priority queue replacing skip-on-busy policy) ───
   private readonly thinkQueue = new ThinkQueue();
-  private onThinkMetrics?: (metrics: ThinkQueueMetrics & { waitMs?: number; triggerType?: ThinkTriggerReason }) => void;
+  private onThinkMetrics?: (
+    metrics: ThinkQueueMetrics & { waitMs?: number; triggerType?: ThinkTriggerReason; dropReason?: string },
+  ) => void;
 
   // ─── System Event Queue ───
   private eventQueue: CortexSystemEvent[] = [];
@@ -271,6 +276,7 @@ export class CortexEngine {
     this.responseProcessor = deps.responseProcessor;
     this.config = deps.config;
     this.securityGuard = deps.securityGuard;
+    this.topicDedup = deps.topicDedup ?? new TopicDedupService();
 
     // Register built-in proactive rules
     this.rules = createBuiltinRules();
@@ -824,8 +830,19 @@ export class CortexEngine {
       const monitorCtx = this.screenMonitor?.isRunning() ? this.screenMonitor.buildMonitorContext() : '';
       const currentWindowTitle = this.screenMonitor?.getCurrentWindow()?.title || '';
 
+      log.error('THINK TRACE', {
+        heartbeatEmpty,
+        monitorCtx: !!monitorCtx,
+        events: this.eventQueue.length,
+        isAfk: this.isAfk,
+        hour: new Date().getHours(),
+      });
+
       // Skip if no tasks AND no screen context AND no pending events
-      if (heartbeatEmpty && !monitorCtx && this.eventQueue.length === 0) return;
+      if (heartbeatEmpty && !monitorCtx && this.eventQueue.length === 0) {
+        log.error('THINK BAIL OUT');
+        return;
+      }
 
       const timeCtx = this.workflow.buildTimeContext();
 
@@ -920,7 +937,20 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
 
       // Parse proposals — structured suggestions from AI
       const proposals = this.parseProposals(response);
+      const acceptedProposals: CortexProposal[] = [];
+
       for (const proposal of proposals) {
+        if (this.topicDedup.isDuplicate(proposal)) {
+          log.info(`Skipped duplicate proposal (topic TTL): ${proposal.title}`);
+          if (this.onThinkMetrics) {
+            this.onThinkMetrics({ ...this.thinkQueue.getMetrics(), dropReason: 'duplicate_proposal' });
+          }
+          continue;
+        }
+
+        this.topicDedup.record(proposal);
+        acceptedProposals.push(proposal);
+
         this.emitMessage({
           source: 'think',
           priority: proposal.risk === 'dangerous' ? 'critical' : 'normal',
@@ -930,8 +960,8 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
         });
       }
 
-      // Clean and emit (only if no proposals — avoid double notification)
-      if (proposals.length === 0) {
+      // Clean and emit (only if no proposals were emitted — avoid double notification)
+      if (acceptedProposals.length === 0) {
         const cleanResponse = this.cleanResponse(response);
         // Always emit if there are memory updates (even if text was cleaned away)
         if (cleanResponse || ppResult.memoryUpdateDetails.length > 0) {
