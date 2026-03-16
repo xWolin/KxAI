@@ -1403,6 +1403,36 @@ describe('Autonomy Ph2: reflection insights persistence', () => {
 
     expect(deps.memory.updateMemorySection).not.toHaveBeenCalled();
   });
+
+  it('accumulates insights with existing section content from memoryMd', async () => {
+    const deps = createDeps();
+    const existingMemory = `# Memory\n\n## Reflection Insights\n- [01.01.2024] Stary wniosek z poprzedniej refleksji.\n\n## Other Section\nContent`;
+    deps.memory.get = vi.fn().mockResolvedValue(existingMemory);
+    deps.memory.updateMemorySection = vi.fn().mockResolvedValue(undefined);
+    deps.workflow.getActivityLog = vi.fn().mockReturnValue([]);
+    deps.workflow.getDailySummary = vi.fn().mockReturnValue('');
+    deps.workflow.getWeeklyPatterns = vi.fn().mockReturnValue('');
+    deps.workflow.getPatterns = vi.fn().mockReturnValue([]);
+    deps.cron.getJobs = vi.fn().mockReturnValue([]);
+    deps.ai.streamMessageWithNativeTools = vi.fn().mockResolvedValue({
+      text: 'INSIGHT: Nowy wniosek z bieżącej refleksji.',
+      toolCalls: [],
+      _messages: [],
+    });
+    deps.tools.selectToolsForMessage = vi.fn().mockReturnValue([]);
+    deps.responseProcessor.postProcess = vi
+      .fn()
+      .mockResolvedValue({ memoryUpdatesApplied: 0, autoApprovedCron: 0, memoryUpdateDetails: [] });
+
+    const engine = new CortexEngine(deps);
+
+    await (engine as any).runReflection('manual');
+
+    const callArg = (deps.memory.updateMemorySection as any).mock.calls[0][2] as string;
+    // Must include BOTH the old insight and the new one (accumulation)
+    expect(callArg).toContain('Stary wniosek z poprzedniej refleksji');
+    expect(callArg).toContain('Nowy wniosek z bieżącej refleksji');
+  });
 });
 
 describe('Autonomy Ph2: pattern→cron auto-conversion', () => {

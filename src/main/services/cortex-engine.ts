@@ -1223,13 +1223,22 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
     // 5. Post-process
     await this.responseProcessor.postProcess(response, undefined, { autoApproveCrons: true });
 
-    // 6. Parse insights and persist to MEMORY.md
+    // 6. Parse insights and persist to MEMORY.md (accumulate across cycles)
     const insights = this.parseInsights(response);
     if (insights.length > 0) {
       const date = new Date().toLocaleDateString('pl-PL', { day: '2-digit', month: '2-digit', year: 'numeric' });
-      const insightText = insights.map((i) => `- [${date}] ${i}`).join('\n');
+      const newInsightText = insights.map((i) => `- [${date}] ${i}`).join('\n');
+      // Accumulate: prepend existing section content so history is preserved
+      const existingInsights = this.extractMemorySection(context.memoryMd, 'Reflection Insights');
+      const combined = existingInsights ? `${existingInsights}\n${newInsightText}` : newInsightText;
+      // Keep at most 50 lines to avoid unbounded growth
+      const trimmed = combined
+        .split('\n')
+        .filter((l) => l.trim())
+        .slice(-50)
+        .join('\n');
       this.memory
-        .updateMemorySection('MEMORY.md', 'Reflection Insights', insightText)
+        .updateMemorySection('MEMORY.md', 'Reflection Insights', trimmed)
         .catch((err) => log.warn('Failed to persist reflection insights:', err));
     }
 
@@ -2318,6 +2327,17 @@ NIE PYTAJ — działaj. Jeśli nie masz nic do zrobienia, odpowiedz "CORTEX_OK".
       }
     }
     return insights;
+  }
+
+  /** Extract text content of a named `## Section` from a markdown string. Returns empty string if not found. */
+  private extractMemorySection(md: string, section: string): string {
+    const header = `## ${section}`;
+    const headerIndex = md.indexOf(header);
+    if (headerIndex === -1) return '';
+    const afterHeader = headerIndex + header.length;
+    const nextSectionIndex = md.slice(afterHeader).search(/\n## /);
+    const endIndex = nextSectionIndex !== -1 ? afterHeader + nextSectionIndex : md.length;
+    return md.slice(afterHeader, endIndex).trim();
   }
 
   private cleanReflectionResponse(response: string): string | null {
