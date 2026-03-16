@@ -371,6 +371,8 @@ export interface ProactiveMessage {
   ruleId?: string;
   /** Memory updates applied during this think cycle — shown as save confirmation */
   memoryUpdates?: ProactiveMemoryUpdate[];
+  /** Optional structured proposal attached to this message */
+  proposal?: any;
 }
 
 // ──────────────── Participant Research History ────────────────

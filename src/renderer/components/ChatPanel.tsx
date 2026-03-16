@@ -169,6 +169,7 @@ export function ChatPanel({
   const [input, setInput] = useState('');
   const [proactiveEnabled, setProactiveEnabled] = useState(false);
   const [cortexEnabled, setCortexEnabled] = useState(true);
+  const [cortexStatus, setCortexStatus] = useState<any>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [highlighterReady, setHighlighterReady] = useState(false);
   const [screenshotPreviews, setScreenshotPreviews] = useState<Record<string, string[]>>({});
@@ -249,6 +250,7 @@ export function ChatPanel({
     try {
       const status = await window.kxai.cortexGetStatus();
       setCortexEnabled(status?.enabled ?? true);
+      setCortexStatus(status);
     } catch {
       // Fallback to legacy proactive mode
       const mode = await window.kxai.getProactiveMode();
@@ -256,6 +258,19 @@ export function ChatPanel({
       setCortexEnabled(mode);
     }
   }
+
+  // Poll cortex state to update queue depth while chat is open
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (cortexEnabled) {
+        window.kxai
+          .cortexGetStatus?.()
+          .then(setCortexStatus)
+          .catch(() => {});
+      }
+    }, 3000);
+    return () => clearInterval(interval);
+  }, [cortexEnabled]);
 
   async function sendMessage() {
     if (!input.trim() || isStreaming) return;
@@ -707,6 +722,12 @@ export function ChatPanel({
                             : agentStatus.state === 'sub-agent'
                               ? t('chat.status.subAgent')
                               : ''}
+                </span>
+              )}
+              {cortexEnabled && cortexStatus && (cortexStatus.thinkQueueDepth > 0 || cortexStatus.isThinking) && (
+                <span className={s.cortexIndicator} title="Cortex Background Tasks">
+                  {' '}
+                  · 🧠 {cortexStatus.isThinking ? 'Myśli...' : 'W kolejce: ' + cortexStatus.thinkQueueDepth}
                 </span>
               )}
             </div>

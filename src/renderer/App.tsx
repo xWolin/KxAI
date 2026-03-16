@@ -31,6 +31,7 @@ export default function App() {
   const controlActive = useAgentStore((s) => s.controlActive);
   const hasSuggestion = useAgentStore((s) => s.hasSuggestion);
   const wantsToSpeak = useAgentStore((s) => s.wantsToSpeak);
+  const agentStatus = useAgentStore((s) => s.agentStatus);
   const clearCompanionStates = useAgentStore((s) => s.clearCompanionStates);
 
   const handleOnboardingComplete = async () => {
@@ -93,6 +94,11 @@ export default function App() {
             controlActive={controlActive}
             hasSuggestion={hasSuggestion}
             wantsToSpeak={wantsToSpeak}
+            isThinking={
+              agentStatus.state === 'thinking' ||
+              agentStatus.state === 'tool-calling' ||
+              agentStatus.state === 'heartbeat'
+            }
           />
         )}
 

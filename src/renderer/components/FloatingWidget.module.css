@@ -89,3 +89,25 @@
   background: var(--neon-magenta);
   box-shadow: 0 0 8px rgba(255, 0, 170, 0.5);
 }
+
+/* Thinking active — cyan spinning ring */
+.thinking {
+  border-color: rgba(0, 240, 255, 0.8);
+  box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+}
+
+.thinkingRing {
+  position: absolute;
+  inset: -2px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--neon-cyan);
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  animation: think-spin 2s linear infinite;
+}
+
+@keyframes think-spin {
+  0% { transform: rotate(0deg); opacity: 0.5; }
+  50% { opacity: 1; }
+  100% { transform: rotate(360deg); opacity: 0.5; }
+}
