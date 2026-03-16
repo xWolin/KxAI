@@ -82,7 +82,28 @@ export class CronExecutor {
       }
     }
 
-    const prompt = `[CRON JOB: ${job.name}]\n\nZadanie: ${job.action}\n\n${timeCtx}${calendarCtx}${kgCtx}\n## Kontekst użytkownika:\n${userMd || '(brak)'}\n\n## Pamięć agenta:\n${memoryMd || '(brak)'}\n\nWykonaj to zadanie. Jeśli potrzebujesz użyć narzędzi, użyj ich. Odpowiedz zwięźle.`;
+    let statsCtx = '';
+    try {
+      const stats = this.workflow.getActivityStats(24);
+      const topApps = stats.topApps
+        .slice(0, 5)
+        .map((a) => `- ${a.processName} (${Math.round(a.totalMs / 60000)} min)`)
+        .join('\n');
+      const topCats = stats.topCategories
+        .slice(0, 5)
+        .map((c) => `- ${c.category} (${Math.round(c.totalMs / 60000)} min)`)
+        .join('\n');
+      statsCtx = `\n## Statystyki aktywności (24h):\nTop aplikacje:\n${topApps}\nTop kategorie:\n${topCats}\n`;
+    } catch {
+      /* ignore */
+    }
+
+    const stateCtx =
+      job.state && Object.keys(job.state).length > 0
+        ? `\n## Stan zadania (Persistent State):\n${JSON.stringify(job.state, null, 2)}\n(Użyj cron_update_state aby zaktualizować ten stan, np. dla kursorów/lastSeenId)\n`
+        : '';
+
+    const prompt = `[CRON JOB: ${job.name}]\n\nZadanie: ${job.action}\n\n${timeCtx}${calendarCtx}${kgCtx}${statsCtx}${stateCtx}\n## Kontekst użytkownika:\n${userMd || '(brak)'}\n\n## Pamięć agenta:\n${memoryMd || '(brak)'}\n\nWykonaj to zadanie. Jeśli potrzebujesz użyć narzędzi, użyj ich. Odpowiedz zwięźle.`;
 
     log.info(`Executing cron job: ${job.name}`);
 
