@@ -800,27 +800,23 @@ describe('set_reminder deduplication', () => {
 
   it('returns existing reminder when identical one already exists (dedup)', async () => {
     const svc = createService();
+    // action and schedule must match what set_reminder actually stores:
+    // action = `PRZYPOMNIENIE: ${message}. Powiadom...`, schedule = parseReminderTime('za 5 minut') = '5m'
     const existing = {
       id: 'existing-123',
       category: 'reminder',
       enabled: true,
-      action: 'PRZYPOMNIENIE: Check email.',
-      schedule: '*/5 * * * *',
+      action: 'PRZYPOMNIENIE: Check email. Powiadom użytkownika o tym przypomnieniu — użyj send_notification i wyświetl wiadomość w czacie.',
+      schedule: '5m',
       runAt: undefined,
     };
     const cron = makeCronService([existing]);
     svc.setServices({ cron });
 
-    // Parse "za 5 minut" → same schedule as existing
-    // We need to directly test the dedup path by setting up matching data
-    // Inject via execute with time that produces the same schedule
-    const firstResult = await svc.execute('set_reminder', { message: 'Check email', time: 'za 5 minut' });
-
-    // Whatever the first call produces, a second identical call must not call addJob twice
-    const callCount = cron.addJob.mock.calls.length;
-    await svc.execute('set_reminder', { message: 'Check email', time: 'za 5 minut' });
-    // addJob should not have been called again
-    expect(cron.addJob.mock.calls.length).toBe(callCount);
+    const result = await svc.execute('set_reminder', { message: 'Check email', time: 'za 5 minut' });
+    expect(result.success).toBe(true);
+    expect(cron.addJob).not.toHaveBeenCalled();
+    expect(String(result.data)).toContain('existing-123');
   });
 
   it('creates second reminder when message differs', async () => {
