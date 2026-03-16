@@ -830,19 +830,8 @@ export class CortexEngine {
       const monitorCtx = this.screenMonitor?.isRunning() ? this.screenMonitor.buildMonitorContext() : '';
       const currentWindowTitle = this.screenMonitor?.getCurrentWindow()?.title || '';
 
-      log.error('THINK TRACE', {
-        heartbeatEmpty,
-        monitorCtx: !!monitorCtx,
-        events: this.eventQueue.length,
-        isAfk: this.isAfk,
-        hour: new Date().getHours(),
-      });
-
       // Skip if no tasks AND no screen context AND no pending events
-      if (heartbeatEmpty && !monitorCtx && this.eventQueue.length === 0) {
-        log.error('THINK BAIL OUT');
-        return;
-      }
+      if (heartbeatEmpty && !monitorCtx && this.eventQueue.length === 0) return;
 
       const timeCtx = this.workflow.buildTimeContext();
 

@@ -1,7 +1,6 @@
 import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as path from 'path';
-import { app } from 'electron';
 import { createHash } from 'crypto';
 import { createLogger } from './logger';
 import type { CortexProposal } from '../../shared/types/cortex';
@@ -17,8 +16,10 @@ export class TopicDedupService {
     let userData = userDataPath;
     if (!userData) {
       try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { app } = require('electron') as typeof import('electron');
         userData = app.getPath('userData');
-      } catch (e) {
+      } catch {
         userData = './mock-userData';
       }
     }

@@ -5,7 +5,7 @@ vi.mock('../src/main/services/logger', () => ({
   createLogger: vi.fn(() => ({
     info: vi.fn(),
     warn: vi.fn(),
-    error: console.error,
+    error: vi.fn(),
     debug: vi.fn(),
   })),
 }));
