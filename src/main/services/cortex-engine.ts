@@ -261,6 +261,12 @@ export class CortexEngine {
   >();
   private onActionRequest?: (request: ActionApprovalRequest) => void;
 
+  // ─── Safe Proposal Auto-Execution ───
+  /** Pending auto-execution timers for safe proposals keyed by proposal ID. */
+  private pendingProposals = new Map<string, NodeJS.Timeout>();
+  /** Delay before auto-executing a safe proposal when user hasn't dismissed it (ms). */
+  static readonly SAFE_PROPOSAL_AUTO_EXECUTE_MS = 30_000;
+
   // ─── Callbacks ───
   private isProcessingCheck?: () => boolean;
   private onMessage?: (msg: CortexMessage) => void;
@@ -389,6 +395,19 @@ export class CortexEngine {
   }
 
   /**
+   * Cancel auto-execution of a pending safe proposal (e.g. user dismissed it).
+   * No-op if the proposal ID is not pending.
+   */
+  dismissProposal(proposalId: string): void {
+    const timer = this.pendingProposals.get(proposalId);
+    if (timer) {
+      clearTimeout(timer);
+      this.pendingProposals.delete(proposalId);
+      log.info(`Proposal ${proposalId} dismissed — auto-execution cancelled`);
+    }
+  }
+
+  /**
    * Request user approval for a tool call. Returns a Promise that resolves
    * when user responds (or rejects on timeout).
    */
@@ -441,6 +460,40 @@ export class CortexEngine {
   }
 
   // ─── Public API ───
+
+  /**
+   * Auto-execute the tool calls from a safe proposal after timeout.
+   * Skips any tool that the security guard flags as requiring explicit approval.
+   */
+  private async executeProposal(proposal: CortexProposal): Promise<void> {
+    this.pendingProposals.delete(proposal.id);
+    if (!proposal.toolCalls?.length) return;
+
+    log.info(`Auto-executing safe proposal (${proposal.id}): ${proposal.title}`);
+    const resultLines: string[] = [];
+
+    for (const tc of proposal.toolCalls) {
+      const policy = this.securityGuard.assessRisk(tc.name, tc.params as Record<string, unknown>, 'cortex');
+      if (policy.requiresApproval) {
+        log.warn(`Auto-execute skip — security guard requires approval: ${tc.name}`);
+        resultLines.push(`⚠️ ${tc.name}: pominięto (wymaga zatwierdzenia)`);
+        continue;
+      }
+      try {
+        const result = await this.tools.execute(tc.name, tc.params);
+        resultLines.push(`✅ ${tc.name}: ${result.success ? (result.data ?? 'ok') : (result.error ?? 'failed')}`);
+      } catch (err) {
+        log.error(`Auto-execute tool error (${tc.name}):`, err);
+        resultLines.push(`❌ ${tc.name}: ${String(err)}`);
+      }
+    }
+
+    this.emitMessage({
+      source: 'think',
+      priority: 'normal',
+      message: `⚡ Auto-wykonano: **${proposal.title}**\n${resultLines.join('\n')}`,
+    });
+  }
 
   /**
    * Start the CortexEngine with the configured intensity tier.
@@ -542,6 +595,12 @@ export class CortexEngine {
       pending.resolve({ requestId: id, approved: false });
     }
     this.pendingActions.clear();
+
+    // Cancel all pending safe-proposal auto-execution timers
+    for (const timer of this.pendingProposals.values()) {
+      clearTimeout(timer);
+    }
+    this.pendingProposals.clear();
 
     this.abortController?.abort();
     this.abortController = null;
@@ -949,6 +1008,18 @@ ${await this.promptService.load('HEARTBEAT.md')}`;
           proposal,
           memoryUpdates: ppResult.memoryUpdateDetails.length > 0 ? ppResult.memoryUpdateDetails : undefined,
         });
+
+        // Auto-execute safe proposals with tool calls after a short delay if not dismissed
+        if (proposal.risk === 'safe' && proposal.toolCalls?.length && !this.pendingProposals.has(proposal.id)) {
+          const timer = setTimeout(
+            () => void this.executeProposal(proposal),
+            CortexEngine.SAFE_PROPOSAL_AUTO_EXECUTE_MS,
+          );
+          this.pendingProposals.set(proposal.id, timer);
+          log.info(
+            `Safe proposal scheduled for auto-execution in ${CortexEngine.SAFE_PROPOSAL_AUTO_EXECUTE_MS / 1000}s: ${proposal.title}`,
+          );
+        }
       }
 
       // Clean and emit (only if no proposals were emitted — avoid double notification)
